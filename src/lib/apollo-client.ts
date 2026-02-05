@@ -48,3 +48,47 @@ export async function apolloEnrich(email: string): Promise<ApolloEnrichResponse 
     return null;
   }
 }
+
+export interface ApolloSearchParams {
+  personTitles?: string[];
+  organizationLocations?: string[];
+  organizationIndustries?: string[];
+  organizationSizeRanges?: string[];
+  keywords?: string[];
+  [key: string]: unknown;
+}
+
+export interface ApolloSearchResult {
+  people: Array<{
+    id: string;
+    email: string;
+    firstName?: string;
+    lastName?: string;
+    title?: string;
+    linkedinUrl?: string;
+    organizationName?: string;
+    organizationDomain?: string;
+    organizationIndustry?: string;
+    organizationSize?: string;
+  }>;
+  pagination: {
+    page: number;
+    totalPages: number;
+    totalEntries: number;
+  };
+}
+
+export async function apolloSearch(
+  params: ApolloSearchParams,
+  page: number = 1
+): Promise<ApolloSearchResult | null> {
+  try {
+    return await callApolloService<ApolloSearchResult>("/search", {
+      method: "POST",
+      body: { ...params, page },
+    });
+  } catch (error) {
+    console.error("[apollo-client] Search failed:", error);
+    return null;
+  }
+}
