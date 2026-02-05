@@ -16,7 +16,7 @@ export async function authenticate(
 ) {
   try {
     const apiKey = req.headers["x-api-key"] as string;
-    if (!apiKey || apiKey !== process.env.API_KEY) {
+    if (!apiKey || apiKey !== process.env.LEAD_SERVICE_API_KEY) {
       return res.status(401).json({ error: "Invalid API key" });
     }
 
