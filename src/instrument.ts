@@ -7,5 +7,5 @@ if (process.env.SENTRY_DSN) {
     tracesSampleRate: 0.1,
     sendDefaultPii: true,
   });
-  Sentry.setTag("service", "lead-guard");
+  Sentry.setTag("service", "lead-service");
 }
