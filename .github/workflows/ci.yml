@@ -29,6 +29,11 @@ jobs:
       - name: Unit tests
         run: pnpm test:unit
 
+      - name: Push database schema
+        env:
+          LEAD_SERVICE_DATABASE_URL: ${{ secrets.LEAD_SERVICE_DATABASE_URL }}
+        run: pnpm drizzle-kit push --force
+
       - name: Integration tests
         env:
           NODE_ENV: test
