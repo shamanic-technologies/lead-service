@@ -34,7 +34,7 @@ if (process.env.NODE_ENV !== "test") {
     .then(() => {
       console.log("Migrations complete");
       app.listen(Number(PORT), "::", () => {
-        console.log(`Lead-guard running on port ${PORT}`);
+        console.log(`lead-service running on port ${PORT}`);
       });
     })
     .catch((err) => {
