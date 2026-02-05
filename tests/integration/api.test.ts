@@ -137,7 +137,7 @@ describe("API Integration Tests", () => {
         .send({ namespace: "brand-c" });
 
       expect(second.body.found).toBe(false);
-    });
+    }, 10000); // Increased timeout for CI database latency
   });
 
   describe("Cursor endpoints", () => {

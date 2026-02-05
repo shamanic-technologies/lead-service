@@ -25,6 +25,9 @@ export async function markServed(params: {
   metadata?: unknown;
   parentRunId?: string | null;
   runId?: string | null;
+  brandId?: string | null;
+  clerkOrgId?: string | null;
+  clerkUserId?: string | null;
 }): Promise<{ inserted: boolean }> {
   const result = await db
     .insert(servedLeads)
@@ -36,6 +39,9 @@ export async function markServed(params: {
       metadata: params.metadata ?? null,
       parentRunId: params.parentRunId ?? null,
       runId: params.runId ?? null,
+      brandId: params.brandId ?? null,
+      clerkOrgId: params.clerkOrgId ?? null,
+      clerkUserId: params.clerkUserId ?? null,
     })
     .onConflictDoNothing()
     .returning();
