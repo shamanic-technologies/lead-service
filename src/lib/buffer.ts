@@ -1,7 +1,8 @@
 import { eq, and } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { leadBuffer } from "../db/schema.js";
+import { leadBuffer, cursors } from "../db/schema.js";
 import { isServed, markServed } from "./dedup.js";
+import { apolloSearch, type ApolloSearchParams } from "./apollo-client.js";
 
 export async function pushLeads(params: {
   organizationId: string;
@@ -49,11 +50,110 @@ export async function pushLeads(params: {
   return { buffered, skippedAlreadyServed };
 }
 
+interface CursorState {
+  page: number;
+  exhausted: boolean;
+}
+
+async function getCursor(organizationId: string, namespace: string): Promise<CursorState> {
+  const cursor = await db.query.cursors.findFirst({
+    where: and(
+      eq(cursors.organizationId, organizationId),
+      eq(cursors.namespace, namespace)
+    ),
+  });
+  return (cursor?.state as CursorState) ?? { page: 1, exhausted: false };
+}
+
+async function setCursor(organizationId: string, namespace: string, state: CursorState): Promise<void> {
+  const existing = await db.query.cursors.findFirst({
+    where: and(
+      eq(cursors.organizationId, organizationId),
+      eq(cursors.namespace, namespace)
+    ),
+  });
+
+  if (existing) {
+    await db
+      .update(cursors)
+      .set({ state, updatedAt: new Date() })
+      .where(eq(cursors.id, existing.id));
+  } else {
+    await db.insert(cursors).values({
+      organizationId,
+      namespace,
+      state,
+    });
+  }
+}
+
+async function fillBufferFromSearch(params: {
+  organizationId: string;
+  namespace: string;
+  searchParams: ApolloSearchParams;
+  pushRunId?: string | null;
+  brandId?: string | null;
+  clerkOrgId?: string | null;
+  clerkUserId?: string | null;
+}): Promise<{ filled: number; exhausted: boolean }> {
+  const cursor = await getCursor(params.organizationId, params.namespace);
+
+  if (cursor.exhausted) {
+    return { filled: 0, exhausted: true };
+  }
+
+  const result = await apolloSearch(params.searchParams, cursor.page);
+
+  if (!result || result.people.length === 0) {
+    await setCursor(params.organizationId, params.namespace, { page: cursor.page, exhausted: true });
+    return { filled: 0, exhausted: true };
+  }
+
+  let filled = 0;
+  for (const person of result.people) {
+    if (!person.email) continue;
+
+    const alreadyServed = await isServed(
+      params.organizationId,
+      params.namespace,
+      person.email
+    );
+
+    if (alreadyServed) continue;
+
+    await db.insert(leadBuffer).values({
+      organizationId: params.organizationId,
+      namespace: params.namespace,
+      email: person.email,
+      externalId: person.id,
+      data: person,
+      status: "buffered",
+      pushRunId: params.pushRunId ?? null,
+      brandId: params.brandId ?? null,
+      clerkOrgId: params.clerkOrgId ?? null,
+      clerkUserId: params.clerkUserId ?? null,
+    });
+    filled++;
+  }
+
+  const isExhausted = cursor.page >= result.pagination.totalPages;
+  await setCursor(params.organizationId, params.namespace, {
+    page: cursor.page + 1,
+    exhausted: isExhausted,
+  });
+
+  return { filled, exhausted: isExhausted && filled === 0 };
+}
+
 export async function pullNext(params: {
   organizationId: string;
   namespace: string;
   parentRunId?: string | null;
   runId?: string | null;
+  searchParams?: ApolloSearchParams;
+  brandId?: string | null;
+  clerkOrgId?: string | null;
+  clerkUserId?: string | null;
 }): Promise<{
   found: boolean;
   lead?: {
@@ -75,6 +175,30 @@ export async function pullNext(params: {
     });
 
     if (!row) {
+      // Buffer empty - try to fill from search if searchParams provided
+      if (params.searchParams) {
+        const { filled, exhausted } = await fillBufferFromSearch({
+          organizationId: params.organizationId,
+          namespace: params.namespace,
+          searchParams: params.searchParams,
+          pushRunId: params.runId,
+          brandId: params.brandId,
+          clerkOrgId: params.clerkOrgId,
+          clerkUserId: params.clerkUserId,
+        });
+
+        if (filled > 0) {
+          continue; // Retry pulling from buffer
+        }
+
+        if (exhausted) {
+          return { found: false };
+        }
+
+        // No results but not exhausted - keep trying next page
+        continue;
+      }
+
       return { found: false };
     }
 

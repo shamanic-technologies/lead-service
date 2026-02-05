@@ -57,7 +57,7 @@ router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res)
 
 router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res) => {
   try {
-    const { namespace, parentRunId } = req.body;
+    const { namespace, parentRunId, searchParams, brandId, clerkOrgId, clerkUserId } = req.body;
 
     if (!namespace) {
       return res.status(400).json({ error: "namespace required" });
@@ -85,6 +85,10 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       namespace,
       parentRunId: parentRunId ?? null,
       runId: serveRunId,
+      searchParams: searchParams ?? undefined,
+      brandId: brandId ?? null,
+      clerkOrgId: clerkOrgId ?? null,
+      clerkUserId: clerkUserId ?? null,
     });
 
     if (serveRunId) {
