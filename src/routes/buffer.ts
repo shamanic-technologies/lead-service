@@ -7,7 +7,7 @@ const router = Router();
 
 router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res) => {
   try {
-    const { namespace, parentRunId, leads } = req.body;
+    const { namespace, parentRunId, brandId, clerkOrgId, clerkUserId, leads } = req.body;
 
     if (!namespace || !Array.isArray(leads)) {
       return res.status(400).json({ error: "namespace and leads[] required" });
@@ -34,6 +34,9 @@ router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res)
       organizationId: req.organizationId!,
       namespace,
       pushRunId,
+      brandId: brandId ?? null,
+      clerkOrgId: clerkOrgId ?? null,
+      clerkUserId: clerkUserId ?? null,
       leads,
     });
 

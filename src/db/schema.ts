@@ -44,11 +44,17 @@ export const servedLeads = pgTable(
     metadata: jsonb("metadata"),
     parentRunId: text("parent_run_id"),
     runId: text("run_id"),
+    brandId: text("brand_id"),
+    clerkOrgId: text("clerk_org_id"),
+    clerkUserId: text("clerk_user_id"),
     servedAt: timestamp("served_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     uniqueIndex("idx_served_org_ns_email").on(table.organizationId, table.namespace, table.email),
     index("idx_served_org").on(table.organizationId),
+    index("idx_served_brand").on(table.brandId),
+    index("idx_served_clerk_org").on(table.clerkOrgId),
+    index("idx_served_clerk_user").on(table.clerkUserId),
   ]
 );
 
@@ -66,10 +72,36 @@ export const leadBuffer = pgTable(
     data: jsonb("data"),
     status: text("status").notNull().default("buffered"),
     pushRunId: text("push_run_id"),
+    brandId: text("brand_id"),
+    clerkOrgId: text("clerk_org_id"),
+    clerkUserId: text("clerk_user_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("idx_buffer_org_ns_status").on(table.organizationId, table.namespace, table.status),
+  ]
+);
+
+// Enrichments — global cache for Apollo enrichment data (no orgId)
+export const enrichments = pgTable(
+  "enrichments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull().unique(),
+    apolloPersonId: text("apollo_person_id"),
+    firstName: text("first_name"),
+    lastName: text("last_name"),
+    title: text("title"),
+    linkedinUrl: text("linkedin_url"),
+    organizationName: text("organization_name"),
+    organizationDomain: text("organization_domain"),
+    organizationIndustry: text("organization_industry"),
+    organizationSize: text("organization_size"),
+    responseRaw: jsonb("response_raw"),
+    enrichedAt: timestamp("enriched_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_enrichments_email").on(table.email),
   ]
 );
 
@@ -101,3 +133,5 @@ export type LeadBufferRow = typeof leadBuffer.$inferSelect;
 export type NewLeadBufferRow = typeof leadBuffer.$inferInsert;
 export type Cursor = typeof cursors.$inferSelect;
 export type NewCursor = typeof cursors.$inferInsert;
+export type Enrichment = typeof enrichments.$inferSelect;
+export type NewEnrichment = typeof enrichments.$inferInsert;

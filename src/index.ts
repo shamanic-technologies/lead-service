@@ -7,6 +7,8 @@ import { db } from "./db/index.js";
 import healthRoutes from "./routes/health.js";
 import bufferRoutes from "./routes/buffer.js";
 import cursorRoutes from "./routes/cursor.js";
+import enrichRoutes from "./routes/enrich.js";
+import leadsRoutes from "./routes/leads.js";
 
 const app = express();
 const PORT = process.env.PORT || 3006;
@@ -17,6 +19,8 @@ app.use(express.json());
 app.use(healthRoutes);
 app.use(bufferRoutes);
 app.use(cursorRoutes);
+app.use(enrichRoutes);
+app.use(leadsRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ error: "Not found" });

@@ -7,6 +7,9 @@ export async function pushLeads(params: {
   organizationId: string;
   namespace: string;
   pushRunId?: string | null;
+  brandId?: string | null;
+  clerkOrgId?: string | null;
+  clerkUserId?: string | null;
   leads: Array<{
     email: string;
     externalId?: string | null;
@@ -36,6 +39,9 @@ export async function pushLeads(params: {
       data: lead.data ?? null,
       status: "buffered",
       pushRunId: params.pushRunId ?? null,
+      brandId: params.brandId ?? null,
+      clerkOrgId: params.clerkOrgId ?? null,
+      clerkUserId: params.clerkUserId ?? null,
     });
     buffered++;
   }
@@ -50,7 +56,14 @@ export async function pullNext(params: {
   runId?: string | null;
 }): Promise<{
   found: boolean;
-  lead?: { email: string; externalId: string | null; data: unknown };
+  lead?: {
+    email: string;
+    externalId: string | null;
+    data: unknown;
+    brandId: string | null;
+    clerkOrgId: string | null;
+    clerkUserId: string | null;
+  };
 }> {
   while (true) {
     const row = await db.query.leadBuffer.findFirst({
@@ -87,6 +100,9 @@ export async function pullNext(params: {
       metadata: row.data,
       parentRunId: params.parentRunId ?? null,
       runId: params.runId ?? null,
+      brandId: row.brandId,
+      clerkOrgId: row.clerkOrgId,
+      clerkUserId: row.clerkUserId,
     });
 
     await db
@@ -100,6 +116,9 @@ export async function pullNext(params: {
         email: row.email,
         externalId: row.externalId,
         data: row.data,
+        brandId: row.brandId,
+        clerkOrgId: row.clerkOrgId,
+        clerkUserId: row.clerkUserId,
       },
     };
   }
