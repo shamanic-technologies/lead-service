@@ -20,7 +20,7 @@ router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res)
         const runsOrgId = await ensureOrganization(req.externalOrgId);
         const childRun = await createRun({
           organizationId: runsOrgId,
-          serviceName: "lead-guard",
+          serviceName: "lead-service",
           taskName: "buffer-push",
           parentRunId,
         });
@@ -67,7 +67,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
         const runsOrgId = await ensureOrganization(req.externalOrgId);
         const childRun = await createRun({
           organizationId: runsOrgId,
-          serviceName: "lead-guard",
+          serviceName: "lead-service",
           taskName: "lead-serve",
           parentRunId,
         });
