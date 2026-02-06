@@ -58,10 +58,13 @@ export async function apolloSearch(
   page: number = 1
 ): Promise<ApolloSearchResult | null> {
   try {
-    return await callApolloService<ApolloSearchResult>("/search", {
+    console.log(`[apollo-client] Searching page=${page} url=${APOLLO_SERVICE_URL}/search`);
+    const result = await callApolloService<ApolloSearchResult>("/search", {
       method: "POST",
       body: { ...params, page },
     });
+    console.log(`[apollo-client] Response: ${result.people.length} people, page ${result.pagination.page}/${result.pagination.totalPages} (total=${result.pagination.totalEntries})`);
+    return result;
   } catch (error) {
     console.error("[apollo-client] Search failed:", error);
     return null;

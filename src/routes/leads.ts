@@ -10,6 +10,14 @@ router.get("/leads", authenticate, async (req: AuthenticatedRequest, res) => {
   try {
     const { brandId, clerkOrgId, clerkUserId } = req.query;
 
+    const filters = {
+      organizationId: req.organizationId,
+      brandId: brandId || null,
+      clerkOrgId: clerkOrgId || null,
+      clerkUserId: clerkUserId || null,
+    };
+    console.log("[leads] GET /leads called with filters:", JSON.stringify(filters));
+
     // Build filter conditions
     const conditions: SQL[] = [eq(servedLeads.organizationId, req.organizationId!)];
 
@@ -28,6 +36,11 @@ router.get("/leads", authenticate, async (req: AuthenticatedRequest, res) => {
       where: and(...conditions),
     });
 
+    console.log(`[leads] Found ${leads.length} served leads for org=${req.organizationId}`);
+    if (leads.length === 0) {
+      console.log("[leads] 0 leads returned. Possible causes: no leads served yet for this org, or filters too restrictive. Filters applied:", JSON.stringify(filters));
+    }
+
     // Get enrichment data for all leads
     const emails = leads.map((l) => l.email.toLowerCase());
     const enrichmentData = emails.length > 0
@@ -35,6 +48,10 @@ router.get("/leads", authenticate, async (req: AuthenticatedRequest, res) => {
           where: (table, { inArray }) => inArray(table.email, emails),
         })
       : [];
+
+    if (leads.length > 0) {
+      console.log(`[leads] Found ${enrichmentData.length}/${leads.length} enrichments`);
+    }
 
     // Create email -> enrichment map
     const enrichmentMap = new Map(

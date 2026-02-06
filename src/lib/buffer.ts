@@ -20,6 +20,8 @@ export async function pushLeads(params: {
   let buffered = 0;
   let skippedAlreadyServed = 0;
 
+  console.log(`[pushLeads] Processing ${params.leads.length} leads for org=${params.organizationId} ns=${params.namespace}`);
+
   for (const lead of params.leads) {
     const alreadyServed = await isServed(
       params.organizationId,
@@ -28,6 +30,7 @@ export async function pushLeads(params: {
     );
 
     if (alreadyServed) {
+      console.log(`[pushLeads] Skipped (already served): ${lead.email}`);
       skippedAlreadyServed++;
       continue;
     }
@@ -47,6 +50,7 @@ export async function pushLeads(params: {
     buffered++;
   }
 
+  console.log(`[pushLeads] Done: buffered=${buffered} skipped=${skippedAlreadyServed}`);
   return { buffered, skippedAlreadyServed };
 }
 
@@ -98,20 +102,39 @@ async function fillBufferFromSearch(params: {
 }): Promise<{ filled: number; exhausted: boolean }> {
   const cursor = await getCursor(params.organizationId, params.namespace);
 
+  console.log(`[fillBuffer] org=${params.organizationId} ns=${params.namespace} cursor={page:${cursor.page}, exhausted:${cursor.exhausted}}`);
+
   if (cursor.exhausted) {
+    console.log("[fillBuffer] Cursor already exhausted, returning 0");
     return { filled: 0, exhausted: true };
   }
 
+  console.log(`[fillBuffer] Calling Apollo search page=${cursor.page} params=${JSON.stringify(params.searchParams)}`);
   const result = await apolloSearch(params.searchParams, cursor.page);
 
-  if (!result || result.people.length === 0) {
+  if (!result) {
+    console.log("[fillBuffer] Apollo returned null (search failed or network error)");
     await setCursor(params.organizationId, params.namespace, { page: cursor.page, exhausted: true });
     return { filled: 0, exhausted: true };
   }
 
+  if (result.people.length === 0) {
+    console.log(`[fillBuffer] Apollo returned 0 people (page=${cursor.page} totalPages=${result.pagination.totalPages} totalEntries=${result.pagination.totalEntries})`);
+    await setCursor(params.organizationId, params.namespace, { page: cursor.page, exhausted: true });
+    return { filled: 0, exhausted: true };
+  }
+
+  console.log(`[fillBuffer] Apollo returned ${result.people.length} people (page=${cursor.page}/${result.pagination.totalPages}, total=${result.pagination.totalEntries})`);
+
   let filled = 0;
+  let skippedNoEmail = 0;
+  let skippedAlreadyServed = 0;
+
   for (const person of result.people) {
-    if (!person.email) continue;
+    if (!person.email) {
+      skippedNoEmail++;
+      continue;
+    }
 
     const alreadyServed = await isServed(
       params.organizationId,
@@ -119,7 +142,10 @@ async function fillBufferFromSearch(params: {
       person.email
     );
 
-    if (alreadyServed) continue;
+    if (alreadyServed) {
+      skippedAlreadyServed++;
+      continue;
+    }
 
     await db.insert(leadBuffer).values({
       organizationId: params.organizationId,
@@ -141,6 +167,8 @@ async function fillBufferFromSearch(params: {
     page: cursor.page + 1,
     exhausted: isExhausted,
   });
+
+  console.log(`[fillBuffer] Done: filled=${filled} skippedNoEmail=${skippedNoEmail} skippedAlreadyServed=${skippedAlreadyServed} exhausted=${isExhausted}`);
 
   return { filled, exhausted: isExhausted && filled === 0 };
 }
@@ -165,7 +193,11 @@ export async function pullNext(params: {
     clerkUserId: string | null;
   };
 }> {
+  console.log(`[pullNext] Called for org=${params.organizationId} ns=${params.namespace} hasSearchParams=${!!params.searchParams}`);
+
+  let iterations = 0;
   while (true) {
+    iterations++;
     const row = await db.query.leadBuffer.findFirst({
       where: and(
         eq(leadBuffer.organizationId, params.organizationId),
@@ -175,8 +207,10 @@ export async function pullNext(params: {
     });
 
     if (!row) {
+      console.log(`[pullNext] Buffer empty (iteration ${iterations})`);
       // Buffer empty - try to fill from search if searchParams provided
       if (params.searchParams) {
+        console.log("[pullNext] Attempting to fill buffer from Apollo search...");
         const { filled, exhausted } = await fillBufferFromSearch({
           organizationId: params.organizationId,
           namespace: params.namespace,
@@ -188,19 +222,25 @@ export async function pullNext(params: {
         });
 
         if (filled > 0) {
+          console.log(`[pullNext] Buffer filled with ${filled} leads, retrying pull`);
           continue; // Retry pulling from buffer
         }
 
         if (exhausted) {
+          console.log("[pullNext] Search exhausted, no more leads available -> found=false");
           return { found: false };
         }
 
         // No results but not exhausted - keep trying next page
+        console.log("[pullNext] Page had no usable results but not exhausted, trying next page");
         continue;
       }
 
+      console.log("[pullNext] No searchParams provided and buffer empty -> found=false");
       return { found: false };
     }
+
+    console.log(`[pullNext] Found buffered lead: ${row.email} (iteration ${iterations})`);
 
     const alreadyServed = await isServed(
       params.organizationId,
@@ -209,6 +249,7 @@ export async function pullNext(params: {
     );
 
     if (alreadyServed) {
+      console.log(`[pullNext] Lead ${row.email} already served, skipping`);
       await db
         .update(leadBuffer)
         .set({ status: "skipped" })
@@ -233,6 +274,8 @@ export async function pullNext(params: {
       .update(leadBuffer)
       .set({ status: "served" })
       .where(eq(leadBuffer.id, row.id));
+
+    console.log(`[pullNext] Serving lead: ${row.email} (after ${iterations} iterations)`);
 
     return {
       found: true,
