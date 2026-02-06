@@ -2,7 +2,7 @@ import { eq, and } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { leadBuffer, cursors } from "../db/schema.js";
 import { isServed, markServed } from "./dedup.js";
-import { apolloSearch, type ApolloSearchParams } from "./apollo-client.js";
+import { apolloSearch, apolloEnrich, type ApolloSearchParams } from "./apollo-client.js";
 import { transformSearchParams } from "./search-transform.js";
 
 export async function pushLeads(params: {
@@ -139,31 +139,28 @@ async function fillBufferFromSearch(params: {
   console.log(`[fillBuffer] Apollo returned ${result.people.length} people (page=${cursor.page}/${result.pagination.totalPages}, total=${result.pagination.totalEntries})`);
 
   let filled = 0;
-  let skippedNoEmail = 0;
   let skippedAlreadyServed = 0;
 
   for (const person of result.people) {
-    if (!person.email) {
-      skippedNoEmail++;
-      continue;
-    }
+    // If person has email, check dedup early; otherwise defer to enrichment in pullNext
+    if (person.email) {
+      const alreadyServed = await isServed(
+        params.organizationId,
+        params.brandId,
+        person.email
+      );
 
-    const alreadyServed = await isServed(
-      params.organizationId,
-      params.brandId,
-      person.email
-    );
-
-    if (alreadyServed) {
-      skippedAlreadyServed++;
-      continue;
+      if (alreadyServed) {
+        skippedAlreadyServed++;
+        continue;
+      }
     }
 
     await db.insert(leadBuffer).values({
       organizationId: params.organizationId,
       namespace: params.campaignId,
       campaignId: params.campaignId,
-      email: person.email,
+      email: person.email ?? "",
       externalId: person.id,
       data: person,
       status: "buffered",
@@ -181,7 +178,7 @@ async function fillBufferFromSearch(params: {
     exhausted: isExhausted,
   });
 
-  console.log(`[fillBuffer] Done: filled=${filled} skippedNoEmail=${skippedNoEmail} skippedAlreadyServed=${skippedAlreadyServed} exhausted=${isExhausted}`);
+  console.log(`[fillBuffer] Done: filled=${filled} skippedAlreadyServed=${skippedAlreadyServed} exhausted=${isExhausted}`);
 
   return { filled, exhausted: isExhausted && filled === 0 };
 }
@@ -208,7 +205,9 @@ export async function pullNext(params: {
 }> {
   console.log(`[pullNext] Called for org=${params.organizationId} campaign=${params.campaignId} brand=${params.brandId} hasSearchParams=${!!params.searchParams}`);
 
+  const MAX_EMPTY_PAGES = 10;
   let iterations = 0;
+  let emptyPages = 0;
   while (true) {
     iterations++;
     const row = await db.query.leadBuffer.findFirst({
@@ -235,6 +234,7 @@ export async function pullNext(params: {
         });
 
         if (filled > 0) {
+          emptyPages = 0;
           console.log(`[pullNext] Buffer filled with ${filled} leads, retrying pull`);
           continue; // Retry pulling from buffer
         }
@@ -244,8 +244,14 @@ export async function pullNext(params: {
           return { found: false };
         }
 
+        emptyPages++;
+        if (emptyPages >= MAX_EMPTY_PAGES) {
+          console.log(`[pullNext] Gave up after ${emptyPages} consecutive pages with no usable results -> found=false`);
+          return { found: false };
+        }
+
         // No results but not exhausted - keep trying next page
-        console.log("[pullNext] Page had no usable results but not exhausted, trying next page");
+        console.log(`[pullNext] Page had no usable results but not exhausted, trying next page (${emptyPages}/${MAX_EMPTY_PAGES})`);
         continue;
       }
 
@@ -253,16 +259,45 @@ export async function pullNext(params: {
       return { found: false };
     }
 
-    console.log(`[pullNext] Found buffered lead: ${row.email} (iteration ${iterations})`);
+    console.log(`[pullNext] Found buffered lead: externalId=${row.externalId} email=${row.email || "none"} (iteration ${iterations})`);
+
+    // Enrich if no email (search results don't include emails)
+    let email = row.email;
+    let enrichedData = row.data;
+    if (!email && row.externalId) {
+      console.log(`[pullNext] No email, enriching personId=${row.externalId}`);
+      const enrichResult = await apolloEnrich(row.externalId, {
+        runId: params.runId,
+        clerkOrgId: params.clerkOrgId,
+      });
+
+      if (!enrichResult?.person?.email) {
+        console.log(`[pullNext] Enrichment returned no email for personId=${row.externalId}, skipping`);
+        await db
+          .update(leadBuffer)
+          .set({ status: "skipped" })
+          .where(eq(leadBuffer.id, row.id));
+        continue;
+      }
+
+      email = enrichResult.person.email;
+      enrichedData = { ...(row.data as object ?? {}), ...enrichResult.person };
+
+      // Update buffer row with enriched email
+      await db
+        .update(leadBuffer)
+        .set({ email, data: enrichedData })
+        .where(eq(leadBuffer.id, row.id));
+    }
 
     const alreadyServed = await isServed(
       params.organizationId,
       params.brandId,
-      row.email
+      email
     );
 
     if (alreadyServed) {
-      console.log(`[pullNext] Lead ${row.email} already served, skipping`);
+      console.log(`[pullNext] Lead ${email} already served, skipping`);
       await db
         .update(leadBuffer)
         .set({ status: "skipped" })
@@ -275,9 +310,9 @@ export async function pullNext(params: {
       namespace: params.campaignId,
       brandId: params.brandId,
       campaignId: params.campaignId,
-      email: row.email,
+      email,
       externalId: row.externalId,
-      metadata: row.data,
+      metadata: enrichedData,
       parentRunId: params.parentRunId ?? null,
       runId: params.runId ?? null,
       clerkOrgId: row.clerkOrgId,
@@ -289,14 +324,14 @@ export async function pullNext(params: {
       .set({ status: "served" })
       .where(eq(leadBuffer.id, row.id));
 
-    console.log(`[pullNext] Serving lead: ${row.email} (after ${iterations} iterations)`);
+    console.log(`[pullNext] Serving lead: ${email} (after ${iterations} iterations)`);
 
     return {
       found: true,
       lead: {
-        email: row.email,
+        email,
         externalId: row.externalId,
-        data: row.data,
+        data: enrichedData,
         brandId: params.brandId,
         clerkOrgId: row.clerkOrgId,
         clerkUserId: row.clerkUserId,
