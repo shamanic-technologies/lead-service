@@ -9,10 +9,10 @@ router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res)
   try {
     const { namespace, parentRunId, brandId, clerkOrgId, clerkUserId, leads } = req.body;
 
-    console.log(`[buffer/push] Called for org=${req.organizationId} namespace=${namespace} leads=${Array.isArray(leads) ? leads.length : "invalid"} brandId=${brandId || "none"} clerkOrgId=${clerkOrgId || "none"}`);
+    console.log(`[Lead Service][buffer/push] Called for org=${req.organizationId} namespace=${namespace} leads=${Array.isArray(leads) ? leads.length : "invalid"} brandId=${brandId || "none"} clerkOrgId=${clerkOrgId || "none"}`);
 
     if (!namespace || !Array.isArray(leads)) {
-      console.log("[buffer/push] Rejected: missing namespace or leads[]");
+      console.log("[Lead Service][buffer/push] Rejected: missing namespace or leads[]");
       return res.status(400).json({ error: "namespace and leads[] required" });
     }
 
@@ -29,7 +29,7 @@ router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res)
         });
         pushRunId = childRun.id;
       } catch (err) {
-        console.error("[buffer/push] Failed to create run:", err);
+        console.error("[Lead Service][buffer/push] Failed to create run:", err);
       }
     }
 
@@ -43,19 +43,19 @@ router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res)
       leads,
     });
 
-    console.log(`[buffer/push] Result: buffered=${result.buffered} skippedAlreadyServed=${result.skippedAlreadyServed}`);
+    console.log(`[Lead Service][buffer/push] Result: buffered=${result.buffered} skippedAlreadyServed=${result.skippedAlreadyServed}`);
 
     if (pushRunId) {
       try {
         await updateRun(pushRunId, "completed");
       } catch (err) {
-        console.error("[buffer/push] Failed to update run:", err);
+        console.error("[Lead Service][buffer/push] Failed to update run:", err);
       }
     }
 
     res.json(result);
   } catch (error) {
-    console.error("[buffer/push] Error:", error);
+    console.error("[Lead Service][buffer/push] Error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -64,10 +64,10 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
   try {
     const { namespace, parentRunId, searchParams, brandId, clerkOrgId, clerkUserId } = req.body;
 
-    console.log(`[buffer/next] Called for org=${req.organizationId} namespace=${namespace} hasSearchParams=${!!searchParams} brandId=${brandId || "none"} clerkOrgId=${clerkOrgId || "none"}`);
+    console.log(`[Lead Service][buffer/next] Called for org=${req.organizationId} namespace=${namespace} hasSearchParams=${!!searchParams} brandId=${brandId || "none"} clerkOrgId=${clerkOrgId || "none"}`);
 
     if (!namespace) {
-      console.log("[buffer/next] Rejected: missing namespace");
+      console.log("[Lead Service][buffer/next] Rejected: missing namespace");
       return res.status(400).json({ error: "namespace required" });
     }
 
@@ -84,7 +84,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
         });
         serveRunId = childRun.id;
       } catch (err) {
-        console.error("[buffer/next] Failed to create run:", err);
+        console.error("[Lead Service][buffer/next] Failed to create run:", err);
       }
     }
 
@@ -99,19 +99,19 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       clerkUserId: clerkUserId ?? null,
     });
 
-    console.log(`[buffer/next] Result: found=${result.found} email=${result.lead?.email || "none"}`);
+    console.log(`[Lead Service][buffer/next] Result: found=${result.found} email=${result.lead?.email || "none"}`);
 
     if (serveRunId) {
       try {
         await updateRun(serveRunId, "completed");
       } catch (err) {
-        console.error("[buffer/next] Failed to update run:", err);
+        console.error("[Lead Service][buffer/next] Failed to update run:", err);
       }
     }
 
     res.json(result);
   } catch (error) {
-    console.error("[buffer/next] Error:", error);
+    console.error("[Lead Service][buffer/next] Error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });

@@ -26,20 +26,20 @@ app.use((req, res) => {
 Sentry.setupExpressErrorHandler(app);
 
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error("Unhandled error:", err);
+  console.error("[Lead Service] Unhandled error:", err);
   res.status(500).json({ error: "Internal server error" });
 });
 
 if (process.env.NODE_ENV !== "test") {
   migrate(db, { migrationsFolder: "./drizzle" })
     .then(() => {
-      console.log("Migrations complete");
+      console.log("[Lead Service] Migrations complete");
       app.listen(Number(PORT), "::", () => {
-        console.log(`lead-service running on port ${PORT}`);
+        console.log(`[Lead Service] Running on port ${PORT}`);
       });
     })
     .catch((err) => {
-      console.error("Migration failed:", err);
+      console.error("[Lead Service] Migration failed:", err);
       process.exit(1);
     });
 }

@@ -62,10 +62,10 @@ export async function authenticate(
     req.organizationId = org.id;
     req.appId = appId;
     req.externalOrgId = externalOrgId;
-    console.log(`[auth] Resolved org: appId=${appId} externalOrgId=${externalOrgId} -> internalOrgId=${org.id}`);
+    console.log(`[Lead Service][auth] Resolved org: appId=${appId} externalOrgId=${externalOrgId} -> internalOrgId=${org.id}`);
     next();
   } catch (error) {
-    console.error("[auth] Error:", error);
+    console.error("[Lead Service][auth] Error:", error);
     return res.status(401).json({ error: "Authentication failed" });
   }
 }

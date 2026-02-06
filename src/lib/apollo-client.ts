@@ -60,7 +60,7 @@ export async function apolloSearch(
   options?: { runId?: string | null; clerkOrgId?: string | null }
 ): Promise<ApolloSearchResult | null> {
   try {
-    console.log(`[apollo-client] Searching page=${page} runId=${options?.runId ?? "none"} url=${APOLLO_SERVICE_URL}/search`);
+    console.log(`[Lead Service][apollo-client] Searching page=${page} runId=${options?.runId ?? "none"} url=${APOLLO_SERVICE_URL}/search`);
     const headers: Record<string, string> = {};
     if (options?.clerkOrgId) headers["x-clerk-org-id"] = options.clerkOrgId;
 
@@ -69,10 +69,10 @@ export async function apolloSearch(
       body: { ...params, page, ...(options?.runId ? { runId: options.runId } : {}) },
       headers,
     });
-    console.log(`[apollo-client] Response: ${result.people.length} people, page ${result.pagination.page}/${result.pagination.totalPages} (total=${result.pagination.totalEntries})`);
+    console.log(`[Lead Service][apollo-client] Response: ${result.people.length} people, page ${result.pagination.page}/${result.pagination.totalPages} (total=${result.pagination.totalEntries})`);
     return result;
   } catch (error) {
-    console.error("[apollo-client] Search failed:", error);
+    console.error("[Lead Service][apollo-client] Search failed:", error);
     return null;
   }
 }

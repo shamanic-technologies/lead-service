@@ -91,7 +91,7 @@ export async function transformSearchParams(
   const key = cacheKey(rawParams);
   const cached = getCached(key);
   if (cached) {
-    console.log("[search-transform] Cache hit");
+    console.log("[Lead Service][search-transform] Cache hit");
     return cached;
   }
 
@@ -131,7 +131,7 @@ export async function transformSearchParams(
     try {
       parsed = JSON.parse(lastAttempt);
     } catch {
-      console.error(`[search-transform] Attempt ${attempt}: invalid JSON`);
+      console.error(`[Lead Service][search-transform] Attempt ${attempt}: invalid JSON`);
       lastErrors = [{ field: "root", message: "Response was not valid JSON" }];
       continue;
     }
@@ -140,13 +140,13 @@ export async function transformSearchParams(
     const validation = await validateSearchParams(parsed, clerkOrgId);
 
     if (validation.valid) {
-      console.log(`[search-transform] Valid on attempt ${attempt}`);
+      console.log(`[Lead Service][search-transform] Valid on attempt ${attempt}`);
       transformCache.set(key, { params: parsed, cachedAt: Date.now() });
       await logCosts(runId, totalInputTokens, totalOutputTokens);
       return parsed;
     }
 
-    console.warn(`[search-transform] Attempt ${attempt} invalid:`, validation.errors);
+    console.warn(`[Lead Service][search-transform] Attempt ${attempt} invalid:`, validation.errors);
     lastErrors = validation.errors;
   }
 
@@ -168,6 +168,6 @@ async function logCosts(
       { costName: "anthropic-opus-4.5-tokens-output", quantity: outputTokens },
     ]);
   } catch (err) {
-    console.error("[search-transform] Failed to log costs:", err);
+    console.error("[Lead Service][search-transform] Failed to log costs:", err);
   }
 }

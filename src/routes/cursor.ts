@@ -19,7 +19,7 @@ router.get("/cursor/:namespace", authenticate, async (req: AuthenticatedRequest,
 
     res.json({ state: cursor?.state ?? null });
   } catch (error) {
-    console.error("[cursor/get] Error:", error);
+    console.error("[Lead Service][cursor/get] Error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -55,7 +55,7 @@ router.put("/cursor/:namespace", authenticate, async (req: AuthenticatedRequest,
 
     res.json({ ok: true });
   } catch (error) {
-    console.error("[cursor/put] Error:", error);
+    console.error("[Lead Service][cursor/put] Error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });

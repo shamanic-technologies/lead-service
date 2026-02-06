@@ -16,7 +16,7 @@ router.get("/leads", authenticate, async (req: AuthenticatedRequest, res) => {
       clerkOrgId: clerkOrgId || null,
       clerkUserId: clerkUserId || null,
     };
-    console.log("[leads] GET /leads called with filters:", JSON.stringify(filters));
+    console.log("[Lead Service][leads] GET /leads called with filters:", JSON.stringify(filters));
 
     // Build filter conditions
     const conditions: SQL[] = [eq(servedLeads.organizationId, req.organizationId!)];
@@ -36,9 +36,9 @@ router.get("/leads", authenticate, async (req: AuthenticatedRequest, res) => {
       where: and(...conditions),
     });
 
-    console.log(`[leads] Found ${leads.length} served leads for org=${req.organizationId}`);
+    console.log(`[Lead Service][leads] Found ${leads.length} served leads for org=${req.organizationId}`);
     if (leads.length === 0) {
-      console.log("[leads] 0 leads returned. Possible causes: no leads served yet for this org, or filters too restrictive. Filters applied:", JSON.stringify(filters));
+      console.log("[Lead Service][leads] 0 leads returned. Possible causes: no leads served yet for this org, or filters too restrictive. Filters applied:", JSON.stringify(filters));
     }
 
     // Get enrichment data for all leads
@@ -50,7 +50,7 @@ router.get("/leads", authenticate, async (req: AuthenticatedRequest, res) => {
       : [];
 
     if (leads.length > 0) {
-      console.log(`[leads] Found ${enrichmentData.length}/${leads.length} enrichments`);
+      console.log(`[Lead Service][leads] Found ${enrichmentData.length}/${leads.length} enrichments`);
     }
 
     // Create email -> enrichment map
@@ -66,7 +66,7 @@ router.get("/leads", authenticate, async (req: AuthenticatedRequest, res) => {
 
     res.json({ leads: enrichedLeads });
   } catch (error) {
-    console.error("[leads] Error:", error);
+    console.error("[Lead Service][leads] Error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });
