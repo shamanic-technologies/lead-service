@@ -32,7 +32,7 @@ export async function ensureOrganization(externalOrgId: string): Promise<string>
 
   const result = await callRunsService("/organizations", {
     method: "POST",
-    body: { clerkOrgId: externalOrgId },
+    body: { externalId: externalOrgId },
   }) as { id: string };
 
   orgCache.set(externalOrgId, result.id);
