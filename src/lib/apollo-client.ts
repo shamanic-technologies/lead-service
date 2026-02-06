@@ -196,7 +196,7 @@ export async function apolloEnrich(
 
     const result = await callApolloService<ApolloEnrichResult>("/enrich", {
       method: "POST",
-      body: { id: personId, ...(options?.runId ? { runId: options.runId } : {}) },
+      body: { apolloPersonId: personId, ...(options?.runId ? { runId: options.runId } : {}) },
       headers,
     });
 
