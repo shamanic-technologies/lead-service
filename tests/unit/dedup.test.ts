@@ -21,16 +21,18 @@ describe("dedup", () => {
   });
 
   describe("isServed", () => {
-    it("returns true when email already served for org+namespace", async () => {
+    it("returns true when email already served for org+brand", async () => {
       vi.mocked(db.query.servedLeads.findFirst).mockResolvedValue({
         id: "uuid-1",
         organizationId: "org-1",
-        namespace: "brand-1",
+        namespace: "campaign-1",
         email: "alice@acme.com",
         externalId: null,
         metadata: null,
         parentRunId: null,
         runId: null,
+        brandId: "brand-1",
+        campaignId: "campaign-1",
         servedAt: new Date(),
       });
 
@@ -45,7 +47,7 @@ describe("dedup", () => {
       expect(result).toBe(false);
     });
 
-    it("scopes by namespace — same email in different namespace is not served", async () => {
+    it("scopes by brand — same email in different brand is not served", async () => {
       vi.mocked(db.query.servedLeads.findFirst).mockResolvedValue(undefined);
 
       const result = await isServed("org-1", "brand-2", "alice@acme.com");
@@ -63,7 +65,9 @@ describe("dedup", () => {
 
       const result = await markServed({
         organizationId: "org-1",
-        namespace: "brand-1",
+        namespace: "campaign-1",
+        brandId: "brand-1",
+        campaignId: "campaign-1",
         email: "alice@acme.com",
         externalId: "enrich-123",
         parentRunId: "run-1",
@@ -81,7 +85,9 @@ describe("dedup", () => {
 
       const result = await markServed({
         organizationId: "org-1",
-        namespace: "brand-1",
+        namespace: "campaign-1",
+        brandId: "brand-1",
+        campaignId: "campaign-1",
         email: "alice@acme.com",
       });
 

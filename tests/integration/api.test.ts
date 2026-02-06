@@ -24,7 +24,7 @@ describe("API Integration Tests", () => {
     it("rejects requests without API key", async () => {
       const res = await request(app)
         .post("/buffer/push")
-        .send({ namespace: "test", leads: [] });
+        .send({ campaignId: "c1", brandId: "b1", leads: [] });
 
       expect(res.status).toBe(401);
     });
@@ -35,7 +35,7 @@ describe("API Integration Tests", () => {
         .set("x-api-key", "wrong-key")
         .set("x-app-id", "test")
         .set("x-org-id", "test")
-        .send({ namespace: "test", leads: [] });
+        .send({ campaignId: "c1", brandId: "b1", leads: [] });
 
       expect(res.status).toBe(401);
     });
@@ -47,7 +47,8 @@ describe("API Integration Tests", () => {
         .post("/buffer/push")
         .set(getAuthHeaders())
         .send({
-          namespace: "brand-a",
+          campaignId: "campaign-a",
+          brandId: "brand-a",
           leads: [
             { email: "alice@example.com", externalId: "e1", data: { name: "Alice" } },
             { email: "bob@example.com", externalId: "e2", data: { name: "Bob" } },
@@ -59,7 +60,7 @@ describe("API Integration Tests", () => {
       expect(res.body.skippedAlreadyServed).toBe(0);
     });
 
-    it("returns 400 when namespace missing", async () => {
+    it("returns 400 when campaignId or brandId missing", async () => {
       const res = await request(app)
         .post("/buffer/push")
         .set(getAuthHeaders())
@@ -76,7 +77,8 @@ describe("API Integration Tests", () => {
         .post("/buffer/push")
         .set(getAuthHeaders())
         .send({
-          namespace: "brand-b",
+          campaignId: "campaign-b",
+          brandId: "brand-b",
           leads: [{ email: "charlie@example.com", data: { name: "Charlie" } }],
         });
 
@@ -84,7 +86,7 @@ describe("API Integration Tests", () => {
       const res = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ namespace: "brand-b" });
+        .send({ campaignId: "campaign-b", brandId: "brand-b" });
 
       expect(res.status).toBe(200);
       expect(res.body.found).toBe(true);
@@ -95,19 +97,20 @@ describe("API Integration Tests", () => {
       const res = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ namespace: "empty-namespace" });
+        .send({ campaignId: "campaign-empty", brandId: "brand-empty" });
 
       expect(res.status).toBe(200);
       expect(res.body.found).toBe(false);
     });
 
     it("deduplicates — same lead not served twice", async () => {
-      // Push same lead twice to a new namespace
+      // Push same lead twice to a new campaign
       await request(app)
         .post("/buffer/push")
         .set(getAuthHeaders())
         .send({
-          namespace: "brand-c",
+          campaignId: "campaign-c",
+          brandId: "brand-c",
           leads: [{ email: "dedup@example.com" }],
         });
 
@@ -115,7 +118,7 @@ describe("API Integration Tests", () => {
       const first = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ namespace: "brand-c" });
+        .send({ campaignId: "campaign-c", brandId: "brand-c" });
 
       expect(first.body.found).toBe(true);
 
@@ -124,7 +127,8 @@ describe("API Integration Tests", () => {
         .post("/buffer/push")
         .set(getAuthHeaders())
         .send({
-          namespace: "brand-c",
+          campaignId: "campaign-c",
+          brandId: "brand-c",
           leads: [{ email: "dedup@example.com" }],
         });
 
@@ -134,7 +138,7 @@ describe("API Integration Tests", () => {
       const second = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ namespace: "brand-c" });
+        .send({ campaignId: "campaign-c", brandId: "brand-c" });
 
       expect(second.body.found).toBe(false);
     }, 10000); // Increased timeout for CI database latency
