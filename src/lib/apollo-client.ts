@@ -54,6 +54,16 @@ export interface ApolloSearchResult {
   };
 }
 
+interface ApolloSearchRawResponse {
+  people?: Array<ApolloSearchResult["people"][number]>;
+  pagination?: ApolloSearchResult["pagination"];
+  total_entries?: number;
+  totalEntries?: number;
+  per_page?: number;
+  perPage?: number;
+  [key: string]: unknown;
+}
+
 export async function apolloSearch(
   params: ApolloSearchParams,
   page: number = 1,
@@ -64,11 +74,20 @@ export async function apolloSearch(
     const headers: Record<string, string> = {};
     if (options?.clerkOrgId) headers["x-clerk-org-id"] = options.clerkOrgId;
 
-    const result = await callApolloService<ApolloSearchResult>("/search", {
+    const raw = await callApolloService<ApolloSearchRawResponse>("/search", {
       method: "POST",
       body: { ...params, page, ...(options?.runId ? { runId: options.runId } : {}) },
       headers,
     });
+
+    const people = raw.people ?? [];
+    const pagination = raw.pagination ?? {
+      page,
+      totalEntries: raw.total_entries ?? raw.totalEntries ?? 0,
+      totalPages: Math.ceil((raw.total_entries ?? raw.totalEntries ?? 0) / (raw.per_page ?? raw.perPage ?? 25)),
+    };
+
+    const result: ApolloSearchResult = { people, pagination };
     console.log(`[apollo-client] Response: ${result.people.length} people, page ${result.pagination.page}/${result.pagination.totalPages} (total=${result.pagination.totalEntries})`);
     return result;
   } catch (error) {
