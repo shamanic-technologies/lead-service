@@ -117,8 +117,11 @@ async function fillBufferFromSearch(params: {
     params.pushRunId
   );
 
-  console.log(`[fillBuffer] Calling Apollo search page=${cursor.page} params=${JSON.stringify(validatedParams)}`);
-  const result = await apolloSearch(validatedParams, cursor.page);
+  console.log(`[fillBuffer] Calling Apollo search page=${cursor.page} runId=${params.pushRunId ?? "none"} params=${JSON.stringify(validatedParams)}`);
+  const result = await apolloSearch(validatedParams, cursor.page, {
+    runId: params.pushRunId,
+    clerkOrgId: params.clerkOrgId,
+  });
 
   if (!result) {
     console.log("[fillBuffer] Apollo returned null (search failed or network error)");

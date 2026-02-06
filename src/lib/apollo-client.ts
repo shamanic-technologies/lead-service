@@ -56,13 +56,18 @@ export interface ApolloSearchResult {
 
 export async function apolloSearch(
   params: ApolloSearchParams,
-  page: number = 1
+  page: number = 1,
+  options?: { runId?: string | null; clerkOrgId?: string | null }
 ): Promise<ApolloSearchResult | null> {
   try {
-    console.log(`[apollo-client] Searching page=${page} url=${APOLLO_SERVICE_URL}/search`);
+    console.log(`[apollo-client] Searching page=${page} runId=${options?.runId ?? "none"} url=${APOLLO_SERVICE_URL}/search`);
+    const headers: Record<string, string> = {};
+    if (options?.clerkOrgId) headers["x-clerk-org-id"] = options.clerkOrgId;
+
     const result = await callApolloService<ApolloSearchResult>("/search", {
       method: "POST",
-      body: { ...params, page },
+      body: { ...params, page, ...(options?.runId ? { runId: options.runId } : {}) },
+      headers,
     });
     console.log(`[apollo-client] Response: ${result.people.length} people, page ${result.pagination.page}/${result.pagination.totalPages} (total=${result.pagination.totalEntries})`);
     return result;
