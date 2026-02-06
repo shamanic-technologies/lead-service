@@ -9,7 +9,7 @@ async function callRunsService(path: string, options: {
 } = {}): Promise<unknown> {
   const { method = "GET", body } = options;
 
-  const response = await fetch(`${RUNS_SERVICE_URL}${path}`, {
+  const response = await fetch(`${RUNS_SERVICE_URL}/v1${path}`, {
     method,
     headers: {
       "Content-Type": "application/json",
