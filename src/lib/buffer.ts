@@ -7,9 +7,9 @@ import { transformSearchParams } from "./search-transform.js";
 
 export async function pushLeads(params: {
   organizationId: string;
-  namespace: string;
+  campaignId: string;
+  brandId: string;
   pushRunId?: string | null;
-  brandId?: string | null;
   clerkOrgId?: string | null;
   clerkUserId?: string | null;
   leads: Array<{
@@ -21,12 +21,12 @@ export async function pushLeads(params: {
   let buffered = 0;
   let skippedAlreadyServed = 0;
 
-  console.log(`[pushLeads] Processing ${params.leads.length} leads for org=${params.organizationId} ns=${params.namespace}`);
+  console.log(`[pushLeads] Processing ${params.leads.length} leads for org=${params.organizationId} campaign=${params.campaignId} brand=${params.brandId}`);
 
   for (const lead of params.leads) {
     const alreadyServed = await isServed(
       params.organizationId,
-      params.namespace,
+      params.brandId,
       lead.email
     );
 
@@ -38,13 +38,14 @@ export async function pushLeads(params: {
 
     await db.insert(leadBuffer).values({
       organizationId: params.organizationId,
-      namespace: params.namespace,
+      namespace: params.campaignId,
+      campaignId: params.campaignId,
       email: lead.email,
       externalId: lead.externalId ?? null,
       data: lead.data ?? null,
       status: "buffered",
       pushRunId: params.pushRunId ?? null,
-      brandId: params.brandId ?? null,
+      brandId: params.brandId,
       clerkOrgId: params.clerkOrgId ?? null,
       clerkUserId: params.clerkUserId ?? null,
     });
@@ -60,21 +61,21 @@ interface CursorState {
   exhausted: boolean;
 }
 
-async function getCursor(organizationId: string, namespace: string): Promise<CursorState> {
+async function getCursor(organizationId: string, campaignId: string): Promise<CursorState> {
   const cursor = await db.query.cursors.findFirst({
     where: and(
       eq(cursors.organizationId, organizationId),
-      eq(cursors.namespace, namespace)
+      eq(cursors.namespace, campaignId)
     ),
   });
   return (cursor?.state as CursorState) ?? { page: 1, exhausted: false };
 }
 
-async function setCursor(organizationId: string, namespace: string, state: CursorState): Promise<void> {
+async function setCursor(organizationId: string, campaignId: string, state: CursorState): Promise<void> {
   const existing = await db.query.cursors.findFirst({
     where: and(
       eq(cursors.organizationId, organizationId),
-      eq(cursors.namespace, namespace)
+      eq(cursors.namespace, campaignId)
     ),
   });
 
@@ -86,7 +87,7 @@ async function setCursor(organizationId: string, namespace: string, state: Curso
   } else {
     await db.insert(cursors).values({
       organizationId,
-      namespace,
+      namespace: campaignId,
       state,
     });
   }
@@ -94,16 +95,16 @@ async function setCursor(organizationId: string, namespace: string, state: Curso
 
 async function fillBufferFromSearch(params: {
   organizationId: string;
-  namespace: string;
+  campaignId: string;
+  brandId: string;
   searchParams: ApolloSearchParams;
   pushRunId?: string | null;
-  brandId?: string | null;
   clerkOrgId?: string | null;
   clerkUserId?: string | null;
 }): Promise<{ filled: number; exhausted: boolean }> {
-  const cursor = await getCursor(params.organizationId, params.namespace);
+  const cursor = await getCursor(params.organizationId, params.campaignId);
 
-  console.log(`[fillBuffer] org=${params.organizationId} ns=${params.namespace} cursor={page:${cursor.page}, exhausted:${cursor.exhausted}}`);
+  console.log(`[fillBuffer] org=${params.organizationId} campaign=${params.campaignId} brand=${params.brandId} cursor={page:${cursor.page}, exhausted:${cursor.exhausted}}`);
 
   if (cursor.exhausted) {
     console.log("[fillBuffer] Cursor already exhausted, returning 0");
@@ -125,13 +126,13 @@ async function fillBufferFromSearch(params: {
 
   if (!result) {
     console.log("[fillBuffer] Apollo returned null (search failed or network error)");
-    await setCursor(params.organizationId, params.namespace, { page: cursor.page, exhausted: true });
+    await setCursor(params.organizationId, params.campaignId, { page: cursor.page, exhausted: true });
     return { filled: 0, exhausted: true };
   }
 
   if (result.people.length === 0) {
     console.log(`[fillBuffer] Apollo returned 0 people (page=${cursor.page} totalPages=${result.pagination.totalPages} totalEntries=${result.pagination.totalEntries})`);
-    await setCursor(params.organizationId, params.namespace, { page: cursor.page, exhausted: true });
+    await setCursor(params.organizationId, params.campaignId, { page: cursor.page, exhausted: true });
     return { filled: 0, exhausted: true };
   }
 
@@ -149,7 +150,7 @@ async function fillBufferFromSearch(params: {
 
     const alreadyServed = await isServed(
       params.organizationId,
-      params.namespace,
+      params.brandId,
       person.email
     );
 
@@ -160,13 +161,14 @@ async function fillBufferFromSearch(params: {
 
     await db.insert(leadBuffer).values({
       organizationId: params.organizationId,
-      namespace: params.namespace,
+      namespace: params.campaignId,
+      campaignId: params.campaignId,
       email: person.email,
       externalId: person.id,
       data: person,
       status: "buffered",
       pushRunId: params.pushRunId ?? null,
-      brandId: params.brandId ?? null,
+      brandId: params.brandId,
       clerkOrgId: params.clerkOrgId ?? null,
       clerkUserId: params.clerkUserId ?? null,
     });
@@ -174,7 +176,7 @@ async function fillBufferFromSearch(params: {
   }
 
   const isExhausted = cursor.page >= result.pagination.totalPages;
-  await setCursor(params.organizationId, params.namespace, {
+  await setCursor(params.organizationId, params.campaignId, {
     page: cursor.page + 1,
     exhausted: isExhausted,
   });
@@ -186,11 +188,11 @@ async function fillBufferFromSearch(params: {
 
 export async function pullNext(params: {
   organizationId: string;
-  namespace: string;
+  campaignId: string;
+  brandId: string;
   parentRunId?: string | null;
   runId?: string | null;
   searchParams?: ApolloSearchParams;
-  brandId?: string | null;
   clerkOrgId?: string | null;
   clerkUserId?: string | null;
 }): Promise<{
@@ -199,12 +201,12 @@ export async function pullNext(params: {
     email: string;
     externalId: string | null;
     data: unknown;
-    brandId: string | null;
+    brandId: string;
     clerkOrgId: string | null;
     clerkUserId: string | null;
   };
 }> {
-  console.log(`[pullNext] Called for org=${params.organizationId} ns=${params.namespace} hasSearchParams=${!!params.searchParams}`);
+  console.log(`[pullNext] Called for org=${params.organizationId} campaign=${params.campaignId} brand=${params.brandId} hasSearchParams=${!!params.searchParams}`);
 
   let iterations = 0;
   while (true) {
@@ -212,7 +214,7 @@ export async function pullNext(params: {
     const row = await db.query.leadBuffer.findFirst({
       where: and(
         eq(leadBuffer.organizationId, params.organizationId),
-        eq(leadBuffer.namespace, params.namespace),
+        eq(leadBuffer.namespace, params.campaignId),
         eq(leadBuffer.status, "buffered")
       ),
     });
@@ -224,10 +226,10 @@ export async function pullNext(params: {
         console.log("[pullNext] Attempting to fill buffer from Apollo search...");
         const { filled, exhausted } = await fillBufferFromSearch({
           organizationId: params.organizationId,
-          namespace: params.namespace,
+          campaignId: params.campaignId,
+          brandId: params.brandId,
           searchParams: params.searchParams,
           pushRunId: params.runId,
-          brandId: params.brandId,
           clerkOrgId: params.clerkOrgId,
           clerkUserId: params.clerkUserId,
         });
@@ -255,7 +257,7 @@ export async function pullNext(params: {
 
     const alreadyServed = await isServed(
       params.organizationId,
-      params.namespace,
+      params.brandId,
       row.email
     );
 
@@ -270,13 +272,14 @@ export async function pullNext(params: {
 
     await markServed({
       organizationId: params.organizationId,
-      namespace: params.namespace,
+      namespace: params.campaignId,
+      brandId: params.brandId,
+      campaignId: params.campaignId,
       email: row.email,
       externalId: row.externalId,
       metadata: row.data,
       parentRunId: params.parentRunId ?? null,
       runId: params.runId ?? null,
-      brandId: row.brandId,
       clerkOrgId: row.clerkOrgId,
       clerkUserId: row.clerkUserId,
     });
@@ -294,7 +297,7 @@ export async function pullNext(params: {
         email: row.email,
         externalId: row.externalId,
         data: row.data,
-        brandId: row.brandId,
+        brandId: params.brandId,
         clerkOrgId: row.clerkOrgId,
         clerkUserId: row.clerkUserId,
       },

@@ -35,7 +35,8 @@ describe("buffer", () => {
 
       const result = await pushLeads({
         organizationId: "org-1",
-        namespace: "brand-1",
+        campaignId: "campaign-1",
+        brandId: "brand-1",
         leads: [
           { email: "alice@acme.com", externalId: "e-1", data: { name: "Alice" } },
           { email: "bob@acme.com", externalId: "e-2", data: { name: "Bob" } },
@@ -52,12 +53,14 @@ describe("buffer", () => {
         .mockResolvedValueOnce({
           id: "uuid-1",
           organizationId: "org-1",
-          namespace: "brand-1",
+          namespace: "campaign-1",
           email: "alice@acme.com",
           externalId: null,
           metadata: null,
           parentRunId: null,
           runId: null,
+          brandId: "brand-1",
+          campaignId: "campaign-1",
           servedAt: new Date(),
         })
         .mockResolvedValueOnce(undefined);
@@ -67,7 +70,8 @@ describe("buffer", () => {
 
       const result = await pushLeads({
         organizationId: "org-1",
-        namespace: "brand-1",
+        campaignId: "campaign-1",
+        brandId: "brand-1",
         leads: [
           { email: "alice@acme.com", externalId: "e-1" },
           { email: "bob@acme.com", externalId: "e-2" },
@@ -85,7 +89,8 @@ describe("buffer", () => {
 
       const result = await pullNext({
         organizationId: "org-1",
-        namespace: "brand-1",
+        campaignId: "campaign-1",
+        brandId: "brand-1",
       });
 
       expect(result.found).toBe(false);
@@ -96,12 +101,16 @@ describe("buffer", () => {
       vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue({
         id: "buf-1",
         organizationId: "org-1",
-        namespace: "brand-1",
+        namespace: "campaign-1",
+        campaignId: "campaign-1",
         email: "alice@acme.com",
         externalId: "e-1",
         data: { name: "Alice" },
         status: "buffered",
         pushRunId: null,
+        brandId: "brand-1",
+        clerkOrgId: null,
+        clerkUserId: null,
         createdAt: new Date(),
       });
 
@@ -122,7 +131,8 @@ describe("buffer", () => {
 
       const result = await pullNext({
         organizationId: "org-1",
-        namespace: "brand-1",
+        campaignId: "campaign-1",
+        brandId: "brand-1",
         parentRunId: "run-1",
         runId: "child-run-1",
       });
@@ -139,23 +149,31 @@ describe("buffer", () => {
         .mockResolvedValueOnce({
           id: "buf-1",
           organizationId: "org-1",
-          namespace: "brand-1",
+          namespace: "campaign-1",
+          campaignId: "campaign-1",
           email: "alice@acme.com",
           externalId: "e-1",
           data: { name: "Alice" },
           status: "buffered",
           pushRunId: null,
+          brandId: "brand-1",
+          clerkOrgId: null,
+          clerkUserId: null,
           createdAt: new Date(),
         })
         .mockResolvedValueOnce({
           id: "buf-2",
           organizationId: "org-1",
-          namespace: "brand-1",
+          namespace: "campaign-1",
+          campaignId: "campaign-1",
           email: "bob@acme.com",
           externalId: "e-2",
           data: { name: "Bob" },
           status: "buffered",
           pushRunId: null,
+          brandId: "brand-1",
+          clerkOrgId: null,
+          clerkUserId: null,
           createdAt: new Date(),
         });
 
@@ -164,12 +182,14 @@ describe("buffer", () => {
         .mockResolvedValueOnce({
           id: "served-1",
           organizationId: "org-1",
-          namespace: "brand-1",
+          namespace: "campaign-1",
           email: "alice@acme.com",
           externalId: null,
           metadata: null,
           parentRunId: null,
           runId: null,
+          brandId: "brand-1",
+          campaignId: "campaign-1",
           servedAt: new Date(),
         })
         .mockResolvedValueOnce(undefined);
@@ -188,7 +208,8 @@ describe("buffer", () => {
 
       const result = await pullNext({
         organizationId: "org-1",
-        namespace: "brand-1",
+        campaignId: "campaign-1",
+        brandId: "brand-1",
       });
 
       expect(result.found).toBe(true);

@@ -4,13 +4,13 @@ import { servedLeads } from "../db/schema.js";
 
 export async function isServed(
   organizationId: string,
-  namespace: string,
+  brandId: string,
   email: string
 ): Promise<boolean> {
   const existing = await db.query.servedLeads.findFirst({
     where: and(
       eq(servedLeads.organizationId, organizationId),
-      eq(servedLeads.namespace, namespace),
+      eq(servedLeads.brandId, brandId),
       eq(servedLeads.email, email)
     ),
   });
@@ -20,12 +20,13 @@ export async function isServed(
 export async function markServed(params: {
   organizationId: string;
   namespace: string;
+  brandId: string;
+  campaignId: string;
   email: string;
   externalId?: string | null;
   metadata?: unknown;
   parentRunId?: string | null;
   runId?: string | null;
-  brandId?: string | null;
   clerkOrgId?: string | null;
   clerkUserId?: string | null;
 }): Promise<{ inserted: boolean }> {
@@ -39,7 +40,8 @@ export async function markServed(params: {
       metadata: params.metadata ?? null,
       parentRunId: params.parentRunId ?? null,
       runId: params.runId ?? null,
-      brandId: params.brandId ?? null,
+      brandId: params.brandId,
+      campaignId: params.campaignId,
       clerkOrgId: params.clerkOrgId ?? null,
       clerkUserId: params.clerkUserId ?? null,
     })

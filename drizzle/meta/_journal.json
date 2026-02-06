@@ -15,6 +15,13 @@
       "when": 1770346338317,
       "tag": "0001_glossy_fenris",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1770422400000,
+      "tag": "0002_cursor_per_campaign",
+      "breakpoints": true
     }
   ]
 }
