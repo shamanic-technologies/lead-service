@@ -30,7 +30,7 @@ export const users = pgTable(
   ]
 );
 
-// Served leads — the dedup registry
+// Served leads — the dedup registry (dedup scoped by orgId × brandId)
 export const servedLeads = pgTable(
   "served_leads",
   {
@@ -44,15 +44,17 @@ export const servedLeads = pgTable(
     metadata: jsonb("metadata"),
     parentRunId: text("parent_run_id"),
     runId: text("run_id"),
-    brandId: text("brand_id"),
+    brandId: text("brand_id").notNull(),
+    campaignId: text("campaign_id").notNull(),
     clerkOrgId: text("clerk_org_id"),
     clerkUserId: text("clerk_user_id"),
     servedAt: timestamp("served_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex("idx_served_org_ns_email").on(table.organizationId, table.namespace, table.email),
+    uniqueIndex("idx_served_org_brand_email").on(table.organizationId, table.brandId, table.email),
     index("idx_served_org").on(table.organizationId),
     index("idx_served_brand").on(table.brandId),
+    index("idx_served_campaign").on(table.campaignId),
     index("idx_served_clerk_org").on(table.clerkOrgId),
     index("idx_served_clerk_user").on(table.clerkUserId),
   ]
@@ -67,6 +69,7 @@ export const leadBuffer = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     namespace: text("namespace").notNull(),
+    campaignId: text("campaign_id").notNull(),
     email: text("email").notNull(),
     externalId: text("external_id"),
     data: jsonb("data"),

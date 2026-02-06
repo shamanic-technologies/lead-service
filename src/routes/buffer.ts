@@ -7,13 +7,13 @@ const router = Router();
 
 router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res) => {
   try {
-    const { namespace, parentRunId, brandId, clerkOrgId, clerkUserId, leads } = req.body;
+    const { campaignId, brandId, parentRunId, clerkOrgId, clerkUserId, leads } = req.body;
 
-    console.log(`[buffer/push] Called for org=${req.organizationId} namespace=${namespace} leads=${Array.isArray(leads) ? leads.length : "invalid"} brandId=${brandId || "none"} clerkOrgId=${clerkOrgId || "none"}`);
+    console.log(`[buffer/push] Called for org=${req.organizationId} campaignId=${campaignId || "none"} brandId=${brandId || "none"} leads=${Array.isArray(leads) ? leads.length : "invalid"} clerkOrgId=${clerkOrgId || "none"}`);
 
-    if (!namespace || !Array.isArray(leads)) {
-      console.log("[buffer/push] Rejected: missing namespace or leads[]");
-      return res.status(400).json({ error: "namespace and leads[] required" });
+    if (!campaignId || !brandId || !Array.isArray(leads)) {
+      console.log("[buffer/push] Rejected: missing campaignId, brandId, or leads[]");
+      return res.status(400).json({ error: "campaignId, brandId, and leads[] required" });
     }
 
     // Create child run for traceability
@@ -35,9 +35,9 @@ router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res)
 
     const result = await pushLeads({
       organizationId: req.organizationId!,
-      namespace,
+      campaignId,
+      brandId,
       pushRunId,
-      brandId: brandId ?? null,
       clerkOrgId: clerkOrgId ?? null,
       clerkUserId: clerkUserId ?? null,
       leads,
@@ -62,13 +62,13 @@ router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res)
 
 router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res) => {
   try {
-    const { namespace, parentRunId, searchParams, brandId, clerkOrgId, clerkUserId } = req.body;
+    const { campaignId, brandId, parentRunId, searchParams, clerkOrgId, clerkUserId } = req.body;
 
-    console.log(`[buffer/next] Called for org=${req.organizationId} namespace=${namespace} hasSearchParams=${!!searchParams} brandId=${brandId || "none"} clerkOrgId=${clerkOrgId || "none"}`);
+    console.log(`[buffer/next] Called for org=${req.organizationId} campaignId=${campaignId || "none"} brandId=${brandId || "none"} hasSearchParams=${!!searchParams} clerkOrgId=${clerkOrgId || "none"}`);
 
-    if (!namespace) {
-      console.log("[buffer/next] Rejected: missing namespace");
-      return res.status(400).json({ error: "namespace required" });
+    if (!campaignId || !brandId) {
+      console.log("[buffer/next] Rejected: missing campaignId or brandId");
+      return res.status(400).json({ error: "campaignId and brandId required" });
     }
 
     // Create child run for traceability
@@ -90,11 +90,11 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
 
     const result = await pullNext({
       organizationId: req.organizationId!,
-      namespace,
+      campaignId,
+      brandId,
       parentRunId: parentRunId ?? null,
       runId: serveRunId,
       searchParams: searchParams ?? undefined,
-      brandId: brandId ?? null,
       clerkOrgId: clerkOrgId ?? null,
       clerkUserId: clerkUserId ?? null,
     });
