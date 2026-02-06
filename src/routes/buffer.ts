@@ -9,7 +9,10 @@ router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res)
   try {
     const { namespace, parentRunId, brandId, clerkOrgId, clerkUserId, leads } = req.body;
 
+    console.log(`[buffer/push] Called for org=${req.organizationId} namespace=${namespace} leads=${Array.isArray(leads) ? leads.length : "invalid"} brandId=${brandId || "none"} clerkOrgId=${clerkOrgId || "none"}`);
+
     if (!namespace || !Array.isArray(leads)) {
+      console.log("[buffer/push] Rejected: missing namespace or leads[]");
       return res.status(400).json({ error: "namespace and leads[] required" });
     }
 
@@ -40,6 +43,8 @@ router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res)
       leads,
     });
 
+    console.log(`[buffer/push] Result: buffered=${result.buffered} skippedAlreadyServed=${result.skippedAlreadyServed}`);
+
     if (pushRunId) {
       try {
         await updateRun(pushRunId, "completed");
@@ -59,7 +64,10 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
   try {
     const { namespace, parentRunId, searchParams, brandId, clerkOrgId, clerkUserId } = req.body;
 
+    console.log(`[buffer/next] Called for org=${req.organizationId} namespace=${namespace} hasSearchParams=${!!searchParams} brandId=${brandId || "none"} clerkOrgId=${clerkOrgId || "none"}`);
+
     if (!namespace) {
+      console.log("[buffer/next] Rejected: missing namespace");
       return res.status(400).json({ error: "namespace required" });
     }
 
@@ -90,6 +98,8 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       clerkOrgId: clerkOrgId ?? null,
       clerkUserId: clerkUserId ?? null,
     });
+
+    console.log(`[buffer/next] Result: found=${result.found} email=${result.lead?.email || "none"}`);
 
     if (serveRunId) {
       try {
