@@ -15,12 +15,12 @@ CREATE TABLE IF NOT EXISTS "enrichments" (
 	CONSTRAINT "enrichments_email_unique" UNIQUE("email")
 );
 --> statement-breakpoint
-ALTER TABLE "lead_buffer" ADD COLUMN "brand_id" text;--> statement-breakpoint
-ALTER TABLE "lead_buffer" ADD COLUMN "clerk_org_id" text;--> statement-breakpoint
-ALTER TABLE "lead_buffer" ADD COLUMN "clerk_user_id" text;--> statement-breakpoint
-ALTER TABLE "served_leads" ADD COLUMN "brand_id" text;--> statement-breakpoint
-ALTER TABLE "served_leads" ADD COLUMN "clerk_org_id" text;--> statement-breakpoint
-ALTER TABLE "served_leads" ADD COLUMN "clerk_user_id" text;--> statement-breakpoint
+ALTER TABLE "lead_buffer" ADD COLUMN IF NOT EXISTS "brand_id" text;--> statement-breakpoint
+ALTER TABLE "lead_buffer" ADD COLUMN IF NOT EXISTS "clerk_org_id" text;--> statement-breakpoint
+ALTER TABLE "lead_buffer" ADD COLUMN IF NOT EXISTS "clerk_user_id" text;--> statement-breakpoint
+ALTER TABLE "served_leads" ADD COLUMN IF NOT EXISTS "brand_id" text;--> statement-breakpoint
+ALTER TABLE "served_leads" ADD COLUMN IF NOT EXISTS "clerk_org_id" text;--> statement-breakpoint
+ALTER TABLE "served_leads" ADD COLUMN IF NOT EXISTS "clerk_user_id" text;--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "idx_enrichments_email" ON "enrichments" USING btree ("email");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "idx_served_brand" ON "served_leads" USING btree ("brand_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "idx_served_clerk_org" ON "served_leads" USING btree ("clerk_org_id");--> statement-breakpoint
