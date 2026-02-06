@@ -34,19 +34,21 @@ export interface ApolloSearchParams {
   [key: string]: unknown;
 }
 
+export interface ApolloPersonResult {
+  id: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  title?: string;
+  linkedinUrl?: string;
+  organizationName?: string;
+  organizationDomain?: string;
+  organizationIndustry?: string;
+  organizationSize?: string;
+}
+
 export interface ApolloSearchResult {
-  people: Array<{
-    id: string;
-    email: string;
-    firstName?: string;
-    lastName?: string;
-    title?: string;
-    linkedinUrl?: string;
-    organizationName?: string;
-    organizationDomain?: string;
-    organizationIndustry?: string;
-    organizationSize?: string;
-  }>;
+  people: ApolloPersonResult[];
   pagination: {
     page: number;
     totalPages: number;
@@ -55,7 +57,7 @@ export interface ApolloSearchResult {
 }
 
 interface ApolloSearchRawResponse {
-  people?: Array<ApolloSearchResult["people"][number]>;
+  people?: ApolloPersonResult[];
   pagination?: ApolloSearchResult["pagination"];
   total_entries?: number;
   totalEntries?: number;
@@ -175,4 +177,33 @@ export async function fetchEmployeeRanges(clerkOrgId?: string | null): Promise<A
   const data = (Array.isArray(unwrapped) ? unwrapped : []) as ApolloEmployeeRange[];
   employeeRangesCache = { data, fetchedAt: Date.now() };
   return data;
+}
+
+// --- Enrichment ---
+
+export interface ApolloEnrichResult {
+  person: ApolloPersonResult;
+}
+
+export async function apolloEnrich(
+  personId: string,
+  options?: { runId?: string | null; clerkOrgId?: string | null }
+): Promise<ApolloEnrichResult | null> {
+  try {
+    console.log(`[apollo-client] Enriching personId=${personId} runId=${options?.runId ?? "none"}`);
+    const headers: Record<string, string> = {};
+    if (options?.clerkOrgId) headers["x-clerk-org-id"] = options.clerkOrgId;
+
+    const result = await callApolloService<ApolloEnrichResult>("/enrich", {
+      method: "POST",
+      body: { id: personId, ...(options?.runId ? { runId: options.runId } : {}) },
+      headers,
+    });
+
+    console.log(`[apollo-client] Enrich result: email=${result.person?.email ?? "none"}`);
+    return result;
+  } catch (error) {
+    console.error(`[apollo-client] Enrich failed for personId=${personId}:`, error);
+    return null;
+  }
 }
