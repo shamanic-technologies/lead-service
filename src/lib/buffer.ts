@@ -206,10 +206,16 @@ export async function pullNext(params: {
   console.log(`[pullNext] Called for org=${params.organizationId} campaign=${params.campaignId} brand=${params.brandId} hasSearchParams=${!!params.searchParams}`);
 
   const MAX_EMPTY_PAGES = 10;
+  const MAX_ITERATIONS = 100;
   let iterations = 0;
   let emptyPages = 0;
   while (true) {
     iterations++;
+
+    if (iterations > MAX_ITERATIONS) {
+      console.log(`[pullNext] Hit MAX_ITERATIONS (${MAX_ITERATIONS}), giving up -> found=false`);
+      return { found: false };
+    }
     const row = await db.query.leadBuffer.findFirst({
       where: and(
         eq(leadBuffer.organizationId, params.organizationId),
