@@ -137,7 +137,9 @@ export async function fetchIndustries(clerkOrgId?: string | null): Promise<Apoll
   const headers: Record<string, string> = {};
   if (clerkOrgId) headers["x-clerk-org-id"] = clerkOrgId;
 
-  const data = await callApolloService<ApolloIndustry[]>("/reference/industries", { headers });
+  const raw = await callApolloService<unknown>("/reference/industries", { headers });
+  const unwrapped = Array.isArray(raw) ? raw : (raw as Record<string, unknown>)?.industries;
+  const data = (Array.isArray(unwrapped) ? unwrapped : []) as ApolloIndustry[];
   industriesCache = { data, fetchedAt: Date.now() };
   return data;
 }
@@ -149,7 +151,9 @@ export async function fetchEmployeeRanges(clerkOrgId?: string | null): Promise<A
   const headers: Record<string, string> = {};
   if (clerkOrgId) headers["x-clerk-org-id"] = clerkOrgId;
 
-  const data = await callApolloService<ApolloEmployeeRange[]>("/reference/employee-ranges", { headers });
+  const raw = await callApolloService<unknown>("/reference/employee-ranges", { headers });
+  const unwrapped = Array.isArray(raw) ? raw : (raw as Record<string, unknown>)?.ranges;
+  const data = (Array.isArray(unwrapped) ? unwrapped : []) as ApolloEmployeeRange[];
   employeeRangesCache = { data, fetchedAt: Date.now() };
   return data;
 }
