@@ -7,7 +7,8 @@ const router = Router();
 
 router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res) => {
   try {
-    const { campaignId, brandId, parentRunId, clerkOrgId, clerkUserId, leads } = req.body;
+    const { campaignId, brandId, parentRunId, clerkUserId, leads } = req.body;
+    const clerkOrgId = req.externalOrgId ?? null;
 
     console.log(`[buffer/push] Called for org=${req.organizationId} campaignId=${campaignId || "none"} brandId=${brandId || "none"} leads=${Array.isArray(leads) ? leads.length : "invalid"} clerkOrgId=${clerkOrgId || "none"}`);
 
@@ -38,7 +39,7 @@ router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res)
       campaignId,
       brandId,
       pushRunId,
-      clerkOrgId: clerkOrgId ?? null,
+      clerkOrgId,
       clerkUserId: clerkUserId ?? null,
       leads,
     });
@@ -62,7 +63,8 @@ router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res)
 
 router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res) => {
   try {
-    const { campaignId, brandId, parentRunId, searchParams, clerkOrgId, clerkUserId } = req.body;
+    const { campaignId, brandId, parentRunId, searchParams, clerkUserId } = req.body;
+    const clerkOrgId = req.externalOrgId ?? null;
 
     console.log(`[buffer/next] Called for org=${req.organizationId} campaignId=${campaignId || "none"} brandId=${brandId || "none"} hasSearchParams=${!!searchParams} clerkOrgId=${clerkOrgId || "none"}`);
 
@@ -95,7 +97,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       parentRunId: parentRunId ?? null,
       runId: serveRunId,
       searchParams: searchParams ?? undefined,
-      clerkOrgId: clerkOrgId ?? null,
+      clerkOrgId,
       clerkUserId: clerkUserId ?? null,
     });
 
