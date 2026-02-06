@@ -3,15 +3,16 @@ const APOLLO_SERVICE_API_KEY = process.env.APOLLO_SERVICE_API_KEY || "";
 
 async function callApolloService<T>(
   path: string,
-  options: { method?: string; body?: unknown } = {}
+  options: { method?: string; body?: unknown; headers?: Record<string, string> } = {}
 ): Promise<T> {
-  const { method = "GET", body } = options;
+  const { method = "GET", body, headers: extraHeaders } = options;
 
   const response = await fetch(`${APOLLO_SERVICE_URL}${path}`, {
     method,
     headers: {
       "Content-Type": "application/json",
       "X-API-Key": APOLLO_SERVICE_API_KEY,
+      ...extraHeaders,
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -69,4 +70,81 @@ export async function apolloSearch(
     console.error("[apollo-client] Search failed:", error);
     return null;
   }
+}
+
+// --- Validation ---
+
+export interface ValidationError {
+  field: string;
+  message: string;
+  value?: unknown;
+}
+
+export interface ValidationResult {
+  index: number;
+  valid: boolean;
+  endpoint: string;
+  errors: ValidationError[];
+}
+
+export interface ValidationResponse {
+  results: ValidationResult[];
+}
+
+export async function validateSearchParams(
+  params: Record<string, unknown>,
+  clerkOrgId?: string | null
+): Promise<ValidationResult> {
+  const headers: Record<string, string> = {};
+  if (clerkOrgId) headers["x-clerk-org-id"] = clerkOrgId;
+
+  const response = await callApolloService<ValidationResponse>("/validate", {
+    method: "POST",
+    body: { endpoint: "search", items: [params] },
+    headers,
+  });
+
+  return response.results[0];
+}
+
+// --- Reference Data ---
+
+export interface ApolloIndustry {
+  id: string;
+  name: string;
+  [key: string]: unknown;
+}
+
+export interface ApolloEmployeeRange {
+  value: string;
+  label: string;
+  [key: string]: unknown;
+}
+
+let industriesCache: { data: ApolloIndustry[]; fetchedAt: number } | null = null;
+let employeeRangesCache: { data: ApolloEmployeeRange[]; fetchedAt: number } | null = null;
+const REFERENCE_CACHE_TTL = 24 * 60 * 60 * 1000; // 24h
+
+export async function fetchIndustries(clerkOrgId?: string | null): Promise<ApolloIndustry[]> {
+  if (industriesCache && Date.now() - industriesCache.fetchedAt < REFERENCE_CACHE_TTL) {
+    return industriesCache.data;
+  }
+  const headers: Record<string, string> = {};
+  if (clerkOrgId) headers["x-clerk-org-id"] = clerkOrgId;
+
+  const data = await callApolloService<ApolloIndustry[]>("/reference/industries", { headers });
+  industriesCache = { data, fetchedAt: Date.now() };
+  return data;
+}
+
+export async function fetchEmployeeRanges(clerkOrgId?: string | null): Promise<ApolloEmployeeRange[]> {
+  if (employeeRangesCache && Date.now() - employeeRangesCache.fetchedAt < REFERENCE_CACHE_TTL) {
+    return employeeRangesCache.data;
+  }
+  const headers: Record<string, string> = {};
+  if (clerkOrgId) headers["x-clerk-org-id"] = clerkOrgId;
+
+  const data = await callApolloService<ApolloEmployeeRange[]>("/reference/employee-ranges", { headers });
+  employeeRangesCache = { data, fetchedAt: Date.now() };
+  return data;
 }

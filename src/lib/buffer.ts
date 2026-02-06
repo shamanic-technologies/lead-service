@@ -3,6 +3,7 @@ import { db } from "../db/index.js";
 import { leadBuffer, cursors } from "../db/schema.js";
 import { isServed, markServed } from "./dedup.js";
 import { apolloSearch, type ApolloSearchParams } from "./apollo-client.js";
+import { transformSearchParams } from "./search-transform.js";
 
 export async function pushLeads(params: {
   organizationId: string;
@@ -109,8 +110,15 @@ async function fillBufferFromSearch(params: {
     return { filled: 0, exhausted: true };
   }
 
-  console.log(`[fillBuffer] Calling Apollo search page=${cursor.page} params=${JSON.stringify(params.searchParams)}`);
-  const result = await apolloSearch(params.searchParams, cursor.page);
+  // Transform + validate search params via LLM → Apollo /validate loop
+  const validatedParams = await transformSearchParams(
+    params.searchParams as Record<string, unknown>,
+    params.clerkOrgId,
+    params.pushRunId
+  );
+
+  console.log(`[fillBuffer] Calling Apollo search page=${cursor.page} params=${JSON.stringify(validatedParams)}`);
+  const result = await apolloSearch(validatedParams, cursor.page);
 
   if (!result) {
     console.log("[fillBuffer] Apollo returned null (search failed or network error)");
