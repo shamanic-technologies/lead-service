@@ -10,6 +10,7 @@ import healthRoutes from "./routes/health.js";
 import bufferRoutes from "./routes/buffer.js";
 import cursorRoutes from "./routes/cursor.js";
 import leadsRoutes from "./routes/leads.js";
+import statsRoutes from "./routes/stats.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -33,6 +34,7 @@ app.use(healthRoutes);
 app.use(bufferRoutes);
 app.use(cursorRoutes);
 app.use(leadsRoutes);
+app.use(statsRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ error: "Not found" });
