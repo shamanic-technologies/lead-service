@@ -72,7 +72,6 @@ export async function apolloSearch(
   options?: { runId?: string | null; clerkOrgId?: string | null }
 ): Promise<ApolloSearchResult | null> {
   try {
-    console.log(`[apollo-client] Searching page=${page} runId=${options?.runId ?? "none"} url=${APOLLO_SERVICE_URL}/search`);
     const headers: Record<string, string> = {};
     if (options?.clerkOrgId) headers["x-clerk-org-id"] = options.clerkOrgId;
 
@@ -90,7 +89,6 @@ export async function apolloSearch(
     };
 
     const result: ApolloSearchResult = { people, pagination };
-    console.log(`[apollo-client] Response: ${result.people.length} people, page ${result.pagination.page}/${result.pagination.totalPages} (total=${result.pagination.totalEntries})`);
     return result;
   } catch (error) {
     console.error("[apollo-client] Search failed:", error);
@@ -190,7 +188,6 @@ export async function apolloEnrich(
   options?: { runId?: string | null; clerkOrgId?: string | null }
 ): Promise<ApolloEnrichResult | null> {
   try {
-    console.log(`[apollo-client] Enriching personId=${personId} runId=${options?.runId ?? "none"}`);
     const headers: Record<string, string> = {};
     if (options?.clerkOrgId) headers["x-clerk-org-id"] = options.clerkOrgId;
 
@@ -200,7 +197,6 @@ export async function apolloEnrich(
       headers,
     });
 
-    console.log(`[apollo-client] Enrich result: email=${result.person?.email ?? "none"}`);
     return result;
   } catch (error) {
     console.error(`[apollo-client] Enrich failed for personId=${personId}:`, error);
