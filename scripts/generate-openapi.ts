@@ -15,6 +15,15 @@ const doc = {
   host: process.env.SERVICE_URL || "http://localhost:3006",
   basePath: "/",
   schemes: ["https"],
+  securityDefinitions: {
+    apiKey: {
+      type: "apiKey",
+      in: "header",
+      name: "x-api-key",
+      description: "API key for authenticating requests. Must match the LEAD_SERVICE_API_KEY env var on the server.",
+    },
+  },
+  security: [{ apiKey: [] }],
 };
 
 const outputFile = join(projectRoot, "openapi.json");

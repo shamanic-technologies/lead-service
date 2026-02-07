@@ -7,6 +7,13 @@ import { servedLeads } from "../db/schema.js";
 const router = Router();
 
 router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
+  /*
+    #swagger.summary = 'Get served lead count'
+    #swagger.parameters['x-app-id'] = { in: 'header', required: true, type: 'string', description: 'Identifies the calling application, e.g. mcpfactory' }
+    #swagger.parameters['x-org-id'] = { in: 'header', required: true, type: 'string', description: 'External organization ID, e.g. Clerk org ID' }
+    #swagger.parameters['brandId'] = { in: 'query', type: 'string', required: false }
+    #swagger.parameters['campaignId'] = { in: 'query', type: 'string', required: false }
+  */
   try {
     const { brandId, campaignId } = req.query;
 
