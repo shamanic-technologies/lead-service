@@ -7,6 +7,14 @@ import { servedLeads, enrichments } from "../db/schema.js";
 const router = Router();
 
 router.get("/leads", authenticate, async (req: AuthenticatedRequest, res) => {
+  /*
+    #swagger.summary = 'List served leads with enrichment data'
+    #swagger.parameters['x-app-id'] = { in: 'header', required: true, type: 'string', description: 'Identifies the calling application, e.g. mcpfactory' }
+    #swagger.parameters['x-org-id'] = { in: 'header', required: true, type: 'string', description: 'External organization ID, e.g. Clerk org ID' }
+    #swagger.parameters['brandId'] = { in: 'query', type: 'string', required: false }
+    #swagger.parameters['clerkOrgId'] = { in: 'query', type: 'string', required: false }
+    #swagger.parameters['clerkUserId'] = { in: 'query', type: 'string', required: false }
+  */
   try {
     const { brandId, clerkOrgId, clerkUserId } = req.query;
 
