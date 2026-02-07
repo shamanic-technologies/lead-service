@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { leadBuffer, cursors } from "../db/schema.js";
 import { isServed, markServed } from "./dedup.js";
@@ -222,6 +222,7 @@ export async function pullNext(params: {
         eq(leadBuffer.namespace, params.campaignId),
         eq(leadBuffer.status, "buffered")
       ),
+      orderBy: [sql`CASE WHEN ${leadBuffer.email} != '' THEN 0 ELSE 1 END`],
     });
 
     if (!row) {
