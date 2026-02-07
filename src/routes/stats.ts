@@ -6,11 +6,11 @@ import { servedLeads } from "../db/schema.js";
 
 const router = Router();
 
-router.get("/stats/:namespace", authenticate, async (req: AuthenticatedRequest, res) => {
+router.get("/stats/:brandId", authenticate, async (req: AuthenticatedRequest, res) => {
   try {
-    const { namespace } = req.params;
+    const { brandId } = req.params;
 
-    console.log(`[stats] GET /stats/${namespace} called for org=${req.organizationId}`);
+    console.log(`[stats] GET /stats/${brandId} called for org=${req.organizationId}`);
 
     const [result] = await db
       .select({ totalServed: count() })
@@ -18,12 +18,12 @@ router.get("/stats/:namespace", authenticate, async (req: AuthenticatedRequest, 
       .where(
         and(
           eq(servedLeads.organizationId, req.organizationId!),
-          eq(servedLeads.brandId, namespace)
+          eq(servedLeads.brandId, brandId)
         )
       );
 
     const totalServed = result?.totalServed ?? 0;
-    console.log(`[stats] brand=${namespace} org=${req.organizationId} totalServed=${totalServed}`);
+    console.log(`[stats] brand=${brandId} org=${req.organizationId} totalServed=${totalServed}`);
 
     res.json({ totalServed });
   } catch (error) {
