@@ -10,10 +10,7 @@ router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res)
     const { campaignId, brandId, parentRunId, clerkUserId, leads } = req.body;
     const clerkOrgId = req.externalOrgId ?? null;
 
-    console.log(`[buffer/push] Called for org=${req.organizationId} campaignId=${campaignId || "none"} brandId=${brandId || "none"} leads=${Array.isArray(leads) ? leads.length : "invalid"} clerkOrgId=${clerkOrgId || "none"}`);
-
     if (!campaignId || !brandId || !Array.isArray(leads)) {
-      console.log("[buffer/push] Rejected: missing campaignId, brandId, or leads[]");
       return res.status(400).json({ error: "campaignId, brandId, and leads[] required" });
     }
 
@@ -44,8 +41,6 @@ router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res)
       leads,
     });
 
-    console.log(`[buffer/push] Result: buffered=${result.buffered} skippedAlreadyServed=${result.skippedAlreadyServed}`);
-
     if (pushRunId) {
       try {
         await updateRun(pushRunId, "completed");
@@ -66,10 +61,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
     const { campaignId, brandId, parentRunId, searchParams, clerkUserId } = req.body;
     const clerkOrgId = req.externalOrgId ?? null;
 
-    console.log(`[buffer/next] Called for org=${req.organizationId} campaignId=${campaignId || "none"} brandId=${brandId || "none"} hasSearchParams=${!!searchParams} clerkOrgId=${clerkOrgId || "none"}`);
-
     if (!campaignId || !brandId) {
-      console.log("[buffer/next] Rejected: missing campaignId or brandId");
       return res.status(400).json({ error: "campaignId and brandId required" });
     }
 
@@ -100,8 +92,6 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       clerkOrgId,
       clerkUserId: clerkUserId ?? null,
     });
-
-    console.log(`[buffer/next] Result: found=${result.found} email=${result.lead?.email || "none"}`);
 
     if (serveRunId) {
       try {

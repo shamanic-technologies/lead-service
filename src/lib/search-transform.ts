@@ -91,7 +91,6 @@ export async function transformSearchParams(
   const key = cacheKey(rawParams);
   const cached = getCached(key);
   if (cached) {
-    console.log("[search-transform] Cache hit");
     return cached;
   }
 
@@ -140,7 +139,6 @@ export async function transformSearchParams(
     const validation = await validateSearchParams(parsed, clerkOrgId);
 
     if (validation.valid) {
-      console.log(`[search-transform] Valid on attempt ${attempt}`);
       transformCache.set(key, { params: parsed, cachedAt: Date.now() });
       await logCosts(runId, totalInputTokens, totalOutputTokens);
       return parsed;

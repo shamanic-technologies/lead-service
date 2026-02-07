@@ -10,8 +10,6 @@ router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
   try {
     const { brandId, campaignId } = req.query;
 
-    console.log(`[stats] GET /stats called for org=${req.organizationId} brandId=${brandId || "all"} campaignId=${campaignId || "all"}`);
-
     const conditions: SQL[] = [eq(servedLeads.organizationId, req.organizationId!)];
 
     if (brandId && typeof brandId === "string") {
@@ -27,8 +25,6 @@ router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
       .where(and(...conditions));
 
     const totalServed = result?.totalServed ?? 0;
-    console.log(`[stats] org=${req.organizationId} brandId=${brandId || "all"} campaignId=${campaignId || "all"} totalServed=${totalServed}`);
-
     res.json({ totalServed });
   } catch (error) {
     console.error("[stats] Error:", error);
