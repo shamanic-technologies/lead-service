@@ -1,29 +1,33 @@
 import { Router } from "express";
-import { eq, and, count } from "drizzle-orm";
+import { eq, and, count, type SQL } from "drizzle-orm";
 import { type AuthenticatedRequest, authenticate } from "../middleware/auth.js";
 import { db } from "../db/index.js";
 import { servedLeads } from "../db/schema.js";
 
 const router = Router();
 
-router.get("/stats/:brandId", authenticate, async (req: AuthenticatedRequest, res) => {
+router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
   try {
-    const { brandId } = req.params;
+    const { brandId, campaignId } = req.query;
 
-    console.log(`[stats] GET /stats/${brandId} called for org=${req.organizationId}`);
+    console.log(`[stats] GET /stats called for org=${req.organizationId} brandId=${brandId || "all"} campaignId=${campaignId || "all"}`);
+
+    const conditions: SQL[] = [eq(servedLeads.organizationId, req.organizationId!)];
+
+    if (brandId && typeof brandId === "string") {
+      conditions.push(eq(servedLeads.brandId, brandId));
+    }
+    if (campaignId && typeof campaignId === "string") {
+      conditions.push(eq(servedLeads.campaignId, campaignId));
+    }
 
     const [result] = await db
       .select({ totalServed: count() })
       .from(servedLeads)
-      .where(
-        and(
-          eq(servedLeads.organizationId, req.organizationId!),
-          eq(servedLeads.brandId, brandId)
-        )
-      );
+      .where(and(...conditions));
 
     const totalServed = result?.totalServed ?? 0;
-    console.log(`[stats] brand=${brandId} org=${req.organizationId} totalServed=${totalServed}`);
+    console.log(`[stats] org=${req.organizationId} brandId=${brandId || "all"} campaignId=${campaignId || "all"} totalServed=${totalServed}`);
 
     res.json({ totalServed });
   } catch (error) {
