@@ -1,8 +1,6 @@
 const RUNS_SERVICE_URL = process.env.RUNS_SERVICE_URL || "https://runs.mcpfactory.org";
 const RUNS_SERVICE_API_KEY = process.env.RUNS_SERVICE_API_KEY || "";
 
-const orgCache = new Map<string, string>();
-
 async function callRunsService(path: string, options: {
   method?: string;
   body?: unknown;
@@ -26,24 +24,15 @@ async function callRunsService(path: string, options: {
   return response.json();
 }
 
-export async function ensureOrganization(externalOrgId: string): Promise<string> {
-  const cached = orgCache.get(externalOrgId);
-  if (cached) return cached;
-
-  const result = await callRunsService("/organizations", {
-    method: "POST",
-    body: { externalId: externalOrgId },
-  }) as { id: string };
-
-  orgCache.set(externalOrgId, result.id);
-  return result.id;
-}
-
 export async function createRun(params: {
-  organizationId: string;
+  clerkOrgId: string;
+  appId: string;
   serviceName: string;
   taskName: string;
   parentRunId?: string;
+  clerkUserId?: string;
+  brandId?: string;
+  campaignId?: string;
 }): Promise<{ id: string }> {
   return callRunsService("/runs", {
     method: "POST",

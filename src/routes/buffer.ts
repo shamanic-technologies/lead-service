@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { type AuthenticatedRequest, authenticate } from "../middleware/auth.js";
 import { pushLeads, pullNext } from "../lib/buffer.js";
-import { ensureOrganization, createRun, updateRun } from "../lib/runs-client.js";
+import { createRun, updateRun } from "../lib/runs-client.js";
 import { BufferPushRequestSchema, BufferNextRequestSchema } from "../schemas.js";
 
 const router = Router();
@@ -17,12 +17,15 @@ router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res)
     const clerkOrgId = req.externalOrgId ?? null;
 
     // Create child run for traceability
-    const runsOrgId = await ensureOrganization(req.externalOrgId!);
     const childRun = await createRun({
-      organizationId: runsOrgId,
+      clerkOrgId: req.externalOrgId!,
+      appId: req.appId || "mcpfactory",
       serviceName: "lead-service",
       taskName: "buffer-push",
       parentRunId,
+      clerkUserId,
+      brandId,
+      campaignId,
     });
     const pushRunId = childRun.id;
 
@@ -60,12 +63,15 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
     const clerkOrgId = req.externalOrgId ?? null;
 
     // Create child run for traceability
-    const runsOrgId = await ensureOrganization(req.externalOrgId!);
     const childRun = await createRun({
-      organizationId: runsOrgId,
+      clerkOrgId: req.externalOrgId!,
+      appId: req.appId || "mcpfactory",
       serviceName: "lead-service",
       taskName: "lead-serve",
       parentRunId,
+      clerkUserId,
+      brandId,
+      campaignId,
     });
     const serveRunId = childRun.id;
 
