@@ -122,9 +122,46 @@ const CursorSetResponseSchema = z
 
 // --- Leads ---
 
+const EnrichmentSchema = z
+  .object({
+    id: z.string().uuid(),
+    email: z.string(),
+    apolloPersonId: z.string().nullable(),
+    firstName: z.string().nullable(),
+    lastName: z.string().nullable(),
+    title: z.string().nullable(),
+    linkedinUrl: z.string().nullable(),
+    organizationName: z.string().nullable(),
+    organizationDomain: z.string().nullable(),
+    organizationIndustry: z.string().nullable(),
+    organizationSize: z.string().nullable(),
+    responseRaw: z.unknown().nullable(),
+    enrichedAt: z.string(),
+  })
+  .openapi("Enrichment");
+
+const LeadDetailSchema = z
+  .object({
+    id: z.string().uuid(),
+    organizationId: z.string().uuid(),
+    namespace: z.string(),
+    email: z.string(),
+    externalId: z.string().nullable(),
+    metadata: z.unknown().nullable(),
+    parentRunId: z.string().nullable(),
+    runId: z.string().nullable(),
+    brandId: z.string(),
+    campaignId: z.string(),
+    clerkOrgId: z.string().nullable(),
+    clerkUserId: z.string().nullable(),
+    servedAt: z.string(),
+    enrichment: EnrichmentSchema.nullable(),
+  })
+  .openapi("LeadDetail");
+
 const LeadsResponseSchema = z
   .object({
-    leads: z.array(z.record(z.string(), z.unknown())),
+    leads: z.array(LeadDetailSchema),
   })
   .openapi("LeadsResponse");
 
