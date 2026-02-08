@@ -2,9 +2,26 @@ import { Router } from "express";
 import { eq, and, type SQL } from "drizzle-orm";
 import { type AuthenticatedRequest, authenticate } from "../middleware/auth.js";
 import { db } from "../db/index.js";
-import { servedLeads, enrichments } from "../db/schema.js";
+import { servedLeads } from "../db/schema.js";
 
 const router = Router();
+
+function extractEnrichment(metadata: unknown): Record<string, unknown> | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const m = metadata as Record<string, unknown>;
+  // Only return enrichment if at least one person field exists
+  if (!m.firstName && !m.lastName && !m.email) return null;
+  return {
+    firstName: m.firstName ?? null,
+    lastName: m.lastName ?? null,
+    title: m.title ?? null,
+    linkedinUrl: m.linkedinUrl ?? m.linkedin_url ?? null,
+    organizationName: m.organizationName ?? m.organization_name ?? null,
+    organizationDomain: m.organizationDomain ?? m.organization_domain ?? null,
+    organizationIndustry: m.organizationIndustry ?? m.organization_industry ?? null,
+    organizationSize: m.organizationSize ?? m.organization_size ?? null,
+  };
+}
 
 router.get("/leads", authenticate, async (req: AuthenticatedRequest, res) => {
   try {
@@ -31,23 +48,10 @@ router.get("/leads", authenticate, async (req: AuthenticatedRequest, res) => {
       where: and(...conditions),
     });
 
-    // Get enrichment data for all leads
-    const emails = leads.map((l) => l.email.toLowerCase());
-    const enrichmentData = emails.length > 0
-      ? await db.query.enrichments.findMany({
-          where: (table, { inArray }) => inArray(table.email, emails),
-        })
-      : [];
-
-    // Create email -> enrichment map
-    const enrichmentMap = new Map(
-      enrichmentData.map((e) => [e.email.toLowerCase(), e])
-    );
-
-    // Join leads with enrichments
+    // Extract enrichment from metadata (Apollo data is stored in servedLeads.metadata)
     const enrichedLeads = leads.map((lead) => ({
       ...lead,
-      enrichment: enrichmentMap.get(lead.email.toLowerCase()) ?? null,
+      enrichment: extractEnrichment(lead.metadata),
     }));
 
     res.json({ leads: enrichedLeads });
