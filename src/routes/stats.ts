@@ -2,13 +2,14 @@ import { Router } from "express";
 import { eq, and, count, inArray, or, type SQL } from "drizzle-orm";
 import { type AuthenticatedRequest, authenticate } from "../middleware/auth.js";
 import { db } from "../db/index.js";
-import { servedLeads, organizations } from "../db/schema.js";
+import { servedLeads, leadBuffer, organizations } from "../db/schema.js";
 
 const router = Router();
 
 router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
   /*
-    #swagger.summary = 'Get served lead count'
+    #swagger.summary = 'Get lead stats by status'
+    #swagger.description = 'Returns counts of leads by status: served (delivered with verified email), buffered (awaiting enrichment), and skipped (no email found).'
     #swagger.parameters['x-app-id'] = { in: 'header', required: true, type: 'string', description: 'Identifies the calling application, e.g. mcpfactory' }
     #swagger.parameters['x-org-id'] = { in: 'header', required: true, type: 'string', description: 'External organization ID, e.g. Clerk org ID' }
     #swagger.parameters['brandId'] = { in: 'query', type: 'string', required: false }
@@ -17,22 +18,36 @@ router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
   try {
     const { brandId, campaignId } = req.query;
 
-    const conditions: SQL[] = [eq(servedLeads.organizationId, req.organizationId!)];
+    const servedConditions: SQL[] = [eq(servedLeads.organizationId, req.organizationId!)];
+    const bufferConditions: SQL[] = [eq(leadBuffer.organizationId, req.organizationId!)];
 
     if (brandId && typeof brandId === "string") {
-      conditions.push(eq(servedLeads.brandId, brandId));
+      servedConditions.push(eq(servedLeads.brandId, brandId));
+      bufferConditions.push(eq(leadBuffer.brandId, brandId));
     }
     if (campaignId && typeof campaignId === "string") {
-      conditions.push(eq(servedLeads.campaignId, campaignId));
+      servedConditions.push(eq(servedLeads.campaignId, campaignId));
+      bufferConditions.push(eq(leadBuffer.campaignId, campaignId));
     }
 
-    const [result] = await db
-      .select({ totalServed: count() })
+    const [servedResult] = await db
+      .select({ count: count() })
       .from(servedLeads)
-      .where(and(...conditions));
+      .where(and(...servedConditions));
 
-    const totalServed = result?.totalServed ?? 0;
-    res.json({ totalServed });
+    const bufferRows = await db
+      .select({ status: leadBuffer.status, count: count() })
+      .from(leadBuffer)
+      .where(and(...bufferConditions))
+      .groupBy(leadBuffer.status);
+
+    const bufferByStatus = Object.fromEntries(bufferRows.map((r) => [r.status, r.count]));
+
+    res.json({
+      served: servedResult?.count ?? 0,
+      buffered: bufferByStatus["buffered"] ?? 0,
+      skipped: bufferByStatus["skipped"] ?? 0,
+    });
   } catch (error) {
     console.error("[stats] Error:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -41,7 +56,8 @@ router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
 
 router.post("/stats", async (req, res) => {
   /*
-    #swagger.summary = 'Get served lead count (internal)'
+    #swagger.summary = 'Get lead stats by status (internal)'
+    #swagger.description = 'Service-to-service endpoint. Returns counts of leads by status: served (delivered with verified email), buffered (awaiting enrichment), and skipped (no email found).'
     #swagger.requestBody = {
       required: true,
       content: {
@@ -63,47 +79,64 @@ router.post("/stats", async (req, res) => {
   try {
     const { runIds, appId, brandId, campaignId, clerkOrgId } = req.body ?? {};
 
-    const conditions: SQL[] = [];
+    const servedConditions: SQL[] = [];
+    const bufferConditions: SQL[] = [];
 
     if (runIds && Array.isArray(runIds) && runIds.length > 0) {
-      conditions.push(
+      servedConditions.push(
         or(
           inArray(servedLeads.parentRunId, runIds),
           inArray(servedLeads.runId, runIds)
         )!
       );
+      bufferConditions.push(inArray(leadBuffer.pushRunId, runIds));
     }
     if (brandId) {
-      conditions.push(eq(servedLeads.brandId, brandId));
+      servedConditions.push(eq(servedLeads.brandId, brandId));
+      bufferConditions.push(eq(leadBuffer.brandId, brandId));
     }
     if (campaignId) {
-      conditions.push(eq(servedLeads.campaignId, campaignId));
+      servedConditions.push(eq(servedLeads.campaignId, campaignId));
+      bufferConditions.push(eq(leadBuffer.campaignId, campaignId));
     }
     if (clerkOrgId) {
-      conditions.push(eq(servedLeads.clerkOrgId, clerkOrgId));
+      servedConditions.push(eq(servedLeads.clerkOrgId, clerkOrgId));
+      bufferConditions.push(eq(leadBuffer.clerkOrgId, clerkOrgId));
     }
     if (appId) {
       const orgs = await db.query.organizations.findMany({
         where: eq(organizations.appId, appId),
       });
       if (orgs.length > 0) {
-        conditions.push(
-          inArray(servedLeads.organizationId, orgs.map((o) => o.id))
-        );
+        const orgIds = orgs.map((o) => o.id);
+        servedConditions.push(inArray(servedLeads.organizationId, orgIds));
+        bufferConditions.push(inArray(leadBuffer.organizationId, orgIds));
       } else {
-        return res.json({ totalServed: 0 });
+        return res.json({ served: 0, buffered: 0, skipped: 0 });
       }
     }
 
-    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const servedWhere = servedConditions.length > 0 ? and(...servedConditions) : undefined;
+    const bufferWhere = bufferConditions.length > 0 ? and(...bufferConditions) : undefined;
 
-    const [result] = await db
-      .select({ totalServed: count() })
+    const [servedResult] = await db
+      .select({ count: count() })
       .from(servedLeads)
-      .where(where);
+      .where(servedWhere);
 
-    const totalServed = result?.totalServed ?? 0;
-    res.json({ totalServed });
+    const bufferRows = await db
+      .select({ status: leadBuffer.status, count: count() })
+      .from(leadBuffer)
+      .where(bufferWhere)
+      .groupBy(leadBuffer.status);
+
+    const bufferByStatus = Object.fromEntries(bufferRows.map((r) => [r.status, r.count]));
+
+    res.json({
+      served: servedResult?.count ?? 0,
+      buffered: bufferByStatus["buffered"] ?? 0,
+      skipped: bufferByStatus["skipped"] ?? 0,
+    });
   } catch (error) {
     console.error("[stats] Error:", error);
     res.status(500).json({ error: "Internal server error" });
