@@ -124,9 +124,6 @@ const CursorSetResponseSchema = z
 
 const EnrichmentSchema = z
   .object({
-    id: z.string().uuid(),
-    email: z.string(),
-    apolloPersonId: z.string().nullable(),
     firstName: z.string().nullable(),
     lastName: z.string().nullable(),
     title: z.string().nullable(),
@@ -135,8 +132,6 @@ const EnrichmentSchema = z
     organizationDomain: z.string().nullable(),
     organizationIndustry: z.string().nullable(),
     organizationSize: z.string().nullable(),
-    responseRaw: z.unknown().nullable(),
-    enrichedAt: z.string(),
   })
   .openapi("Enrichment");
 
