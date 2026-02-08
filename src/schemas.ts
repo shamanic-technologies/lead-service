@@ -146,16 +146,6 @@ const StatsResponseSchema = z
   })
   .openapi("StatsResponse");
 
-export const StatsPostRequestSchema = z
-  .object({
-    runIds: z.array(z.string()).optional(),
-    appId: z.string().optional(),
-    brandId: z.string().optional(),
-    campaignId: z.string().optional(),
-    clerkOrgId: z.string().optional(),
-  })
-  .openapi("StatsPostRequest");
-
 // --- Register Paths ---
 
 registry.registerPath({
@@ -273,6 +263,12 @@ registry.registerPath({
     },
     {
       in: "query" as const,
+      name: "campaignId",
+      required: false,
+      schema: { type: "string" as const },
+    },
+    {
+      in: "query" as const,
       name: "clerkOrgId",
       required: false,
       schema: { type: "string" as const },
@@ -313,6 +309,31 @@ registry.registerPath({
       required: false,
       schema: { type: "string" as const },
     },
+    {
+      in: "query" as const,
+      name: "clerkOrgId",
+      required: false,
+      schema: { type: "string" as const },
+    },
+    {
+      in: "query" as const,
+      name: "clerkUserId",
+      required: false,
+      schema: { type: "string" as const },
+    },
+    {
+      in: "query" as const,
+      name: "appId",
+      required: false,
+      schema: { type: "string" as const },
+    },
+    {
+      in: "query" as const,
+      name: "runIds",
+      required: false,
+      description: "Comma-separated list of run IDs",
+      schema: { type: "string" as const },
+    },
   ],
   responses: {
     200: {
@@ -320,25 +341,6 @@ registry.registerPath({
       content: { "application/json": { schema: StatsResponseSchema } },
     },
     401: { description: "Unauthorized" },
-  },
-});
-
-registry.registerPath({
-  method: "post",
-  path: "/stats",
-  summary: "Get lead stats by status (internal)",
-  description:
-    "Service-to-service endpoint. Returns counts of leads by status.",
-  request: {
-    body: {
-      content: { "application/json": { schema: StatsPostRequestSchema } },
-    },
-  },
-  responses: {
-    200: {
-      description: "Lead stats by status with Apollo metrics",
-      content: { "application/json": { schema: StatsResponseSchema } },
-    },
   },
 });
 
