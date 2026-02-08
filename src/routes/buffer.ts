@@ -17,21 +17,14 @@ router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res)
     const clerkOrgId = req.externalOrgId ?? null;
 
     // Create child run for traceability
-    let pushRunId: string | null = null;
-    if (parentRunId && req.externalOrgId) {
-      try {
-        const runsOrgId = await ensureOrganization(req.externalOrgId);
-        const childRun = await createRun({
-          organizationId: runsOrgId,
-          serviceName: "lead-service",
-          taskName: "buffer-push",
-          parentRunId,
-        });
-        pushRunId = childRun.id;
-      } catch (err) {
-        console.error("[buffer/push] Failed to create run:", err);
-      }
-    }
+    const runsOrgId = await ensureOrganization(req.externalOrgId!);
+    const childRun = await createRun({
+      organizationId: runsOrgId,
+      serviceName: "lead-service",
+      taskName: "buffer-push",
+      parentRunId,
+    });
+    const pushRunId = childRun.id;
 
     const result = await pushLeads({
       organizationId: req.organizationId!,
@@ -43,12 +36,10 @@ router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res)
       leads,
     });
 
-    if (pushRunId) {
-      try {
-        await updateRun(pushRunId, "completed");
-      } catch (err) {
-        console.error("[buffer/push] Failed to update run:", err);
-      }
+    try {
+      await updateRun(pushRunId, "completed");
+    } catch (err) {
+      console.error("[buffer/push] Failed to update run:", err);
     }
 
     res.json(result);
@@ -69,27 +60,20 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
     const clerkOrgId = req.externalOrgId ?? null;
 
     // Create child run for traceability
-    let serveRunId: string | null = null;
-    if (parentRunId && req.externalOrgId) {
-      try {
-        const runsOrgId = await ensureOrganization(req.externalOrgId);
-        const childRun = await createRun({
-          organizationId: runsOrgId,
-          serviceName: "lead-service",
-          taskName: "lead-serve",
-          parentRunId,
-        });
-        serveRunId = childRun.id;
-      } catch (err) {
-        console.error("[buffer/next] Failed to create run:", err);
-      }
-    }
+    const runsOrgId = await ensureOrganization(req.externalOrgId!);
+    const childRun = await createRun({
+      organizationId: runsOrgId,
+      serviceName: "lead-service",
+      taskName: "lead-serve",
+      parentRunId,
+    });
+    const serveRunId = childRun.id;
 
     const result = await pullNext({
       organizationId: req.organizationId!,
       campaignId,
       brandId,
-      parentRunId: parentRunId ?? null,
+      parentRunId,
       runId: serveRunId,
       searchParams: searchParams ?? undefined,
       clerkOrgId,
@@ -97,12 +81,10 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       appId: req.appId,
     });
 
-    if (serveRunId) {
-      try {
-        await updateRun(serveRunId, "completed");
-      } catch (err) {
-        console.error("[buffer/next] Failed to update run:", err);
-      }
+    try {
+      await updateRun(serveRunId, "completed");
+    } catch (err) {
+      console.error("[buffer/next] Failed to update run:", err);
     }
 
     res.json(result);

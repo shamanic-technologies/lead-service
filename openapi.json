@@ -98,6 +98,7 @@
         "required": [
           "campaignId",
           "brandId",
+          "parentRunId",
           "leads"
         ]
       },
@@ -169,7 +170,8 @@
         },
         "required": [
           "campaignId",
-          "brandId"
+          "brandId",
+          "parentRunId"
         ]
       },
       "CursorGetResponse": {
@@ -258,7 +260,7 @@
           "skipped",
           "apollo"
         ]
-      },
+      }
     },
     "parameters": {},
     "securitySchemes": {
@@ -685,32 +687,32 @@
             }
           },
           {
+            "in": "query",
             "name": "clerkOrgId",
-            "in": "query",
             "required": false,
             "schema": {
               "type": "string"
             }
           },
           {
+            "in": "query",
             "name": "clerkUserId",
-            "in": "query",
             "required": false,
             "schema": {
               "type": "string"
             }
           },
           {
+            "in": "query",
             "name": "appId",
-            "in": "query",
             "required": false,
             "schema": {
               "type": "string"
             }
           },
           {
-            "name": "runIds",
             "in": "query",
+            "name": "runIds",
             "required": false,
             "description": "Comma-separated list of run IDs",
             "schema": {

@@ -59,7 +59,7 @@ export const BufferPushRequestSchema = z
   .object({
     campaignId: z.string(),
     brandId: z.string(),
-    parentRunId: z.string().optional(),
+    parentRunId: z.string(),
     clerkUserId: z.string().optional(),
     leads: z.array(LeadInputSchema),
   })
@@ -78,7 +78,7 @@ export const BufferNextRequestSchema = z
   .object({
     campaignId: z.string(),
     brandId: z.string(),
-    parentRunId: z.string().optional(),
+    parentRunId: z.string(),
     searchParams: z.record(z.string(), z.unknown()).optional(),
     clerkUserId: z.string().optional(),
   })
