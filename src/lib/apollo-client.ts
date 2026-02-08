@@ -69,7 +69,7 @@ interface ApolloSearchRawResponse {
 export async function apolloSearch(
   params: ApolloSearchParams,
   page: number = 1,
-  options?: { runId?: string | null; clerkOrgId?: string | null }
+  options?: { runId?: string | null; clerkOrgId?: string | null; appId?: string; brandId?: string; campaignId?: string }
 ): Promise<ApolloSearchResult | null> {
   try {
     const headers: Record<string, string> = {};
@@ -77,7 +77,14 @@ export async function apolloSearch(
 
     const raw = await callApolloService<ApolloSearchRawResponse>("/search", {
       method: "POST",
-      body: { ...params, page, ...(options?.runId ? { runId: options.runId } : {}) },
+      body: {
+        ...params,
+        page,
+        ...(options?.runId ? { runId: options.runId } : {}),
+        ...(options?.appId ? { appId: options.appId } : {}),
+        ...(options?.brandId ? { brandId: options.brandId } : {}),
+        ...(options?.campaignId ? { campaignId: options.campaignId } : {}),
+      },
       headers,
     });
 
@@ -215,7 +222,7 @@ export interface ApolloEnrichResult {
 
 export async function apolloEnrich(
   personId: string,
-  options?: { runId?: string | null; clerkOrgId?: string | null }
+  options?: { runId?: string | null; clerkOrgId?: string | null; appId?: string; brandId?: string; campaignId?: string }
 ): Promise<ApolloEnrichResult | null> {
   try {
     const headers: Record<string, string> = {};
@@ -223,7 +230,13 @@ export async function apolloEnrich(
 
     const result = await callApolloService<ApolloEnrichResult>("/enrich", {
       method: "POST",
-      body: { apolloPersonId: personId, ...(options?.runId ? { runId: options.runId } : {}) },
+      body: {
+        apolloPersonId: personId,
+        ...(options?.runId ? { runId: options.runId } : {}),
+        ...(options?.appId ? { appId: options.appId } : {}),
+        ...(options?.brandId ? { brandId: options.brandId } : {}),
+        ...(options?.campaignId ? { campaignId: options.campaignId } : {}),
+      },
       headers,
     });
 

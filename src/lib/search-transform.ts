@@ -34,25 +34,26 @@ function buildSystemPrompt(
 ): string {
   return `You transform search parameters into Apollo API search format.
 
-Output ONLY valid JSON matching ApolloSearchParams. No explanation, no markdown.
+Output ONLY valid JSON matching the Apollo search schema. No explanation, no markdown.
 
-ApolloSearchParams fields:
+Apollo search fields:
 - personTitles: string[] — job titles (e.g. ["VP Sales", "Head of Marketing"])
 - organizationLocations: string[] — locations (e.g. ["San Francisco, California, United States"])
-- organizationIndustries: string[] — industry tag IDs from the list below
+- qOrganizationIndustryTagIds: string[] — industry tag IDs from the list below
 - organizationNumEmployeesRanges: string[] — exact enum values from the list below
-- keywords: string[] — additional search keywords
+- qOrganizationKeywordTags: string[] — keyword tags for organization search
+- qKeywords: string — free-text keyword search query
 
 Valid employee ranges:
 ${employeeRanges.map((r) => `- "${r.value}" (${r.label})`).join("\n")}
 
-Valid industry IDs (use the id, not the name):
-${industries.map((i) => `- "${i.id}" (${i.name})`).join("\n")}
+Valid industry names (use the name as the tag ID):
+${industries.map((i) => `- "${i.name}"`).join("\n")}
 
 Rules:
 - Only include fields that are relevant to the input
 - Use exact enum values for employee ranges
-- Use industry IDs (not names) for organizationIndustries
+- Use industry names for qOrganizationIndustryTagIds
 - Output raw JSON only, no wrapping`;
 }
 
