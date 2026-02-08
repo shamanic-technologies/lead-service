@@ -1,32 +1,36 @@
-import swaggerAutogen from "swagger-autogen";
-import { fileURLToPath } from "url";
-import { dirname, join } from "path";
+import { OpenApiGeneratorV3 } from "@asteasolutions/zod-to-openapi";
+import { registry } from "../src/schemas";
+import * as fs from "fs";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const projectRoot = join(__dirname, "..");
+const generator = new OpenApiGeneratorV3(registry.definitions);
 
-const doc = {
+const document = generator.generateDocument({
+  openapi: "3.0.0",
   info: {
     title: "Lead Service",
-    description: "Manages lead buffering, deduplication, cursor pagination, and enrichment for campaign outreach.",
+    description:
+      "Manages lead buffering, deduplication, cursor pagination, and enrichment for campaign outreach.",
     version: "1.0.0",
   },
-  host: process.env.SERVICE_URL || "http://localhost:3006",
-  basePath: "/",
-  schemes: ["https"],
-  securityDefinitions: {
+  servers: [
+    { url: process.env.SERVICE_URL || "http://localhost:3006" },
+  ],
+  security: [{ apiKey: [] }],
+});
+
+// Add security scheme (zod-to-openapi doesn't handle securityDefinitions directly)
+(document as Record<string, unknown>).components = {
+  ...(document.components ?? {}),
+  securitySchemes: {
     apiKey: {
       type: "apiKey",
       in: "header",
       name: "x-api-key",
-      description: "API key for authenticating requests. Must match the LEAD_SERVICE_API_KEY env var on the server.",
+      description:
+        "API key for authenticating requests. Must match the LEAD_SERVICE_API_KEY env var on the server.",
     },
   },
-  security: [{ apiKey: [] }],
 };
 
-const outputFile = join(projectRoot, "openapi.json");
-const routes = [join(projectRoot, "src/index.ts")];
-
-swaggerAutogen({ openapi: "3.0.0" })(outputFile, routes, doc);
+fs.writeFileSync("openapi.json", JSON.stringify(document, null, 2));
+console.log("Generated openapi.json");

@@ -2,40 +2,19 @@ import { Router } from "express";
 import { type AuthenticatedRequest, authenticate } from "../middleware/auth.js";
 import { pushLeads, pullNext } from "../lib/buffer.js";
 import { ensureOrganization, createRun, updateRun } from "../lib/runs-client.js";
+import { BufferPushRequestSchema, BufferNextRequestSchema } from "../schemas.js";
 
 const router = Router();
 
 router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res) => {
-  /*
-    #swagger.summary = 'Push leads into the buffer'
-    #swagger.parameters['x-app-id'] = { in: 'header', required: true, type: 'string', description: 'Identifies the calling application, e.g. mcpfactory' }
-    #swagger.parameters['x-org-id'] = { in: 'header', required: true, type: 'string', description: 'External organization ID, e.g. Clerk org ID' }
-    #swagger.requestBody = {
-      required: true,
-      content: {
-        "application/json": {
-          schema: {
-            type: "object",
-            required: ["campaignId", "brandId", "leads"],
-            properties: {
-              campaignId: { type: "string" },
-              brandId: { type: "string" },
-              parentRunId: { type: "string" },
-              clerkUserId: { type: "string" },
-              leads: { type: "array", items: { type: "object" } }
-            }
-          }
-        }
-      }
-    }
-  */
-  try {
-    const { campaignId, brandId, parentRunId, clerkUserId, leads } = req.body;
-    const clerkOrgId = req.externalOrgId ?? null;
+  const parsed = BufferPushRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+  }
 
-    if (!campaignId || !brandId || !Array.isArray(leads)) {
-      return res.status(400).json({ error: "campaignId, brandId, and leads[] required" });
-    }
+  try {
+    const { campaignId, brandId, parentRunId, clerkUserId, leads } = parsed.data;
+    const clerkOrgId = req.externalOrgId ?? null;
 
     // Create child run for traceability
     let pushRunId: string | null = null;
@@ -80,36 +59,14 @@ router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res)
 });
 
 router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res) => {
-  /*
-    #swagger.summary = 'Pull the next lead from the buffer'
-    #swagger.parameters['x-app-id'] = { in: 'header', required: true, type: 'string', description: 'Identifies the calling application, e.g. mcpfactory' }
-    #swagger.parameters['x-org-id'] = { in: 'header', required: true, type: 'string', description: 'External organization ID, e.g. Clerk org ID' }
-    #swagger.requestBody = {
-      required: true,
-      content: {
-        "application/json": {
-          schema: {
-            type: "object",
-            required: ["campaignId", "brandId"],
-            properties: {
-              campaignId: { type: "string" },
-              brandId: { type: "string" },
-              parentRunId: { type: "string" },
-              searchParams: { type: "object" },
-              clerkUserId: { type: "string" }
-            }
-          }
-        }
-      }
-    }
-  */
-  try {
-    const { campaignId, brandId, parentRunId, searchParams, clerkUserId } = req.body;
-    const clerkOrgId = req.externalOrgId ?? null;
+  const parsed = BufferNextRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+  }
 
-    if (!campaignId || !brandId) {
-      return res.status(400).json({ error: "campaignId and brandId required" });
-    }
+  try {
+    const { campaignId, brandId, parentRunId, searchParams, clerkUserId } = parsed.data;
+    const clerkOrgId = req.externalOrgId ?? null;
 
     // Create child run for traceability
     let serveRunId: string | null = null;
