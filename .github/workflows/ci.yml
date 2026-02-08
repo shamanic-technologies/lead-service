@@ -38,6 +38,4 @@ jobs:
         env:
           NODE_ENV: test
           LEAD_SERVICE_DATABASE_URL: ${{ secrets.LEAD_SERVICE_DATABASE_URL }}
-          RUNS_SERVICE_URL: ${{ secrets.RUNS_SERVICE_URL }}
-          RUNS_SERVICE_API_KEY: ${{ secrets.RUNS_SERVICE_API_KEY }}
         run: pnpm test:integration

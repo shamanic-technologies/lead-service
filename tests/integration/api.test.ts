@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import request from "supertest";
 import app from "../../src/index.js";
 import {
@@ -8,6 +8,13 @@ import {
   getAuthHeaders,
   TEST_API_KEY,
 } from "./setup.js";
+
+vi.mock("../../src/lib/runs-client.js", () => ({
+  ensureOrganization: vi.fn().mockResolvedValue("mock-org-id"),
+  createRun: vi.fn().mockResolvedValue({ id: "mock-run-id" }),
+  updateRun: vi.fn().mockResolvedValue(undefined),
+  addCosts: vi.fn().mockResolvedValue(undefined),
+}));
 
 describe("API Integration Tests", () => {
   beforeAll(async () => {
