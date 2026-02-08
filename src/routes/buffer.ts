@@ -94,6 +94,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       searchParams: searchParams ?? undefined,
       clerkOrgId,
       clerkUserId: clerkUserId ?? null,
+      appId: req.appId,
     });
 
     if (serveRunId) {

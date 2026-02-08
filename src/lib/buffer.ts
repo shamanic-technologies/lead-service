@@ -98,6 +98,7 @@ async function fillBufferFromSearch(params: {
   pushRunId?: string | null;
   clerkOrgId?: string | null;
   clerkUserId?: string | null;
+  appId?: string;
 }): Promise<{ filled: number; exhausted: boolean }> {
   const cursor = await getCursor(params.organizationId, params.campaignId);
 
@@ -115,6 +116,9 @@ async function fillBufferFromSearch(params: {
   const result = await apolloSearch(validatedParams, cursor.page, {
     runId: params.pushRunId,
     clerkOrgId: params.clerkOrgId,
+    appId: params.appId,
+    brandId: params.brandId,
+    campaignId: params.campaignId,
   });
 
   if (!result) {
@@ -180,6 +184,7 @@ export async function pullNext(params: {
   searchParams?: ApolloSearchParams;
   clerkOrgId?: string | null;
   clerkUserId?: string | null;
+  appId?: string;
 }): Promise<{
   found: boolean;
   lead?: {
@@ -222,6 +227,7 @@ export async function pullNext(params: {
           pushRunId: params.runId,
           clerkOrgId: params.clerkOrgId,
           clerkUserId: params.clerkUserId,
+          appId: params.appId,
         });
 
         if (filled > 0) {
@@ -252,6 +258,9 @@ export async function pullNext(params: {
       const enrichResult = await apolloEnrich(row.externalId, {
         runId: params.runId,
         clerkOrgId: params.clerkOrgId,
+        appId: params.appId,
+        brandId: params.brandId,
+        campaignId: params.campaignId,
       });
 
       if (!enrichResult?.person?.email) {
