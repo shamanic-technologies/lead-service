@@ -207,15 +207,150 @@
           "leads": {
             "type": "array",
             "items": {
-              "type": "object",
-              "additionalProperties": {
-                "nullable": true
-              }
+              "$ref": "#/components/schemas/LeadDetail"
             }
           }
         },
         "required": [
           "leads"
+        ]
+      },
+      "LeadDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organizationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "metadata": {
+            "nullable": true
+          },
+          "parentRunId": {
+            "type": "string",
+            "nullable": true
+          },
+          "runId": {
+            "type": "string",
+            "nullable": true
+          },
+          "brandId": {
+            "type": "string"
+          },
+          "campaignId": {
+            "type": "string"
+          },
+          "clerkOrgId": {
+            "type": "string",
+            "nullable": true
+          },
+          "clerkUserId": {
+            "type": "string",
+            "nullable": true
+          },
+          "servedAt": {
+            "type": "string"
+          },
+          "enrichment": {
+            "$ref": "#/components/schemas/Enrichment"
+          }
+        },
+        "required": [
+          "id",
+          "organizationId",
+          "namespace",
+          "email",
+          "externalId",
+          "parentRunId",
+          "runId",
+          "brandId",
+          "campaignId",
+          "clerkOrgId",
+          "clerkUserId",
+          "servedAt",
+          "enrichment"
+        ]
+      },
+      "Enrichment": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string"
+          },
+          "apolloPersonId": {
+            "type": "string",
+            "nullable": true
+          },
+          "firstName": {
+            "type": "string",
+            "nullable": true
+          },
+          "lastName": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "linkedinUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationName": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationDomain": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationIndustry": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationSize": {
+            "type": "string",
+            "nullable": true
+          },
+          "responseRaw": {
+            "nullable": true
+          },
+          "enrichedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "apolloPersonId",
+          "firstName",
+          "lastName",
+          "title",
+          "linkedinUrl",
+          "organizationName",
+          "organizationDomain",
+          "organizationIndustry",
+          "organizationSize",
+          "enrichedAt"
         ]
       },
       "StatsResponse": {

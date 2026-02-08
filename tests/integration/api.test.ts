@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import request from "supertest";
 import app from "../../src/index.js";
 import {
@@ -8,6 +8,13 @@ import {
   getAuthHeaders,
   TEST_API_KEY,
 } from "./setup.js";
+
+vi.mock("../../src/lib/runs-client.js", () => ({
+  ensureOrganization: vi.fn().mockResolvedValue("mock-org-id"),
+  createRun: vi.fn().mockResolvedValue({ id: "mock-run-id" }),
+  updateRun: vi.fn().mockResolvedValue(undefined),
+  addCosts: vi.fn().mockResolvedValue(undefined),
+}));
 
 describe("API Integration Tests", () => {
   beforeAll(async () => {
@@ -49,6 +56,7 @@ describe("API Integration Tests", () => {
         .send({
           campaignId: "campaign-a",
           brandId: "brand-a",
+          parentRunId: "test-run-push-a",
           leads: [
             { email: "alice@example.com", externalId: "e1", data: { name: "Alice" } },
             { email: "bob@example.com", externalId: "e2", data: { name: "Bob" } },
@@ -79,6 +87,7 @@ describe("API Integration Tests", () => {
         .send({
           campaignId: "campaign-b",
           brandId: "brand-b",
+          parentRunId: "test-run-push-b",
           leads: [{ email: "charlie@example.com", data: { name: "Charlie" } }],
         });
 
@@ -86,7 +95,7 @@ describe("API Integration Tests", () => {
       const res = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ campaignId: "campaign-b", brandId: "brand-b" });
+        .send({ campaignId: "campaign-b", brandId: "brand-b", parentRunId: "test-run-next-b" });
 
       expect(res.status).toBe(200);
       expect(res.body.found).toBe(true);
@@ -97,7 +106,7 @@ describe("API Integration Tests", () => {
       const res = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ campaignId: "campaign-empty", brandId: "brand-empty" });
+        .send({ campaignId: "campaign-empty", brandId: "brand-empty", parentRunId: "test-run-next-empty" });
 
       expect(res.status).toBe(200);
       expect(res.body.found).toBe(false);
@@ -111,6 +120,7 @@ describe("API Integration Tests", () => {
         .send({
           campaignId: "campaign-c",
           brandId: "brand-c",
+          parentRunId: "test-run-push-c1",
           leads: [{ email: "dedup@example.com" }],
         });
 
@@ -118,7 +128,7 @@ describe("API Integration Tests", () => {
       const first = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ campaignId: "campaign-c", brandId: "brand-c" });
+        .send({ campaignId: "campaign-c", brandId: "brand-c", parentRunId: "test-run-next-c1" });
 
       expect(first.body.found).toBe(true);
 
@@ -129,6 +139,7 @@ describe("API Integration Tests", () => {
         .send({
           campaignId: "campaign-c",
           brandId: "brand-c",
+          parentRunId: "test-run-push-c2",
           leads: [{ email: "dedup@example.com" }],
         });
 
@@ -138,7 +149,7 @@ describe("API Integration Tests", () => {
       const second = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ campaignId: "campaign-c", brandId: "brand-c" });
+        .send({ campaignId: "campaign-c", brandId: "brand-c", parentRunId: "test-run-next-c2" });
 
       expect(second.body.found).toBe(false);
     }, 10000); // Increased timeout for CI database latency
