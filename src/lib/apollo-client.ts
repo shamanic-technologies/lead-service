@@ -177,6 +177,36 @@ export async function fetchEmployeeRanges(clerkOrgId?: string | null): Promise<A
   return data;
 }
 
+// --- Stats ---
+
+export interface ApolloStats {
+  enrichedLeadsCount: number;
+  searchCount: number;
+  fetchedPeopleCount: number;
+  totalMatchingPeople: number;
+}
+
+export async function fetchApolloStats(
+  filters: { runIds?: string[]; appId?: string; brandId?: string; campaignId?: string },
+  clerkOrgId?: string | null
+): Promise<ApolloStats> {
+  try {
+    const headers: Record<string, string> = {};
+    if (clerkOrgId) headers["x-clerk-org-id"] = clerkOrgId;
+
+    const result = await callApolloService<{ stats: ApolloStats }>("/stats", {
+      method: "POST",
+      body: filters,
+      headers,
+    });
+
+    return result.stats;
+  } catch (error) {
+    console.error("[apollo-client] Stats fetch failed:", error);
+    return { enrichedLeadsCount: 0, searchCount: 0, fetchedPeopleCount: 0, totalMatchingPeople: 0 };
+  }
+}
+
 // --- Enrichment ---
 
 export interface ApolloEnrichResult {

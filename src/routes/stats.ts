@@ -3,6 +3,7 @@ import { eq, and, count, inArray, or, type SQL } from "drizzle-orm";
 import { type AuthenticatedRequest, authenticate } from "../middleware/auth.js";
 import { db } from "../db/index.js";
 import { servedLeads, leadBuffer, organizations } from "../db/schema.js";
+import { fetchApolloStats } from "../lib/apollo-client.js";
 
 const router = Router();
 
@@ -15,16 +16,25 @@ router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
     #swagger.parameters['brandId'] = { in: 'query', type: 'string', required: false }
     #swagger.parameters['campaignId'] = { in: 'query', type: 'string', required: false }
     #swagger.responses[200] = {
-      description: 'Lead stats by status',
+      description: 'Lead stats by status with Apollo search/enrichment metrics',
       content: {
         "application/json": {
           schema: {
             type: "object",
-            required: ["served", "buffered", "skipped"],
+            required: ["served", "buffered", "skipped", "apollo"],
             properties: {
               served: { type: "integer", description: "Leads with verified email, delivered to campaign" },
               buffered: { type: "integer", description: "Leads awaiting email enrichment" },
-              skipped: { type: "integer", description: "Leads where no email was found" }
+              skipped: { type: "integer", description: "Leads where no email was found" },
+              apollo: {
+                type: "object",
+                properties: {
+                  enrichedLeadsCount: { type: "integer", description: "Number of enriched lead records" },
+                  searchCount: { type: "integer", description: "Number of search operations performed" },
+                  fetchedPeopleCount: { type: "integer", description: "Sum of people returned from searches" },
+                  totalMatchingPeople: { type: "integer", description: "Sum of total matching people in Apollo" }
+                }
+              }
             }
           }
         }
@@ -33,29 +43,26 @@ router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
   */
   try {
     const { brandId, campaignId } = req.query;
+    const brandIdStr = typeof brandId === "string" ? brandId : undefined;
+    const campaignIdStr = typeof campaignId === "string" ? campaignId : undefined;
 
     const servedConditions: SQL[] = [eq(servedLeads.organizationId, req.organizationId!)];
     const bufferConditions: SQL[] = [eq(leadBuffer.organizationId, req.organizationId!)];
 
-    if (brandId && typeof brandId === "string") {
-      servedConditions.push(eq(servedLeads.brandId, brandId));
-      bufferConditions.push(eq(leadBuffer.brandId, brandId));
+    if (brandIdStr) {
+      servedConditions.push(eq(servedLeads.brandId, brandIdStr));
+      bufferConditions.push(eq(leadBuffer.brandId, brandIdStr));
     }
-    if (campaignId && typeof campaignId === "string") {
-      servedConditions.push(eq(servedLeads.campaignId, campaignId));
-      bufferConditions.push(eq(leadBuffer.campaignId, campaignId));
+    if (campaignIdStr) {
+      servedConditions.push(eq(servedLeads.campaignId, campaignIdStr));
+      bufferConditions.push(eq(leadBuffer.campaignId, campaignIdStr));
     }
 
-    const [servedResult] = await db
-      .select({ count: count() })
-      .from(servedLeads)
-      .where(and(...servedConditions));
-
-    const bufferRows = await db
-      .select({ status: leadBuffer.status, count: count() })
-      .from(leadBuffer)
-      .where(and(...bufferConditions))
-      .groupBy(leadBuffer.status);
+    const [servedResult, bufferRows, apollo] = await Promise.all([
+      db.select({ count: count() }).from(servedLeads).where(and(...servedConditions)).then(([r]) => r),
+      db.select({ status: leadBuffer.status, count: count() }).from(leadBuffer).where(and(...bufferConditions)).groupBy(leadBuffer.status),
+      fetchApolloStats({ brandId: brandIdStr, campaignId: campaignIdStr }, req.externalOrgId),
+    ]);
 
     const bufferByStatus = Object.fromEntries(bufferRows.map((r) => [r.status, r.count]));
 
@@ -63,6 +70,7 @@ router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
       served: servedResult?.count ?? 0,
       buffered: bufferByStatus["buffered"] ?? 0,
       skipped: bufferByStatus["skipped"] ?? 0,
+      apollo,
     });
   } catch (error) {
     console.error("[stats] Error:", error);
@@ -92,16 +100,25 @@ router.post("/stats", async (req, res) => {
       }
     }
     #swagger.responses[200] = {
-      description: 'Lead stats by status',
+      description: 'Lead stats by status with Apollo search/enrichment metrics',
       content: {
         "application/json": {
           schema: {
             type: "object",
-            required: ["served", "buffered", "skipped"],
+            required: ["served", "buffered", "skipped", "apollo"],
             properties: {
               served: { type: "integer", description: "Leads with verified email, delivered to campaign" },
               buffered: { type: "integer", description: "Leads awaiting email enrichment" },
-              skipped: { type: "integer", description: "Leads where no email was found" }
+              skipped: { type: "integer", description: "Leads where no email was found" },
+              apollo: {
+                type: "object",
+                properties: {
+                  enrichedLeadsCount: { type: "integer", description: "Number of enriched lead records" },
+                  searchCount: { type: "integer", description: "Number of search operations performed" },
+                  fetchedPeopleCount: { type: "integer", description: "Sum of people returned from searches" },
+                  totalMatchingPeople: { type: "integer", description: "Sum of total matching people in Apollo" }
+                }
+              }
             }
           }
         }
@@ -144,23 +161,25 @@ router.post("/stats", async (req, res) => {
         servedConditions.push(inArray(servedLeads.organizationId, orgIds));
         bufferConditions.push(inArray(leadBuffer.organizationId, orgIds));
       } else {
-        return res.json({ served: 0, buffered: 0, skipped: 0 });
+        const emptyApollo = { enrichedLeadsCount: 0, searchCount: 0, fetchedPeopleCount: 0, totalMatchingPeople: 0 };
+        return res.json({ served: 0, buffered: 0, skipped: 0, apollo: emptyApollo });
       }
     }
 
     const servedWhere = servedConditions.length > 0 ? and(...servedConditions) : undefined;
     const bufferWhere = bufferConditions.length > 0 ? and(...bufferConditions) : undefined;
 
-    const [servedResult] = await db
-      .select({ count: count() })
-      .from(servedLeads)
-      .where(servedWhere);
+    const apolloFilters: Record<string, unknown> = {};
+    if (runIds) apolloFilters.runIds = runIds;
+    if (appId) apolloFilters.appId = appId;
+    if (brandId) apolloFilters.brandId = brandId;
+    if (campaignId) apolloFilters.campaignId = campaignId;
 
-    const bufferRows = await db
-      .select({ status: leadBuffer.status, count: count() })
-      .from(leadBuffer)
-      .where(bufferWhere)
-      .groupBy(leadBuffer.status);
+    const [servedResult, bufferRows, apollo] = await Promise.all([
+      db.select({ count: count() }).from(servedLeads).where(servedWhere).then(([r]) => r),
+      db.select({ status: leadBuffer.status, count: count() }).from(leadBuffer).where(bufferWhere).groupBy(leadBuffer.status),
+      fetchApolloStats(apolloFilters as Parameters<typeof fetchApolloStats>[0], clerkOrgId),
+    ]);
 
     const bufferByStatus = Object.fromEntries(bufferRows.map((r) => [r.status, r.count]));
 
@@ -168,6 +187,7 @@ router.post("/stats", async (req, res) => {
       served: servedResult?.count ?? 0,
       buffered: bufferByStatus["buffered"] ?? 0,
       skipped: bufferByStatus["skipped"] ?? 0,
+      apollo,
     });
   } catch (error) {
     console.error("[stats] Error:", error);

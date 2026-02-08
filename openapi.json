@@ -436,7 +436,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Lead stats by status",
+            "description": "Lead stats by status with Apollo search/enrichment metrics",
             "content": {
               "application/json": {
                 "schema": {
@@ -444,7 +444,8 @@
                   "required": [
                     "served",
                     "buffered",
-                    "skipped"
+                    "skipped",
+                    "apollo"
                   ],
                   "properties": {
                     "served": {
@@ -458,6 +459,27 @@
                     "skipped": {
                       "type": "integer",
                       "description": "Leads where no email was found"
+                    },
+                    "apollo": {
+                      "type": "object",
+                      "properties": {
+                        "enrichedLeadsCount": {
+                          "type": "integer",
+                          "description": "Number of enriched lead records"
+                        },
+                        "searchCount": {
+                          "type": "integer",
+                          "description": "Number of search operations performed"
+                        },
+                        "fetchedPeopleCount": {
+                          "type": "integer",
+                          "description": "Sum of people returned from searches"
+                        },
+                        "totalMatchingPeople": {
+                          "type": "integer",
+                          "description": "Sum of total matching people in Apollo"
+                        }
+                      }
                     }
                   }
                 }
@@ -480,7 +502,7 @@
         "description": "Service-to-service endpoint. Returns counts of leads by status: served (delivered with verified email), buffered (awaiting enrichment), and skipped (no email found).",
         "responses": {
           "200": {
-            "description": "Lead stats by status",
+            "description": "Lead stats by status with Apollo search/enrichment metrics",
             "content": {
               "application/json": {
                 "schema": {
@@ -488,7 +510,8 @@
                   "required": [
                     "served",
                     "buffered",
-                    "skipped"
+                    "skipped",
+                    "apollo"
                   ],
                   "properties": {
                     "served": {
@@ -502,6 +525,27 @@
                     "skipped": {
                       "type": "integer",
                       "description": "Leads where no email was found"
+                    },
+                    "apollo": {
+                      "type": "object",
+                      "properties": {
+                        "enrichedLeadsCount": {
+                          "type": "integer",
+                          "description": "Number of enriched lead records"
+                        },
+                        "searchCount": {
+                          "type": "integer",
+                          "description": "Number of search operations performed"
+                        },
+                        "fetchedPeopleCount": {
+                          "type": "integer",
+                          "description": "Sum of people returned from searches"
+                        },
+                        "totalMatchingPeople": {
+                          "type": "integer",
+                          "description": "Sum of total matching people in Apollo"
+                        }
+                      }
                     }
                   }
                 }
