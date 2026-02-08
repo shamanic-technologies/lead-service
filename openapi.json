@@ -258,29 +258,6 @@
           "skipped",
           "apollo"
         ]
-      },
-      "StatsPostRequest": {
-        "type": "object",
-        "properties": {
-          "runIds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "appId": {
-            "type": "string"
-          },
-          "brandId": {
-            "type": "string"
-          },
-          "campaignId": {
-            "type": "string"
-          },
-          "clerkOrgId": {
-            "type": "string"
-          }
-        }
       }
     },
     "parameters": {},
@@ -619,6 +596,14 @@
           },
           {
             "in": "query",
+            "name": "campaignId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "clerkOrgId",
             "required": false,
             "schema": {
@@ -698,6 +683,39 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "clerkOrgId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "clerkUserId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "appId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "runIds",
+            "required": false,
+            "description": "Comma-separated list of run IDs",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -713,31 +731,6 @@
           },
           "401": {
             "description": "Unauthorized"
-          }
-        }
-      },
-      "post": {
-        "summary": "Get lead stats by status (internal)",
-        "description": "Service-to-service endpoint. Returns counts of leads by status.",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/StatsPostRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Lead stats by status with Apollo metrics",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StatsResponse"
-                }
-              }
-            }
           }
         }
       }

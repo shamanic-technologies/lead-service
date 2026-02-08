@@ -8,13 +8,16 @@ const router = Router();
 
 router.get("/leads", authenticate, async (req: AuthenticatedRequest, res) => {
   try {
-    const { brandId, clerkOrgId, clerkUserId } = req.query;
+    const { brandId, campaignId, clerkOrgId, clerkUserId } = req.query;
 
     // Build filter conditions
     const conditions: SQL[] = [eq(servedLeads.organizationId, req.organizationId!)];
 
     if (brandId && typeof brandId === "string") {
       conditions.push(eq(servedLeads.brandId, brandId));
+    }
+    if (campaignId && typeof campaignId === "string") {
+      conditions.push(eq(servedLeads.campaignId, campaignId));
     }
     if (clerkOrgId && typeof clerkOrgId === "string") {
       conditions.push(eq(servedLeads.clerkOrgId, clerkOrgId));
