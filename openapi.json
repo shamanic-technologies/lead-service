@@ -1,0 +1,563 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Lead Service",
+    "description": "Manages lead buffering, deduplication, cursor pagination, and enrichment for campaign outreach.",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/openapi.json": {
+      "get": {
+        "description": "",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/buffer/push": {
+      "post": {
+        "summary": "Push leads into the buffer",
+        "description": "",
+        "parameters": [
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-app-id",
+            "in": "header",
+            "required": true,
+            "description": "Identifies the calling application, e.g. mcpfactory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "required": true,
+            "description": "External organization ID, e.g. Clerk org ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "campaignId",
+                  "brandId",
+                  "leads"
+                ],
+                "properties": {
+                  "campaignId": {
+                    "type": "string"
+                  },
+                  "brandId": {
+                    "type": "string"
+                  },
+                  "parentRunId": {
+                    "type": "string"
+                  },
+                  "clerkUserId": {
+                    "type": "string"
+                  },
+                  "leads": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/buffer/next": {
+      "post": {
+        "summary": "Pull the next lead from the buffer",
+        "description": "",
+        "parameters": [
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-app-id",
+            "in": "header",
+            "required": true,
+            "description": "Identifies the calling application, e.g. mcpfactory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "required": true,
+            "description": "External organization ID, e.g. Clerk org ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "campaignId",
+                  "brandId"
+                ],
+                "properties": {
+                  "campaignId": {
+                    "type": "string"
+                  },
+                  "brandId": {
+                    "type": "string"
+                  },
+                  "parentRunId": {
+                    "type": "string"
+                  },
+                  "searchParams": {
+                    "type": "object"
+                  },
+                  "clerkUserId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cursor/{namespace}": {
+      "get": {
+        "summary": "Get cursor state for a namespace",
+        "description": "",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-app-id",
+            "in": "header",
+            "required": true,
+            "description": "Identifies the calling application, e.g. mcpfactory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "required": true,
+            "description": "External organization ID, e.g. Clerk org ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      },
+      "put": {
+        "summary": "Set cursor state for a namespace",
+        "description": "",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-app-id",
+            "in": "header",
+            "required": true,
+            "description": "Identifies the calling application, e.g. mcpfactory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "required": true,
+            "description": "External organization ID, e.g. Clerk org ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "state"
+                ],
+                "properties": {
+                  "state": {
+                    "type": "object",
+                    "description": "Arbitrary JSON cursor state"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/leads": {
+      "get": {
+        "summary": "List served leads with enrichment data",
+        "description": "",
+        "parameters": [
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-app-id",
+            "in": "header",
+            "required": true,
+            "description": "Identifies the calling application, e.g. mcpfactory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "required": true,
+            "description": "External organization ID, e.g. Clerk org ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "brandId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "clerkOrgId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "clerkUserId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      }
+    },
+    "/stats": {
+      "get": {
+        "summary": "Get lead stats by status",
+        "description": "Returns counts of leads by status: served (delivered with verified email), buffered (awaiting enrichment), and skipped (no email found).",
+        "parameters": [
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-app-id",
+            "in": "header",
+            "required": true,
+            "description": "Identifies the calling application, e.g. mcpfactory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "required": true,
+            "description": "External organization ID, e.g. Clerk org ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "brandId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "campaignId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lead stats by status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "served",
+                    "buffered",
+                    "skipped"
+                  ],
+                  "properties": {
+                    "served": {
+                      "type": "integer",
+                      "description": "Leads with verified email, delivered to campaign"
+                    },
+                    "buffered": {
+                      "type": "integer",
+                      "description": "Leads awaiting email enrichment"
+                    },
+                    "skipped": {
+                      "type": "integer",
+                      "description": "Leads where no email was found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        }
+      },
+      "post": {
+        "summary": "Get lead stats by status (internal)",
+        "description": "Service-to-service endpoint. Returns counts of leads by status: served (delivered with verified email), buffered (awaiting enrichment), and skipped (no email found).",
+        "responses": {
+          "200": {
+            "description": "Lead stats by status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "served",
+                    "buffered",
+                    "skipped"
+                  ],
+                  "properties": {
+                    "served": {
+                      "type": "integer",
+                      "description": "Leads with verified email, delivered to campaign"
+                    },
+                    "buffered": {
+                      "type": "integer",
+                      "description": "Leads awaiting email enrichment"
+                    },
+                    "skipped": {
+                      "type": "integer",
+                      "description": "Leads where no email was found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "runIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "appId": {
+                    "type": "string"
+                  },
+                  "brandId": {
+                    "type": "string"
+                  },
+                  "campaignId": {
+                    "type": "string"
+                  },
+                  "clerkOrgId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "apiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-api-key",
+        "description": "API key for authenticating requests. Must match the LEAD_SERVICE_API_KEY env var on the server."
+      }
+    }
+  },
+  "security": [
+    {
+      "apiKey": []
+    }
+  ]
+}

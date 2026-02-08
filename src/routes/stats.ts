@@ -14,6 +14,22 @@ router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
     #swagger.parameters['x-org-id'] = { in: 'header', required: true, type: 'string', description: 'External organization ID, e.g. Clerk org ID' }
     #swagger.parameters['brandId'] = { in: 'query', type: 'string', required: false }
     #swagger.parameters['campaignId'] = { in: 'query', type: 'string', required: false }
+    #swagger.responses[200] = {
+      description: 'Lead stats by status',
+      content: {
+        "application/json": {
+          schema: {
+            type: "object",
+            required: ["served", "buffered", "skipped"],
+            properties: {
+              served: { type: "integer", description: "Leads with verified email, delivered to campaign" },
+              buffered: { type: "integer", description: "Leads awaiting email enrichment" },
+              skipped: { type: "integer", description: "Leads where no email was found" }
+            }
+          }
+        }
+      }
+    }
   */
   try {
     const { brandId, campaignId } = req.query;
@@ -70,6 +86,22 @@ router.post("/stats", async (req, res) => {
               brandId: { type: "string" },
               campaignId: { type: "string" },
               clerkOrgId: { type: "string" }
+            }
+          }
+        }
+      }
+    }
+    #swagger.responses[200] = {
+      description: 'Lead stats by status',
+      content: {
+        "application/json": {
+          schema: {
+            type: "object",
+            required: ["served", "buffered", "skipped"],
+            properties: {
+              served: { type: "integer", description: "Leads with verified email, delivered to campaign" },
+              buffered: { type: "integer", description: "Leads awaiting email enrichment" },
+              skipped: { type: "integer", description: "Leads where no email was found" }
             }
           }
         }
