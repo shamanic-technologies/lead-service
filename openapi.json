@@ -5,26 +5,308 @@
     "description": "Manages lead buffering, deduplication, cursor pagination, and enrichment for campaign outreach.",
     "version": "1.0.0"
   },
-  "paths": {
-    "/openapi.json": {
-      "get": {
-        "description": "",
-        "responses": {
-          "200": {
-            "description": "OK"
+  "servers": [
+    {
+      "url": "http://localhost:3006"
+    }
+  ],
+  "security": [
+    {
+      "apiKey": []
+    }
+  ],
+  "components": {
+    "schemas": {
+      "HealthResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
           },
-          "404": {
-            "description": "Not Found"
+          "service": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "service"
+        ]
+      },
+      "BufferPushResponse": {
+        "type": "object",
+        "properties": {
+          "buffered": {
+            "type": "number"
+          },
+          "skippedAlreadyServed": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "buffered",
+          "skippedAlreadyServed"
+        ]
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "BufferPushRequest": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "string"
+          },
+          "brandId": {
+            "type": "string"
+          },
+          "parentRunId": {
+            "type": "string"
+          },
+          "clerkUserId": {
+            "type": "string"
+          },
+          "leads": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "type": "string"
+                },
+                "externalId": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "data": {
+                  "nullable": true
+                }
+              },
+              "required": [
+                "email"
+              ]
+            }
+          }
+        },
+        "required": [
+          "campaignId",
+          "brandId",
+          "leads"
+        ]
+      },
+      "BufferNextResponse": {
+        "type": "object",
+        "properties": {
+          "found": {
+            "type": "boolean"
+          },
+          "lead": {
+            "type": "object",
+            "properties": {
+              "email": {
+                "type": "string"
+              },
+              "externalId": {
+                "type": "string",
+                "nullable": true
+              },
+              "data": {
+                "nullable": true
+              },
+              "brandId": {
+                "type": "string"
+              },
+              "clerkOrgId": {
+                "type": "string",
+                "nullable": true
+              },
+              "clerkUserId": {
+                "type": "string",
+                "nullable": true
+              }
+            },
+            "required": [
+              "email",
+              "externalId",
+              "brandId",
+              "clerkOrgId",
+              "clerkUserId"
+            ]
+          }
+        },
+        "required": [
+          "found"
+        ]
+      },
+      "BufferNextRequest": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "type": "string"
+          },
+          "brandId": {
+            "type": "string"
+          },
+          "parentRunId": {
+            "type": "string"
+          },
+          "searchParams": {
+            "type": "object",
+            "additionalProperties": {
+              "nullable": true
+            }
+          },
+          "clerkUserId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaignId",
+          "brandId"
+        ]
+      },
+      "CursorGetResponse": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "nullable": true
+          }
+        }
+      },
+      "CursorSetResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      },
+      "CursorSetRequest": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "nullable": true
+          }
+        }
+      },
+      "LeadsResponse": {
+        "type": "object",
+        "properties": {
+          "leads": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {
+                "nullable": true
+              }
+            }
+          }
+        },
+        "required": [
+          "leads"
+        ]
+      },
+      "StatsResponse": {
+        "type": "object",
+        "properties": {
+          "served": {
+            "type": "number"
+          },
+          "buffered": {
+            "type": "number"
+          },
+          "skipped": {
+            "type": "number"
+          },
+          "apollo": {
+            "type": "object",
+            "properties": {
+              "enrichedLeadsCount": {
+                "type": "number"
+              },
+              "searchCount": {
+                "type": "number"
+              },
+              "fetchedPeopleCount": {
+                "type": "number"
+              },
+              "totalMatchingPeople": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "enrichedLeadsCount",
+              "searchCount",
+              "fetchedPeopleCount",
+              "totalMatchingPeople"
+            ]
+          }
+        },
+        "required": [
+          "served",
+          "buffered",
+          "skipped",
+          "apollo"
+        ]
+      },
+      "StatsPostRequest": {
+        "type": "object",
+        "properties": {
+          "runIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "appId": {
+            "type": "string"
+          },
+          "brandId": {
+            "type": "string"
+          },
+          "campaignId": {
+            "type": "string"
+          },
+          "clerkOrgId": {
+            "type": "string"
           }
         }
       }
     },
+    "parameters": {},
+    "securitySchemes": {
+      "apiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-api-key",
+        "description": "API key for authenticating requests. Must match the LEAD_SERVICE_API_KEY env var on the server."
+      }
+    }
+  },
+  "paths": {
     "/health": {
       "get": {
-        "description": "",
+        "summary": "Health check",
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "Service is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -32,81 +314,67 @@
     "/buffer/push": {
       "post": {
         "summary": "Push leads into the buffer",
-        "description": "",
         "parameters": [
           {
+            "in": "header",
             "name": "x-api-key",
-            "in": "header",
+            "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "API key for authenticating requests"
           },
           {
+            "in": "header",
             "name": "x-app-id",
-            "in": "header",
             "required": true,
-            "description": "Identifies the calling application, e.g. mcpfactory",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "Identifies the calling application, e.g. mcpfactory"
           },
           {
-            "name": "x-org-id",
             "in": "header",
+            "name": "x-org-id",
             "required": true,
-            "description": "External organization ID, e.g. Clerk org ID",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "External organization ID, e.g. Clerk org ID"
           }
         ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          },
-          "400": {
-            "description": "Bad Request"
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "500": {
-            "description": "Internal Server Error"
-          }
-        },
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": [
-                  "campaignId",
-                  "brandId",
-                  "leads"
-                ],
-                "properties": {
-                  "campaignId": {
-                    "type": "string"
-                  },
-                  "brandId": {
-                    "type": "string"
-                  },
-                  "parentRunId": {
-                    "type": "string"
-                  },
-                  "clerkUserId": {
-                    "type": "string"
-                  },
-                  "leads": {
-                    "type": "array",
-                    "items": {
-                      "type": "object"
-                    }
-                  }
+                "$ref": "#/components/schemas/BufferPushRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Leads buffered successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BufferPushResponse"
                 }
               }
             }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
           }
         }
       }
@@ -114,77 +382,67 @@
     "/buffer/next": {
       "post": {
         "summary": "Pull the next lead from the buffer",
-        "description": "",
         "parameters": [
           {
+            "in": "header",
             "name": "x-api-key",
-            "in": "header",
+            "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "API key for authenticating requests"
           },
           {
+            "in": "header",
             "name": "x-app-id",
-            "in": "header",
             "required": true,
-            "description": "Identifies the calling application, e.g. mcpfactory",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "Identifies the calling application, e.g. mcpfactory"
           },
           {
-            "name": "x-org-id",
             "in": "header",
+            "name": "x-org-id",
             "required": true,
-            "description": "External organization ID, e.g. Clerk org ID",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "External organization ID, e.g. Clerk org ID"
           }
         ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          },
-          "400": {
-            "description": "Bad Request"
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "500": {
-            "description": "Internal Server Error"
-          }
-        },
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": [
-                  "campaignId",
-                  "brandId"
-                ],
-                "properties": {
-                  "campaignId": {
-                    "type": "string"
-                  },
-                  "brandId": {
-                    "type": "string"
-                  },
-                  "parentRunId": {
-                    "type": "string"
-                  },
-                  "searchParams": {
-                    "type": "object"
-                  },
-                  "clerkUserId": {
-                    "type": "string"
-                  }
+                "$ref": "#/components/schemas/BufferNextRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Next lead from buffer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BufferNextResponse"
                 }
               }
             }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
           }
         }
       }
@@ -192,126 +450,130 @@
     "/cursor/{namespace}": {
       "get": {
         "summary": "Get cursor state for a namespace",
-        "description": "",
         "parameters": [
           {
-            "name": "namespace",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
+            "in": "header",
             "name": "x-api-key",
-            "in": "header",
+            "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "API key for authenticating requests"
           },
           {
+            "in": "header",
             "name": "x-app-id",
-            "in": "header",
             "required": true,
-            "description": "Identifies the calling application, e.g. mcpfactory",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "Identifies the calling application, e.g. mcpfactory"
           },
           {
-            "name": "x-org-id",
             "in": "header",
+            "name": "x-org-id",
             "required": true,
-            "description": "External organization ID, e.g. Clerk org ID",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "External organization ID, e.g. Clerk org ID"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "namespace",
+            "in": "path"
           }
         ],
         "responses": {
           "200": {
-            "description": "OK"
-          },
-          "400": {
-            "description": "Bad Request"
+            "description": "Cursor state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CursorGetResponse"
+                }
+              }
+            }
           },
           "401": {
             "description": "Unauthorized"
-          },
-          "500": {
-            "description": "Internal Server Error"
           }
         }
       },
       "put": {
         "summary": "Set cursor state for a namespace",
-        "description": "",
         "parameters": [
           {
-            "name": "namespace",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
+            "in": "header",
             "name": "x-api-key",
-            "in": "header",
+            "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "API key for authenticating requests"
           },
           {
+            "in": "header",
             "name": "x-app-id",
-            "in": "header",
             "required": true,
-            "description": "Identifies the calling application, e.g. mcpfactory",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "Identifies the calling application, e.g. mcpfactory"
           },
           {
-            "name": "x-org-id",
             "in": "header",
+            "name": "x-org-id",
             "required": true,
-            "description": "External organization ID, e.g. Clerk org ID",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "External organization ID, e.g. Clerk org ID"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "namespace",
+            "in": "path"
           }
         ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          },
-          "400": {
-            "description": "Bad Request"
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "500": {
-            "description": "Internal Server Error"
-          }
-        },
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": [
-                  "state"
-                ],
-                "properties": {
-                  "state": {
-                    "type": "object",
-                    "description": "Arbitrary JSON cursor state"
-                  }
+                "$ref": "#/components/schemas/CursorSetRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Cursor updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CursorSetResponse"
                 }
               }
             }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
           }
         }
       }
@@ -319,52 +581,53 @@
     "/leads": {
       "get": {
         "summary": "List served leads with enrichment data",
-        "description": "",
         "parameters": [
           {
+            "in": "header",
             "name": "x-api-key",
-            "in": "header",
+            "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "API key for authenticating requests"
           },
           {
+            "in": "header",
             "name": "x-app-id",
-            "in": "header",
             "required": true,
-            "description": "Identifies the calling application, e.g. mcpfactory",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "Identifies the calling application, e.g. mcpfactory"
           },
           {
+            "in": "header",
             "name": "x-org-id",
-            "in": "header",
             "required": true,
-            "description": "External organization ID, e.g. Clerk org ID",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "External organization ID, e.g. Clerk org ID"
           },
           {
+            "in": "query",
             "name": "brandId",
-            "in": "query",
             "required": false,
             "schema": {
               "type": "string"
             }
           },
           {
+            "in": "query",
             "name": "clerkOrgId",
-            "in": "query",
             "required": false,
             "schema": {
               "type": "string"
             }
           },
           {
-            "name": "clerkUserId",
             "in": "query",
+            "name": "clerkUserId",
             "required": false,
             "schema": {
               "type": "string"
@@ -373,16 +636,17 @@
         ],
         "responses": {
           "200": {
-            "description": "OK"
-          },
-          "400": {
-            "description": "Bad Request"
+            "description": "List of served leads",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadsResponse"
+                }
+              }
+            }
           },
           "401": {
             "description": "Unauthorized"
-          },
-          "500": {
-            "description": "Internal Server Error"
           }
         }
       }
@@ -393,41 +657,43 @@
         "description": "Returns counts of leads by status: served (delivered with verified email), buffered (awaiting enrichment), and skipped (no email found).",
         "parameters": [
           {
+            "in": "header",
             "name": "x-api-key",
-            "in": "header",
+            "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "API key for authenticating requests"
           },
           {
+            "in": "header",
             "name": "x-app-id",
-            "in": "header",
             "required": true,
-            "description": "Identifies the calling application, e.g. mcpfactory",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "Identifies the calling application, e.g. mcpfactory"
           },
           {
+            "in": "header",
             "name": "x-org-id",
-            "in": "header",
             "required": true,
-            "description": "External organization ID, e.g. Clerk org ID",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "External organization ID, e.g. Clerk org ID"
           },
           {
-            "name": "brandId",
             "in": "query",
+            "name": "brandId",
             "required": false,
             "schema": {
               "type": "string"
             }
           },
           {
-            "name": "campaignId",
             "in": "query",
+            "name": "campaignId",
             "required": false,
             "schema": {
               "type": "string"
@@ -436,172 +702,58 @@
         ],
         "responses": {
           "200": {
-            "description": "Lead stats by status with Apollo search/enrichment metrics",
+            "description": "Lead stats by status with Apollo metrics",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "required": [
-                    "served",
-                    "buffered",
-                    "skipped",
-                    "apollo"
-                  ],
-                  "properties": {
-                    "served": {
-                      "type": "integer",
-                      "description": "Leads with verified email, delivered to campaign"
-                    },
-                    "buffered": {
-                      "type": "integer",
-                      "description": "Leads awaiting email enrichment"
-                    },
-                    "skipped": {
-                      "type": "integer",
-                      "description": "Leads where no email was found"
-                    },
-                    "apollo": {
-                      "type": "object",
-                      "properties": {
-                        "enrichedLeadsCount": {
-                          "type": "integer",
-                          "description": "Number of enriched lead records"
-                        },
-                        "searchCount": {
-                          "type": "integer",
-                          "description": "Number of search operations performed"
-                        },
-                        "fetchedPeopleCount": {
-                          "type": "integer",
-                          "description": "Sum of people returned from searches"
-                        },
-                        "totalMatchingPeople": {
-                          "type": "integer",
-                          "description": "Sum of total matching people in Apollo"
-                        }
-                      }
-                    }
-                  }
+                  "$ref": "#/components/schemas/StatsResponse"
                 }
               }
             }
           },
-          "400": {
-            "description": "Bad Request"
-          },
           "401": {
             "description": "Unauthorized"
-          },
-          "500": {
-            "description": "Internal Server Error"
           }
         }
       },
       "post": {
         "summary": "Get lead stats by status (internal)",
-        "description": "Service-to-service endpoint. Returns counts of leads by status: served (delivered with verified email), buffered (awaiting enrichment), and skipped (no email found).",
-        "responses": {
-          "200": {
-            "description": "Lead stats by status with Apollo search/enrichment metrics",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": [
-                    "served",
-                    "buffered",
-                    "skipped",
-                    "apollo"
-                  ],
-                  "properties": {
-                    "served": {
-                      "type": "integer",
-                      "description": "Leads with verified email, delivered to campaign"
-                    },
-                    "buffered": {
-                      "type": "integer",
-                      "description": "Leads awaiting email enrichment"
-                    },
-                    "skipped": {
-                      "type": "integer",
-                      "description": "Leads where no email was found"
-                    },
-                    "apollo": {
-                      "type": "object",
-                      "properties": {
-                        "enrichedLeadsCount": {
-                          "type": "integer",
-                          "description": "Number of enriched lead records"
-                        },
-                        "searchCount": {
-                          "type": "integer",
-                          "description": "Number of search operations performed"
-                        },
-                        "fetchedPeopleCount": {
-                          "type": "integer",
-                          "description": "Sum of people returned from searches"
-                        },
-                        "totalMatchingPeople": {
-                          "type": "integer",
-                          "description": "Sum of total matching people in Apollo"
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error"
-          }
-        },
+        "description": "Service-to-service endpoint. Returns counts of leads by status.",
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "runIds": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "appId": {
-                    "type": "string"
-                  },
-                  "brandId": {
-                    "type": "string"
-                  },
-                  "campaignId": {
-                    "type": "string"
-                  },
-                  "clerkOrgId": {
-                    "type": "string"
-                  }
+                "$ref": "#/components/schemas/StatsPostRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Lead stats by status with Apollo metrics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatsResponse"
                 }
               }
             }
           }
         }
       }
-    }
-  },
-  "components": {
-    "securitySchemes": {
-      "apiKey": {
-        "type": "apiKey",
-        "in": "header",
-        "name": "x-api-key",
-        "description": "API key for authenticating requests. Must match the LEAD_SERVICE_API_KEY env var on the server."
+    },
+    "/openapi.json": {
+      "get": {
+        "summary": "Get OpenAPI specification",
+        "responses": {
+          "200": {
+            "description": "OpenAPI JSON document"
+          },
+          "404": {
+            "description": "Spec not generated"
+          }
+        }
       }
     }
-  },
-  "security": [
-    {
-      "apiKey": []
-    }
-  ]
+  }
 }

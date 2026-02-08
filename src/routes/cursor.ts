@@ -3,15 +3,11 @@ import { eq, and } from "drizzle-orm";
 import { type AuthenticatedRequest, authenticate } from "../middleware/auth.js";
 import { db } from "../db/index.js";
 import { cursors } from "../db/schema.js";
+import { CursorSetRequestSchema } from "../schemas.js";
 
 const router = Router();
 
 router.get("/cursor/:namespace", authenticate, async (req: AuthenticatedRequest, res) => {
-  /*
-    #swagger.summary = 'Get cursor state for a namespace'
-    #swagger.parameters['x-app-id'] = { in: 'header', required: true, type: 'string', description: 'Identifies the calling application, e.g. mcpfactory' }
-    #swagger.parameters['x-org-id'] = { in: 'header', required: true, type: 'string', description: 'External organization ID, e.g. Clerk org ID' }
-  */
   try {
     const { namespace } = req.params;
 
@@ -30,28 +26,14 @@ router.get("/cursor/:namespace", authenticate, async (req: AuthenticatedRequest,
 });
 
 router.put("/cursor/:namespace", authenticate, async (req: AuthenticatedRequest, res) => {
-  /*
-    #swagger.summary = 'Set cursor state for a namespace'
-    #swagger.parameters['x-app-id'] = { in: 'header', required: true, type: 'string', description: 'Identifies the calling application, e.g. mcpfactory' }
-    #swagger.parameters['x-org-id'] = { in: 'header', required: true, type: 'string', description: 'External organization ID, e.g. Clerk org ID' }
-    #swagger.requestBody = {
-      required: true,
-      content: {
-        "application/json": {
-          schema: {
-            type: "object",
-            required: ["state"],
-            properties: {
-              state: { type: "object", description: "Arbitrary JSON cursor state" }
-            }
-          }
-        }
-      }
-    }
-  */
+  const parsed = CursorSetRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+  }
+
   try {
     const { namespace } = req.params;
-    const { state } = req.body;
+    const { state } = parsed.data;
 
     if (state === undefined) {
       return res.status(400).json({ error: "state required" });

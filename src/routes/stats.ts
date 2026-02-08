@@ -4,43 +4,11 @@ import { type AuthenticatedRequest, authenticate } from "../middleware/auth.js";
 import { db } from "../db/index.js";
 import { servedLeads, leadBuffer, organizations } from "../db/schema.js";
 import { fetchApolloStats } from "../lib/apollo-client.js";
+import { StatsPostRequestSchema } from "../schemas.js";
 
 const router = Router();
 
 router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
-  /*
-    #swagger.summary = 'Get lead stats by status'
-    #swagger.description = 'Returns counts of leads by status: served (delivered with verified email), buffered (awaiting enrichment), and skipped (no email found).'
-    #swagger.parameters['x-app-id'] = { in: 'header', required: true, type: 'string', description: 'Identifies the calling application, e.g. mcpfactory' }
-    #swagger.parameters['x-org-id'] = { in: 'header', required: true, type: 'string', description: 'External organization ID, e.g. Clerk org ID' }
-    #swagger.parameters['brandId'] = { in: 'query', type: 'string', required: false }
-    #swagger.parameters['campaignId'] = { in: 'query', type: 'string', required: false }
-    #swagger.responses[200] = {
-      description: 'Lead stats by status with Apollo search/enrichment metrics',
-      content: {
-        "application/json": {
-          schema: {
-            type: "object",
-            required: ["served", "buffered", "skipped", "apollo"],
-            properties: {
-              served: { type: "integer", description: "Leads with verified email, delivered to campaign" },
-              buffered: { type: "integer", description: "Leads awaiting email enrichment" },
-              skipped: { type: "integer", description: "Leads where no email was found" },
-              apollo: {
-                type: "object",
-                properties: {
-                  enrichedLeadsCount: { type: "integer", description: "Number of enriched lead records" },
-                  searchCount: { type: "integer", description: "Number of search operations performed" },
-                  fetchedPeopleCount: { type: "integer", description: "Sum of people returned from searches" },
-                  totalMatchingPeople: { type: "integer", description: "Sum of total matching people in Apollo" }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  */
   try {
     const { brandId, campaignId } = req.query;
     const brandIdStr = typeof brandId === "string" ? brandId : undefined;
@@ -79,59 +47,18 @@ router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
 });
 
 router.post("/stats", async (req, res) => {
-  /*
-    #swagger.summary = 'Get lead stats by status (internal)'
-    #swagger.description = 'Service-to-service endpoint. Returns counts of leads by status: served (delivered with verified email), buffered (awaiting enrichment), and skipped (no email found).'
-    #swagger.requestBody = {
-      required: true,
-      content: {
-        "application/json": {
-          schema: {
-            type: "object",
-            properties: {
-              runIds: { type: "array", items: { type: "string" } },
-              appId: { type: "string" },
-              brandId: { type: "string" },
-              campaignId: { type: "string" },
-              clerkOrgId: { type: "string" }
-            }
-          }
-        }
-      }
-    }
-    #swagger.responses[200] = {
-      description: 'Lead stats by status with Apollo search/enrichment metrics',
-      content: {
-        "application/json": {
-          schema: {
-            type: "object",
-            required: ["served", "buffered", "skipped", "apollo"],
-            properties: {
-              served: { type: "integer", description: "Leads with verified email, delivered to campaign" },
-              buffered: { type: "integer", description: "Leads awaiting email enrichment" },
-              skipped: { type: "integer", description: "Leads where no email was found" },
-              apollo: {
-                type: "object",
-                properties: {
-                  enrichedLeadsCount: { type: "integer", description: "Number of enriched lead records" },
-                  searchCount: { type: "integer", description: "Number of search operations performed" },
-                  fetchedPeopleCount: { type: "integer", description: "Sum of people returned from searches" },
-                  totalMatchingPeople: { type: "integer", description: "Sum of total matching people in Apollo" }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  */
+  const parsed = StatsPostRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+  }
+
   try {
-    const { runIds, appId, brandId, campaignId, clerkOrgId } = req.body ?? {};
+    const { runIds, appId, brandId, campaignId, clerkOrgId } = parsed.data;
 
     const servedConditions: SQL[] = [];
     const bufferConditions: SQL[] = [];
 
-    if (runIds && Array.isArray(runIds) && runIds.length > 0) {
+    if (runIds && runIds.length > 0) {
       servedConditions.push(
         or(
           inArray(servedLeads.parentRunId, runIds),
