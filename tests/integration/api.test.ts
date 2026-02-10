@@ -76,6 +76,21 @@ describe("API Integration Tests", () => {
 
       expect(res.status).toBe(400);
     });
+
+    it("returns 400 when brandId is empty string", async () => {
+      const res = await request(app)
+        .post("/buffer/push")
+        .set(getAuthHeaders())
+        .send({
+          campaignId: "campaign-x",
+          brandId: "",
+          parentRunId: "test-run",
+          leads: [{ email: "test@example.com" }],
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.details.fieldErrors.brandId).toBeDefined();
+    });
   });
 
   describe("POST /buffer/next", () => {
@@ -110,6 +125,16 @@ describe("API Integration Tests", () => {
 
       expect(res.status).toBe(200);
       expect(res.body.found).toBe(false);
+    });
+
+    it("returns 400 when brandId is empty string", async () => {
+      const res = await request(app)
+        .post("/buffer/next")
+        .set(getAuthHeaders())
+        .send({ campaignId: "campaign-x", brandId: "", parentRunId: "test-run" });
+
+      expect(res.status).toBe(400);
+      expect(res.body.details.fieldErrors.brandId).toBeDefined();
     });
 
     it("deduplicates — same lead not served twice", async () => {

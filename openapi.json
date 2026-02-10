@@ -62,13 +62,16 @@
         "type": "object",
         "properties": {
           "campaignId": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "brandId": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "parentRunId": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "clerkUserId": {
             "type": "string"
@@ -150,13 +153,16 @@
         "type": "object",
         "properties": {
           "campaignId": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "brandId": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "parentRunId": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "searchParams": {
             "type": "object",
@@ -288,17 +294,6 @@
         "type": "object",
         "nullable": true,
         "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "email": {
-            "type": "string"
-          },
-          "apolloPersonId": {
-            "type": "string",
-            "nullable": true
-          },
           "firstName": {
             "type": "string",
             "nullable": true
@@ -330,18 +325,9 @@
           "organizationSize": {
             "type": "string",
             "nullable": true
-          },
-          "responseRaw": {
-            "nullable": true
-          },
-          "enrichedAt": {
-            "type": "string"
           }
         },
         "required": [
-          "id",
-          "email",
-          "apolloPersonId",
           "firstName",
           "lastName",
           "title",
@@ -349,8 +335,7 @@
           "organizationName",
           "organizationDomain",
           "organizationIndustry",
-          "organizationSize",
-          "enrichedAt"
+          "organizationSize"
         ]
       },
       "StatsResponse": {

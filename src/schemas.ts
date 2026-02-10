@@ -57,9 +57,9 @@ const LeadInputSchema = z.object({
 
 export const BufferPushRequestSchema = z
   .object({
-    campaignId: z.string(),
-    brandId: z.string(),
-    parentRunId: z.string(),
+    campaignId: z.string().min(1),
+    brandId: z.string().min(1),
+    parentRunId: z.string().min(1),
     clerkUserId: z.string().optional(),
     leads: z.array(LeadInputSchema),
   })
@@ -76,9 +76,9 @@ const BufferPushResponseSchema = z
 
 export const BufferNextRequestSchema = z
   .object({
-    campaignId: z.string(),
-    brandId: z.string(),
-    parentRunId: z.string(),
+    campaignId: z.string().min(1),
+    brandId: z.string().min(1),
+    parentRunId: z.string().min(1),
     searchParams: z.record(z.string(), z.unknown()).optional(),
     clerkUserId: z.string().optional(),
   })
