@@ -5,7 +5,7 @@ import { readFileSync, existsSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
-import { db } from "./db/index.js";
+import { db, sql } from "./db/index.js";
 import healthRoutes from "./routes/health.js";
 import bufferRoutes from "./routes/buffer.js";
 import cursorRoutes from "./routes/cursor.js";
@@ -51,14 +51,30 @@ if (process.env.NODE_ENV !== "test") {
   migrate(db, { migrationsFolder: "./drizzle" })
     .then(() => {
       console.log("Migrations complete");
-      app.listen(Number(PORT), "::", () => {
+      const server = app.listen(Number(PORT), "::", () => {
         console.log(`lead-service running on port ${PORT}`);
       });
+
+      const shutdown = () => {
+        console.log("Shutting down gracefully...");
+        server.close(() => {
+          sql.end().then(() => process.exit(0));
+        });
+        setTimeout(() => process.exit(1), 10_000);
+      };
+
+      process.on("SIGTERM", shutdown);
+      process.on("SIGINT", shutdown);
     })
     .catch((err) => {
       console.error("Migration failed:", err);
       process.exit(1);
     });
+
+  process.on("unhandledRejection", (err) => {
+    console.error("Unhandled rejection:", err);
+    Sentry.captureException(err);
+  });
 }
 
 export default app;
