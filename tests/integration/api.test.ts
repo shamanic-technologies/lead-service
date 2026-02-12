@@ -27,6 +27,20 @@ describe("API Integration Tests", () => {
     await closeDb();
   });
 
+  describe("Health check", () => {
+    it("GET / returns 200 with service status", async () => {
+      const res = await request(app).get("/");
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ status: "ok", service: "lead-service" });
+    });
+
+    it("GET /health returns 200 with service status", async () => {
+      const res = await request(app).get("/health");
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ status: "ok", service: "lead-service" });
+    });
+  });
+
   describe("Authentication", () => {
     it("rejects requests without API key", async () => {
       const res = await request(app)
