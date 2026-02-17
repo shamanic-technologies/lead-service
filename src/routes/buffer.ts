@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq } from "drizzle-orm";
+import { eq, lt } from "drizzle-orm";
 import { type AuthenticatedRequest, authenticate } from "../middleware/auth.js";
 import { pushLeads, pullNext } from "../lib/buffer.js";
 import { createRun, updateRun } from "../lib/runs-client.js";
@@ -8,6 +8,22 @@ import { db } from "../db/index.js";
 import { idempotencyCache } from "../db/schema.js";
 
 const router = Router();
+
+const IDEMPOTENCY_TTL_DAYS = 60;
+
+function pruneExpiredIdempotencyCache(): void {
+  const cutoff = new Date(Date.now() - IDEMPOTENCY_TTL_DAYS * 24 * 60 * 60 * 1000);
+  db.delete(idempotencyCache)
+    .where(lt(idempotencyCache.createdAt, cutoff))
+    .then((result) => {
+      if (result.length > 0) {
+        console.log(`[idempotency] Pruned ${result.length} expired cache entries`);
+      }
+    })
+    .catch((err) => {
+      console.warn("[idempotency] Failed to prune expired cache:", err);
+    });
+}
 
 router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res) => {
   const parsed = BufferPushRequestSchema.safeParse(req.body);
@@ -101,8 +117,9 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       appId: req.appId,
     });
 
-    // Cache the response for idempotency
+    // Cache the response for idempotency + probabilistic TTL cleanup (~1% of requests)
     if (idempotencyKey) {
+      if (Math.random() < 0.01) pruneExpiredIdempotencyCache();
       try {
         await db.insert(idempotencyCache).values({
           idempotencyKey,
