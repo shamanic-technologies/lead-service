@@ -1,8 +1,11 @@
 import { Router } from "express";
+import { eq } from "drizzle-orm";
 import { type AuthenticatedRequest, authenticate } from "../middleware/auth.js";
 import { pushLeads, pullNext } from "../lib/buffer.js";
 import { createRun, updateRun } from "../lib/runs-client.js";
 import { BufferPushRequestSchema, BufferNextRequestSchema } from "../schemas.js";
+import { db } from "../db/index.js";
+import { idempotencyCache } from "../db/schema.js";
 
 const router = Router();
 
@@ -59,8 +62,19 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
   }
 
   try {
-    const { campaignId, brandId, parentRunId, searchParams, clerkUserId } = parsed.data;
+    const { campaignId, brandId, parentRunId, searchParams, clerkUserId, idempotencyKey } = parsed.data;
     const clerkOrgId = req.externalOrgId ?? null;
+
+    // Idempotency: return cached response if this key was already processed
+    if (idempotencyKey) {
+      const cached = await db.query.idempotencyCache.findFirst({
+        where: eq(idempotencyCache.idempotencyKey, idempotencyKey),
+      });
+      if (cached) {
+        console.log(`[buffer/next] Idempotency hit for key=${idempotencyKey}`);
+        return res.json(cached.response);
+      }
+    }
 
     // Create child run for traceability
     const childRun = await createRun({
@@ -86,6 +100,20 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       clerkUserId: clerkUserId ?? null,
       appId: req.appId,
     });
+
+    // Cache the response for idempotency
+    if (idempotencyKey) {
+      try {
+        await db.insert(idempotencyCache).values({
+          idempotencyKey,
+          organizationId: req.organizationId!,
+          response: result,
+        });
+      } catch (err) {
+        // Ignore duplicate key errors (race condition between concurrent retries)
+        console.warn("[buffer/next] Failed to cache idempotency response:", err);
+      }
+    }
 
     try {
       await updateRun(serveRunId, "completed");

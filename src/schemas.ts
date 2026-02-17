@@ -81,6 +81,7 @@ export const BufferNextRequestSchema = z
     parentRunId: z.string().min(1),
     searchParams: z.record(z.string(), z.unknown()).optional(),
     clerkUserId: z.string().optional(),
+    idempotencyKey: z.string().min(1).optional(),
   })
   .openapi("BufferNextRequest");
 

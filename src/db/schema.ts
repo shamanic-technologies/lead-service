@@ -108,6 +108,23 @@ export const enrichments = pgTable(
   ]
 );
 
+// Idempotency cache — prevents duplicate lead consumption on retries
+export const idempotencyCache = pgTable(
+  "idempotency_cache",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    response: jsonb("response").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_idempotency_key").on(table.idempotencyKey),
+  ]
+);
+
 // Cursors — pagination state per org+namespace
 export const cursors = pgTable(
   "cursors",
@@ -138,3 +155,5 @@ export type Cursor = typeof cursors.$inferSelect;
 export type NewCursor = typeof cursors.$inferInsert;
 export type Enrichment = typeof enrichments.$inferSelect;
 export type NewEnrichment = typeof enrichments.$inferInsert;
+export type IdempotencyCacheRow = typeof idempotencyCache.$inferSelect;
+export type NewIdempotencyCacheRow = typeof idempotencyCache.$inferInsert;

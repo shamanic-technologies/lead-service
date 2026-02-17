@@ -88,5 +88,25 @@ describe("schema validation", () => {
       });
       expect(result.success).toBe(true);
     });
+
+    it("accepts optional idempotencyKey", () => {
+      const result = BufferNextRequestSchema.safeParse({
+        campaignId: "c1",
+        brandId: "b1",
+        parentRunId: "r1",
+        idempotencyKey: "run-123",
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it("rejects empty idempotencyKey", () => {
+      const result = BufferNextRequestSchema.safeParse({
+        campaignId: "c1",
+        brandId: "b1",
+        parentRunId: "r1",
+        idempotencyKey: "",
+      });
+      expect(result.success).toBe(false);
+    });
   });
 });
