@@ -37,14 +37,84 @@ export interface ApolloSearchParams {
 export interface ApolloPersonResult {
   id: string;
   email?: string;
+  emailStatus?: string;
   firstName?: string;
   lastName?: string;
   title?: string;
   linkedinUrl?: string;
+  // Person details
+  photoUrl?: string;
+  headline?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  seniority?: string;
+  departments?: string[];
+  subdepartments?: string[];
+  functions?: string[];
+  twitterUrl?: string;
+  githubUrl?: string;
+  facebookUrl?: string;
+  employmentHistory?: Array<{
+    title?: string;
+    organizationName?: string;
+    startDate?: string;
+    endDate?: string;
+    description?: string;
+    current?: boolean;
+  }>;
+  // Organization details
   organizationName?: string;
   organizationDomain?: string;
   organizationIndustry?: string;
   organizationSize?: string;
+  organizationRevenueUsd?: string;
+  organizationWebsiteUrl?: string;
+  organizationLogoUrl?: string;
+  organizationShortDescription?: string;
+  organizationSeoDescription?: string;
+  organizationLinkedinUrl?: string;
+  organizationTwitterUrl?: string;
+  organizationFacebookUrl?: string;
+  organizationBlogUrl?: string;
+  organizationCrunchbaseUrl?: string;
+  organizationAngellistUrl?: string;
+  organizationFoundedYear?: number;
+  organizationPrimaryPhone?: string;
+  organizationPubliclyTradedSymbol?: string;
+  organizationPubliclyTradedExchange?: string;
+  organizationAnnualRevenuePrinted?: string;
+  organizationTotalFunding?: string;
+  organizationTotalFundingPrinted?: string;
+  organizationLatestFundingRoundDate?: string;
+  organizationLatestFundingStage?: string;
+  organizationFundingEvents?: Array<{
+    id?: string;
+    date?: string;
+    type?: string;
+    investors?: string;
+    amount?: number;
+    currency?: string;
+  }>;
+  organizationCity?: string;
+  organizationState?: string;
+  organizationCountry?: string;
+  organizationStreetAddress?: string;
+  organizationPostalCode?: string;
+  organizationTechnologyNames?: string[];
+  organizationCurrentTechnologies?: Array<{
+    uid?: string;
+    name?: string;
+    category?: string;
+  }>;
+  organizationKeywords?: string[];
+  organizationIndustries?: string[];
+  organizationSecondaryIndustries?: string[];
+  organizationNumSuborganizations?: number;
+  organizationRetailLocationCount?: number;
+  organizationAlexaRanking?: number;
+  // Allow any additional fields Apollo adds in the future
+  [key: string]: unknown;
 }
 
 export interface ApolloSearchResult {
