@@ -6,21 +6,13 @@ import { servedLeads } from "../db/schema.js";
 
 const router = Router();
 
-function extractEnrichment(metadata: unknown): Record<string, unknown> | null {
+export function extractEnrichment(metadata: unknown): Record<string, unknown> | null {
   if (!metadata || typeof metadata !== "object") return null;
   const m = metadata as Record<string, unknown>;
   // Only return enrichment if at least one person field exists
   if (!m.firstName && !m.lastName && !m.email) return null;
-  return {
-    firstName: m.firstName ?? null,
-    lastName: m.lastName ?? null,
-    title: m.title ?? null,
-    linkedinUrl: m.linkedinUrl ?? m.linkedin_url ?? null,
-    organizationName: m.organizationName ?? m.organization_name ?? null,
-    organizationDomain: m.organizationDomain ?? m.organization_domain ?? null,
-    organizationIndustry: m.organizationIndustry ?? m.organization_industry ?? null,
-    organizationSize: m.organizationSize ?? m.organization_size ?? null,
-  };
+  // Pass through all fields from Apollo — no filtering
+  return { ...m };
 }
 
 router.get("/leads", authenticate, async (req: AuthenticatedRequest, res) => {

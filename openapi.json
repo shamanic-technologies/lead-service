@@ -293,50 +293,10 @@
       "Enrichment": {
         "type": "object",
         "nullable": true,
-        "properties": {
-          "firstName": {
-            "type": "string",
-            "nullable": true
-          },
-          "lastName": {
-            "type": "string",
-            "nullable": true
-          },
-          "title": {
-            "type": "string",
-            "nullable": true
-          },
-          "linkedinUrl": {
-            "type": "string",
-            "nullable": true
-          },
-          "organizationName": {
-            "type": "string",
-            "nullable": true
-          },
-          "organizationDomain": {
-            "type": "string",
-            "nullable": true
-          },
-          "organizationIndustry": {
-            "type": "string",
-            "nullable": true
-          },
-          "organizationSize": {
-            "type": "string",
-            "nullable": true
-          }
+        "additionalProperties": {
+          "nullable": true
         },
-        "required": [
-          "firstName",
-          "lastName",
-          "title",
-          "linkedinUrl",
-          "organizationName",
-          "organizationDomain",
-          "organizationIndustry",
-          "organizationSize"
-        ]
+        "description": "All enrichment data from Apollo — passthrough, no filtering"
       },
       "StatsResponse": {
         "type": "object",

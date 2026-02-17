@@ -123,17 +123,10 @@ const CursorSetResponseSchema = z
 // --- Leads ---
 
 const EnrichmentSchema = z
-  .object({
-    firstName: z.string().nullable(),
-    lastName: z.string().nullable(),
-    title: z.string().nullable(),
-    linkedinUrl: z.string().nullable(),
-    organizationName: z.string().nullable(),
-    organizationDomain: z.string().nullable(),
-    organizationIndustry: z.string().nullable(),
-    organizationSize: z.string().nullable(),
-  })
-  .openapi("Enrichment");
+  .record(z.string(), z.unknown())
+  .openapi("Enrichment", {
+    description: "All enrichment data from Apollo — passthrough, no filtering",
+  });
 
 const LeadDetailSchema = z
   .object({
