@@ -194,6 +194,106 @@ describe("API Integration Tests", () => {
     }, 10000); // Increased timeout for CI database latency
   });
 
+  describe("GET /leads", () => {
+    it("returns served leads with full enrichment data (no filtering)", async () => {
+      // Push a lead with rich metadata that simulates Apollo data
+      const richData = {
+        firstName: "Diana",
+        lastName: "Prince",
+        email: "diana@example.com",
+        title: "CEO",
+        linkedinUrl: "https://linkedin.com/in/diana",
+        organizationName: "Themyscira Inc",
+        organizationDomain: "themyscira.com",
+        organizationIndustry: "Defense",
+        organizationSize: "501-1000",
+        // Extra fields that were previously filtered out:
+        headline: "CEO & Founder at Themyscira Inc",
+        city: "Gateway City",
+        state: "CA",
+        country: "United States",
+        organizationShortDescription: "Leading defense tech company",
+        organizationFoundedYear: 2010,
+        organizationRevenueUsd: "50000000",
+        seniority: "founder",
+        departments: ["executive"],
+        photoUrl: "https://example.com/diana.jpg",
+      };
+
+      await request(app)
+        .post("/buffer/push")
+        .set(getAuthHeaders())
+        .send({
+          campaignId: "campaign-leads",
+          brandId: "brand-leads",
+          parentRunId: "test-run-push-leads",
+          leads: [{ email: "diana@example.com", externalId: "apollo-1", data: richData }],
+        });
+
+      // Pull it to move to served_leads
+      await request(app)
+        .post("/buffer/next")
+        .set(getAuthHeaders())
+        .send({ campaignId: "campaign-leads", brandId: "brand-leads", parentRunId: "test-run-next-leads" });
+
+      // Query GET /leads
+      const res = await request(app)
+        .get("/leads?brandId=brand-leads&campaignId=campaign-leads")
+        .set(getAuthHeaders());
+
+      expect(res.status).toBe(200);
+      expect(res.body.leads.length).toBeGreaterThanOrEqual(1);
+
+      const lead = res.body.leads.find((l: { email: string }) => l.email === "diana@example.com");
+      expect(lead).toBeDefined();
+      expect(lead.enrichment).not.toBeNull();
+
+      // Verify ALL fields pass through — not just the old 8
+      expect(lead.enrichment.firstName).toBe("Diana");
+      expect(lead.enrichment.lastName).toBe("Prince");
+      expect(lead.enrichment.title).toBe("CEO");
+      expect(lead.enrichment.organizationName).toBe("Themyscira Inc");
+
+      // These would have been stripped by the old extractEnrichment
+      expect(lead.enrichment.headline).toBe("CEO & Founder at Themyscira Inc");
+      expect(lead.enrichment.city).toBe("Gateway City");
+      expect(lead.enrichment.country).toBe("United States");
+      expect(lead.enrichment.organizationShortDescription).toBe("Leading defense tech company");
+      expect(lead.enrichment.organizationFoundedYear).toBe(2010);
+      expect(lead.enrichment.organizationRevenueUsd).toBe("50000000");
+      expect(lead.enrichment.seniority).toBe("founder");
+      expect(lead.enrichment.departments).toEqual(["executive"]);
+      expect(lead.enrichment.photoUrl).toBe("https://example.com/diana.jpg");
+    });
+
+    it("returns null enrichment when metadata is empty", async () => {
+      // Push a lead with no enrichment data
+      await request(app)
+        .post("/buffer/push")
+        .set(getAuthHeaders())
+        .send({
+          campaignId: "campaign-leads-empty",
+          brandId: "brand-leads-empty",
+          parentRunId: "test-run-push-leads-empty",
+          leads: [{ email: "empty@example.com" }],
+        });
+
+      await request(app)
+        .post("/buffer/next")
+        .set(getAuthHeaders())
+        .send({ campaignId: "campaign-leads-empty", brandId: "brand-leads-empty", parentRunId: "test-run-next-leads-empty" });
+
+      const res = await request(app)
+        .get("/leads?brandId=brand-leads-empty&campaignId=campaign-leads-empty")
+        .set(getAuthHeaders());
+
+      expect(res.status).toBe(200);
+      const lead = res.body.leads.find((l: { email: string }) => l.email === "empty@example.com");
+      expect(lead).toBeDefined();
+      expect(lead.enrichment).toBeNull();
+    });
+  });
+
   describe("Cursor endpoints", () => {
     it("GET returns null for non-existent cursor", async () => {
       const res = await request(app)
