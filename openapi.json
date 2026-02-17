@@ -172,6 +172,10 @@
           },
           "clerkUserId": {
             "type": "string"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
           }
         },
         "required": [

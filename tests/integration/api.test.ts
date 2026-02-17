@@ -194,6 +194,170 @@ describe("API Integration Tests", () => {
     }, 10000); // Increased timeout for CI database latency
   });
 
+  describe("POST /buffer/next idempotency", () => {
+    it("returns same lead on retry with same idempotencyKey", async () => {
+      // Push a lead
+      await request(app)
+        .post("/buffer/push")
+        .set(getAuthHeaders())
+        .send({
+          campaignId: "campaign-idem-1",
+          brandId: "brand-idem-1",
+          parentRunId: "test-run-push-idem-1",
+          leads: [{ email: "idem@example.com", data: { name: "Idem" } }],
+        });
+
+      // First pull with idempotencyKey
+      const first = await request(app)
+        .post("/buffer/next")
+        .set(getAuthHeaders())
+        .send({
+          campaignId: "campaign-idem-1",
+          brandId: "brand-idem-1",
+          parentRunId: "test-run-idem-1",
+          idempotencyKey: "run-idem-1",
+        });
+
+      expect(first.status).toBe(200);
+      expect(first.body.found).toBe(true);
+      expect(first.body.lead.email).toBe("idem@example.com");
+
+      // Retry with same idempotencyKey — should return cached result
+      const retry = await request(app)
+        .post("/buffer/next")
+        .set(getAuthHeaders())
+        .send({
+          campaignId: "campaign-idem-1",
+          brandId: "brand-idem-1",
+          parentRunId: "test-run-idem-1",
+          idempotencyKey: "run-idem-1",
+        });
+
+      expect(retry.status).toBe(200);
+      expect(retry.body.found).toBe(true);
+      expect(retry.body.lead.email).toBe("idem@example.com");
+    });
+
+    it("does not consume extra leads on retry", async () => {
+      // Push two leads
+      await request(app)
+        .post("/buffer/push")
+        .set(getAuthHeaders())
+        .send({
+          campaignId: "campaign-idem-2",
+          brandId: "brand-idem-2",
+          parentRunId: "test-run-push-idem-2",
+          leads: [
+            { email: "first@example.com", data: { name: "First" } },
+            { email: "second@example.com", data: { name: "Second" } },
+          ],
+        });
+
+      // Pull with idempotencyKey
+      const first = await request(app)
+        .post("/buffer/next")
+        .set(getAuthHeaders())
+        .send({
+          campaignId: "campaign-idem-2",
+          brandId: "brand-idem-2",
+          parentRunId: "test-run-idem-2a",
+          idempotencyKey: "run-idem-2",
+        });
+
+      expect(first.body.found).toBe(true);
+      const firstEmail = first.body.lead.email;
+
+      // Retry with same key — should NOT consume second lead
+      await request(app)
+        .post("/buffer/next")
+        .set(getAuthHeaders())
+        .send({
+          campaignId: "campaign-idem-2",
+          brandId: "brand-idem-2",
+          parentRunId: "test-run-idem-2a",
+          idempotencyKey: "run-idem-2",
+        });
+
+      // Pull with different key — should get the other lead
+      const second = await request(app)
+        .post("/buffer/next")
+        .set(getAuthHeaders())
+        .send({
+          campaignId: "campaign-idem-2",
+          brandId: "brand-idem-2",
+          parentRunId: "test-run-idem-2b",
+          idempotencyKey: "run-idem-2b",
+        });
+
+      expect(second.body.found).toBe(true);
+      expect(second.body.lead.email).not.toBe(firstEmail);
+    });
+
+    it("caches found: false responses too", async () => {
+      // Pull from empty buffer with idempotencyKey
+      const first = await request(app)
+        .post("/buffer/next")
+        .set(getAuthHeaders())
+        .send({
+          campaignId: "campaign-idem-empty",
+          brandId: "brand-idem-empty",
+          parentRunId: "test-run-idem-empty",
+          idempotencyKey: "run-idem-empty",
+        });
+
+      expect(first.body.found).toBe(false);
+
+      // Now push a lead to that campaign
+      await request(app)
+        .post("/buffer/push")
+        .set(getAuthHeaders())
+        .send({
+          campaignId: "campaign-idem-empty",
+          brandId: "brand-idem-empty",
+          parentRunId: "test-run-push-idem-empty",
+          leads: [{ email: "late@example.com" }],
+        });
+
+      // Retry with same key — should still return cached found: false
+      const retry = await request(app)
+        .post("/buffer/next")
+        .set(getAuthHeaders())
+        .send({
+          campaignId: "campaign-idem-empty",
+          brandId: "brand-idem-empty",
+          parentRunId: "test-run-idem-empty",
+          idempotencyKey: "run-idem-empty",
+        });
+
+      expect(retry.body.found).toBe(false);
+    });
+
+    it("works without idempotencyKey (backwards compatible)", async () => {
+      await request(app)
+        .post("/buffer/push")
+        .set(getAuthHeaders())
+        .send({
+          campaignId: "campaign-idem-compat",
+          brandId: "brand-idem-compat",
+          parentRunId: "test-run-push-idem-compat",
+          leads: [{ email: "compat@example.com" }],
+        });
+
+      const res = await request(app)
+        .post("/buffer/next")
+        .set(getAuthHeaders())
+        .send({
+          campaignId: "campaign-idem-compat",
+          brandId: "brand-idem-compat",
+          parentRunId: "test-run-idem-compat",
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.found).toBe(true);
+      expect(res.body.lead.email).toBe("compat@example.com");
+    });
+  }, 15000);
+
   describe("GET /leads", () => {
     it("returns served leads with full enrichment data (no filtering)", async () => {
       // Push a lead with rich metadata that simulates Apollo data
