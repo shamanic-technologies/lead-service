@@ -140,10 +140,17 @@ describe("buffer", () => {
       expect(result.found).toBe(true);
       expect(result.lead?.email).toBe("alice@acme.com");
       expect(result.lead?.externalId).toBe("e-1");
-      expect(result.lead?.data).toEqual({ organization: {}, name: "Alice" });
+      expect(result.lead?.data).toEqual({ name: "Alice" });
     });
 
-    it("defaults organization to {} when missing from lead data", async () => {
+    it("passes lead data through as-is without modification", async () => {
+      const apolloData = {
+        firstName: "Svitlana",
+        organizationName: "HashtagWeb3",
+        organizationDomain: "hashtagweb3.com",
+        organizationIndustry: "information technology & services",
+      };
+
       vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue({
         id: "buf-1",
         organizationId: "org-1",
@@ -151,7 +158,7 @@ describe("buffer", () => {
         campaignId: "campaign-1",
         email: "svitlana@hashtagweb3.com",
         externalId: "e-1",
-        data: { first_name: "Svitlana", organization_name: "HashtagWeb3" },
+        data: apolloData,
         status: "buffered",
         pushRunId: null,
         brandId: "brand-1",
@@ -179,54 +186,8 @@ describe("buffer", () => {
       });
 
       expect(result.found).toBe(true);
-      const data = result.lead?.data as Record<string, unknown>;
-      // organization must always be an object so workflows can access organization.primary_domain
-      expect(data.organization).toEqual({});
-      expect(data.first_name).toBe("Svitlana");
-    });
-
-    it("preserves existing organization object in lead data", async () => {
-      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue({
-        id: "buf-1",
-        organizationId: "org-1",
-        namespace: "campaign-1",
-        campaignId: "campaign-1",
-        email: "alice@acme.com",
-        externalId: "e-1",
-        data: {
-          first_name: "Alice",
-          organization: { primary_domain: "acme.com", industry: "Software" },
-        },
-        status: "buffered",
-        pushRunId: null,
-        brandId: "brand-1",
-        clerkOrgId: null,
-        clerkUserId: null,
-        createdAt: new Date(),
-      });
-
-      vi.mocked(db.query.servedLeads.findFirst).mockResolvedValue(undefined);
-
-      const returningMock = vi.fn().mockResolvedValue([{ id: "served-1" }]);
-      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
-      const valuesMock = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictMock });
-      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
-
-      const setMock = vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue(undefined),
-      });
-      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
-
-      const result = await pullNext({
-        organizationId: "org-1",
-        campaignId: "campaign-1",
-        brandId: "brand-1",
-      });
-
-      expect(result.found).toBe(true);
-      const data = result.lead?.data as Record<string, unknown>;
-      // Existing organization data should be preserved, not overwritten with {}
-      expect(data.organization).toEqual({ primary_domain: "acme.com", industry: "Software" });
+      // Data must pass through exactly as stored — flat camelCase fields, no transformation
+      expect(result.lead?.data).toEqual(apolloData);
     });
 
     it("skips already-served buffer rows and tries next", async () => {
