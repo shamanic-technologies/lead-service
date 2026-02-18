@@ -131,13 +131,13 @@ describe("API Integration Tests", () => {
       expect(res.body.lead.email).toBe("charlie@example.com");
     });
 
-    it("returns found: false when buffer empty", async () => {
+    it("returns 404 when buffer empty", async () => {
       const res = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
         .send({ campaignId: "campaign-empty", brandId: "brand-empty", parentRunId: "test-run-next-empty" });
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(404);
       expect(res.body.found).toBe(false);
     });
 
@@ -184,12 +184,13 @@ describe("API Integration Tests", () => {
 
       expect(pushAgain.body.skippedAlreadyServed).toBe(1);
 
-      // Pull again — should find nothing
+      // Pull again — should find nothing (404)
       const second = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
         .send({ campaignId: "campaign-c", brandId: "brand-c", parentRunId: "test-run-next-c2" });
 
+      expect(second.status).toBe(404);
       expect(second.body.found).toBe(false);
     }, 10000); // Increased timeout for CI database latency
   });
@@ -305,6 +306,7 @@ describe("API Integration Tests", () => {
           idempotencyKey: "run-idem-empty",
         });
 
+      expect(first.status).toBe(404);
       expect(first.body.found).toBe(false);
 
       // Now push a lead to that campaign
@@ -318,7 +320,7 @@ describe("API Integration Tests", () => {
           leads: [{ email: "late@example.com" }],
         });
 
-      // Retry with same key — should still return cached found: false
+      // Retry with same key — should still return cached found: false (404)
       const retry = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
@@ -329,6 +331,7 @@ describe("API Integration Tests", () => {
           idempotencyKey: "run-idem-empty",
         });
 
+      expect(retry.status).toBe(404);
       expect(retry.body.found).toBe(false);
     });
 
