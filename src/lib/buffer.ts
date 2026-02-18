@@ -55,7 +55,6 @@ export async function pushLeads(params: {
 
 interface CursorState {
   page: number;
-  exhausted: boolean;
 }
 
 async function getCursor(organizationId: string, campaignId: string): Promise<CursorState> {
@@ -65,7 +64,7 @@ async function getCursor(organizationId: string, campaignId: string): Promise<Cu
       eq(cursors.namespace, campaignId)
     ),
   });
-  return (cursor?.state as CursorState) ?? { page: 1, exhausted: false };
+  return { page: (cursor?.state as { page?: number })?.page ?? 1 };
 }
 
 async function setCursor(organizationId: string, campaignId: string, state: CursorState): Promise<void> {
@@ -90,6 +89,19 @@ async function setCursor(organizationId: string, campaignId: string, state: Curs
   }
 }
 
+async function isInBuffer(organizationId: string, campaignId: string, externalId: string): Promise<boolean> {
+  const row = await db.query.leadBuffer.findFirst({
+    where: and(
+      eq(leadBuffer.organizationId, organizationId),
+      eq(leadBuffer.namespace, campaignId),
+      eq(leadBuffer.externalId, externalId)
+    ),
+  });
+  return !!row;
+}
+
+const MAX_PAGES = 50;
+
 async function fillBufferFromSearch(params: {
   organizationId: string;
   campaignId: string;
@@ -99,13 +111,7 @@ async function fillBufferFromSearch(params: {
   clerkOrgId?: string | null;
   clerkUserId?: string | null;
   appId?: string;
-}): Promise<{ filled: number; exhausted: boolean }> {
-  const cursor = await getCursor(params.organizationId, params.campaignId);
-
-  if (cursor.exhausted) {
-    return { filled: 0, exhausted: true };
-  }
-
+}): Promise<{ filled: number }> {
   // Transform + validate search params via LLM → Apollo /validate loop
   const validatedParams = await transformSearchParams(
     params.searchParams as Record<string, unknown>,
@@ -113,66 +119,86 @@ async function fillBufferFromSearch(params: {
     params.pushRunId
   );
 
-  const result = await apolloSearch(validatedParams, cursor.page, {
-    runId: params.pushRunId,
-    clerkOrgId: params.clerkOrgId,
-    appId: params.appId,
-    brandId: params.brandId,
-    campaignId: params.campaignId,
-  });
+  let totalFilled = 0;
 
-  if (!result) {
-    console.warn("[fillBuffer] Apollo returned null (search failed or network error)");
-    await setCursor(params.organizationId, params.campaignId, { page: cursor.page, exhausted: true });
-    return { filled: 0, exhausted: true };
-  }
+  // Walk pages starting from 1 until we find new leads or Apollo returns empty
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const result = await apolloSearch(validatedParams, page, {
+      runId: params.pushRunId,
+      clerkOrgId: params.clerkOrgId,
+      appId: params.appId,
+      brandId: params.brandId,
+      campaignId: params.campaignId,
+    });
 
-  if (result.people.length === 0) {
-    await setCursor(params.organizationId, params.campaignId, { page: cursor.page, exhausted: true });
-    return { filled: 0, exhausted: true };
-  }
-
-  let filled = 0;
-  let skippedAlreadyServed = 0;
-
-  for (const person of result.people) {
-    // If person has email, check dedup early; otherwise defer to enrichment in pullNext
-    if (person.email) {
-      const alreadyServed = await isServed(
-        params.organizationId,
-        params.brandId,
-        person.email
-      );
-
-      if (alreadyServed) {
-        skippedAlreadyServed++;
-        continue;
-      }
+    if (!result) {
+      console.warn(`[fillBuffer] Apollo returned null on page ${page} (search failed or network error)`);
+      break;
     }
 
-    await db.insert(leadBuffer).values({
-      organizationId: params.organizationId,
-      namespace: params.campaignId,
-      campaignId: params.campaignId,
-      email: person.email ?? "",
-      externalId: person.id,
-      data: person,
-      status: "buffered",
-      pushRunId: params.pushRunId ?? null,
-      brandId: params.brandId,
-      clerkOrgId: params.clerkOrgId ?? null,
-      clerkUserId: params.clerkUserId ?? null,
-    });
-    filled++;
+    if (result.people.length === 0) {
+      console.log(`[fillBuffer] Apollo returned 0 people on page ${page}, stopping`);
+      break;
+    }
+
+    let pageFilled = 0;
+
+    for (const person of result.people) {
+      // Skip if already in buffer (prevents re-inserting across page walks)
+      if (person.id && await isInBuffer(params.organizationId, params.campaignId, person.id)) {
+        continue;
+      }
+
+      // If person has email, check served dedup early; otherwise defer to enrichment in pullNext
+      if (person.email) {
+        const alreadyServed = await isServed(
+          params.organizationId,
+          params.brandId,
+          person.email
+        );
+
+        if (alreadyServed) {
+          continue;
+        }
+      }
+
+      await db.insert(leadBuffer).values({
+        organizationId: params.organizationId,
+        namespace: params.campaignId,
+        campaignId: params.campaignId,
+        email: person.email ?? "",
+        externalId: person.id,
+        data: person,
+        status: "buffered",
+        pushRunId: params.pushRunId ?? null,
+        brandId: params.brandId,
+        clerkOrgId: params.clerkOrgId ?? null,
+        clerkUserId: params.clerkUserId ?? null,
+      });
+      pageFilled++;
+    }
+
+    totalFilled += pageFilled;
+
+    // Found new leads on this page — stop walking, let pullNext serve them
+    if (pageFilled > 0) {
+      console.log(`[fillBuffer] Buffered ${pageFilled} new leads from page ${page}`);
+      await setCursor(params.organizationId, params.campaignId, { page });
+      return { filled: totalFilled };
+    }
+
+    // All people on this page were dupes — continue to next page
+    console.log(`[fillBuffer] Page ${page}: all ${result.people.length} people already seen, continuing`);
+
+    // Stop if we've reached the last page
+    if (page >= result.pagination.totalPages) {
+      console.log(`[fillBuffer] Reached last Apollo page (${result.pagination.totalPages}), no new leads found`);
+      break;
+    }
   }
 
-  const isExhausted = cursor.page >= result.pagination.totalPages;
-  await setCursor(params.organizationId, params.campaignId, {
-    page: cursor.page + 1,
-    exhausted: isExhausted,
-  });
-
-  return { filled, exhausted: isExhausted && filled === 0 };
+  await setCursor(params.organizationId, params.campaignId, { page: 1 });
+  return { filled: totalFilled };
 }
 
 export async function pullNext(params: {
@@ -196,10 +222,8 @@ export async function pullNext(params: {
     clerkUserId: string | null;
   };
 }> {
-  const MAX_EMPTY_PAGES = 10;
   const MAX_ITERATIONS = 100;
   let iterations = 0;
-  let emptyPages = 0;
   while (true) {
     iterations++;
 
@@ -219,7 +243,7 @@ export async function pullNext(params: {
     if (!row) {
       // Buffer empty - try to fill from search if searchParams provided
       if (params.searchParams) {
-        const { filled, exhausted } = await fillBufferFromSearch({
+        const { filled } = await fillBufferFromSearch({
           organizationId: params.organizationId,
           campaignId: params.campaignId,
           brandId: params.brandId,
@@ -231,21 +255,8 @@ export async function pullNext(params: {
         });
 
         if (filled > 0) {
-          emptyPages = 0;
           continue; // Retry pulling from buffer
         }
-
-        if (exhausted) {
-          return { found: false };
-        }
-
-        emptyPages++;
-        if (emptyPages >= MAX_EMPTY_PAGES) {
-          console.warn(`[pullNext] Gave up after ${emptyPages} consecutive empty pages`);
-          return { found: false };
-        }
-
-        continue;
       }
 
       return { found: false };

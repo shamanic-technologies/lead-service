@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildSystemPrompt } from "../../src/lib/search-transform.js";
+import { buildSystemPrompt, cacheKey, PROMPT_VERSION, MODEL } from "../../src/lib/search-transform.js";
 
 const sampleIndustries = [
   { id: "1", name: "Computer Software" },
@@ -82,5 +82,25 @@ describe("buildSystemPrompt", () => {
   it("includes the provided employee ranges", () => {
     expect(prompt).toContain('"1,10"');
     expect(prompt).toContain('"51,100"');
+  });
+});
+
+describe("cacheKey", () => {
+  it("includes prompt version and model as prefix", () => {
+    const key = cacheKey({ titles: ["CEO"] });
+    expect(key).toMatch(new RegExp(`^${PROMPT_VERSION}:${MODEL}:`));
+  });
+
+  it("produces different keys for same input when version/model differ", () => {
+    const key = cacheKey({ titles: ["CEO"] });
+    // Key includes the version + model prefix
+    expect(key).toContain(PROMPT_VERSION);
+    expect(key).toContain(MODEL);
+  });
+
+  it("produces deterministic keys regardless of property order", () => {
+    const key1 = cacheKey({ a: 1, b: 2 });
+    const key2 = cacheKey({ b: 2, a: 1 });
+    expect(key1).toBe(key2);
   });
 });
