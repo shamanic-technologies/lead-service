@@ -72,7 +72,7 @@ async function fillBufferFromSearch(params: {
   campaignId: string;
   brandId: string;
   searchParams: ApolloSearchParams;
-  anthropicKeySource: "byok" | "app";
+  keySource: "byok" | "app";
   pushRunId?: string | null;
   clerkOrgId?: string | null;
   clerkUserId?: string | null;
@@ -108,7 +108,7 @@ async function fillBufferFromSearch(params: {
 
   const { searchParams: validatedParams } = await apolloSearchParams({
     context,
-    anthropicKeySource: params.anthropicKeySource,
+    keySource: params.keySource,
     runId: params.pushRunId ?? "",
     appId: params.appId ?? "",
     brandId: params.brandId,
@@ -203,7 +203,7 @@ export async function pullNext(params: {
   brandId: string;
   parentRunId?: string | null;
   runId?: string | null;
-  anthropicKeySource?: "byok" | "app";
+  keySource?: "byok" | "app";
   searchParams?: ApolloSearchParams;
   clerkOrgId?: string | null;
   clerkUserId?: string | null;
@@ -239,13 +239,13 @@ export async function pullNext(params: {
 
     if (!row) {
       // Buffer empty - try to fill from search if searchParams provided
-      if (params.searchParams && params.anthropicKeySource) {
+      if (params.searchParams && params.keySource) {
         const { filled } = await fillBufferFromSearch({
           organizationId: params.organizationId,
           campaignId: params.campaignId,
           brandId: params.brandId,
           searchParams: params.searchParams,
-          anthropicKeySource: params.anthropicKeySource,
+          keySource: params.keySource,
           pushRunId: params.runId,
           clerkOrgId: params.clerkOrgId,
           clerkUserId: params.clerkUserId,

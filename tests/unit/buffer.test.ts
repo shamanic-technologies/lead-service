@@ -338,7 +338,7 @@ describe("buffer", () => {
         organizationId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
-        anthropicKeySource: "byok",
+        keySource: "byok",
         searchParams: { description: "tech CEOs" },
         appId: "my-app",
       });
@@ -445,7 +445,7 @@ describe("buffer", () => {
         organizationId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
-        anthropicKeySource: "byok",
+        keySource: "byok",
         searchParams: { description: "tech CEOs" },
         appId: "my-app",
       });
@@ -473,7 +473,7 @@ describe("buffer", () => {
         organizationId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
-        anthropicKeySource: "byok",
+        keySource: "byok",
         searchParams: { description: "impossible search" },
         appId: "my-app",
       });
@@ -497,7 +497,7 @@ describe("buffer", () => {
         organizationId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
-        anthropicKeySource: "byok",
+        keySource: "byok",
         searchParams: { description: "tech CEOs" },
         appId: "my-app",
       });
@@ -551,7 +551,7 @@ describe("buffer", () => {
         organizationId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
-        anthropicKeySource: "byok",
+        keySource: "byok",
         searchParams: { description: "tech CEOs" },
         appId: "my-app",
       });

@@ -178,8 +178,8 @@ export const BufferNextRequestSchema = z
     campaignId: z.string().min(1),
     brandId: z.string().min(1),
     parentRunId: z.string().min(1),
-    anthropicKeySource: z.enum(["byok", "app"]).openapi({
-      description: "How Apollo service should resolve the Anthropic API key: 'byok' = use the org's own key via key-service, 'app' = use the platform's key.",
+    keySource: z.enum(["byok", "app"]).openapi({
+      description: "How downstream services resolve API keys: 'byok' = use the org's own keys via key-service, 'app' = use platform keys.",
     }),
     searchParams: z.record(z.string(), z.unknown()).optional(),
     clerkUserId: z.string().optional(),
