@@ -236,7 +236,7 @@ export async function apolloSearchParams(options: {
     method: "POST",
     body: {
       context: options.context,
-      anthropicKeySource: options.keySource,
+      keySource: options.keySource,
       runId: options.runId,
       appId: options.appId,
       brandId: options.brandId,
