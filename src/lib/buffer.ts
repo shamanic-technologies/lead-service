@@ -317,12 +317,19 @@ export async function pullNext(params: {
 
     console.log(`[pullNext] Served lead: ${email}`);
 
+    // Ensure nested `organization` object exists so downstream consumers
+    // (e.g. Windmill workflows) can safely access organization.primary_domain etc.
+    const normalizedData =
+      typeof enrichedData === "object" && enrichedData !== null
+        ? { organization: {}, ...(enrichedData as Record<string, unknown>) }
+        : enrichedData;
+
     return {
       found: true,
       lead: {
         email,
         externalId: row.externalId,
-        data: enrichedData,
+        data: normalizedData,
         brandId: params.brandId,
         clerkOrgId: row.clerkOrgId,
         clerkUserId: row.clerkUserId,
