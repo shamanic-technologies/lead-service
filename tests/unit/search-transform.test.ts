@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildSystemPrompt, cacheKey, PROMPT_VERSION, MODEL } from "../../src/lib/search-transform.js";
+import { buildSystemPrompt, cacheKey, stripMarkdownFences, PROMPT_VERSION, MODEL } from "../../src/lib/search-transform.js";
 
 const sampleIndustries = [
   { id: "1", name: "Computer Software" },
@@ -25,7 +25,11 @@ describe("buildSystemPrompt", () => {
   });
 
   it("warns against using too many filters", () => {
-    expect(prompt).toContain("NEVER use more than 3 filters at once");
+    expect(prompt).toContain("NEVER use more than 2 filters at once");
+  });
+
+  it("warns against combining qKeywords with industry tags", () => {
+    expect(prompt).toContain("Do NOT combine qKeywords with qOrganizationIndustryTagIds");
   });
 
   it("warns against combining keyword tags with industry tags", () => {
@@ -102,5 +106,28 @@ describe("cacheKey", () => {
     const key1 = cacheKey({ a: 1, b: 2 });
     const key2 = cacheKey({ b: 2, a: 1 });
     expect(key1).toBe(key2);
+  });
+});
+
+describe("stripMarkdownFences", () => {
+  it("strips ```json fences", () => {
+    const input = '```json\n{"personTitles": ["CEO"]}\n```';
+    expect(stripMarkdownFences(input)).toBe('{"personTitles": ["CEO"]}');
+  });
+
+  it("strips ``` fences without language tag", () => {
+    const input = '```\n{"personTitles": ["CEO"]}\n```';
+    expect(stripMarkdownFences(input)).toBe('{"personTitles": ["CEO"]}');
+  });
+
+  it("returns raw JSON unchanged", () => {
+    const input = '{"personTitles": ["CEO"]}';
+    expect(stripMarkdownFences(input)).toBe('{"personTitles": ["CEO"]}');
+  });
+
+  it("handles fences with extra whitespace", () => {
+    const input = '```json\n\n{"a": 1}\n\n```  ';
+    const result = stripMarkdownFences(input);
+    expect(JSON.parse(result)).toEqual({ a: 1 });
   });
 });

@@ -10,7 +10,7 @@ import { addCosts } from "./runs-client.js";
 
 const MAX_RETRIES = 3;
 const CACHE_TTL = 6 * 30 * 24 * 60 * 60 * 1000; // ~6 months
-export const PROMPT_VERSION = "v2";
+export const PROMPT_VERSION = "v3";
 export const MODEL = "claude-sonnet-4-6";
 
 // In-memory cache: hash(raw input) → validated ApolloSearchParams
@@ -71,8 +71,9 @@ Output ONLY valid JSON matching the Apollo search schema. No explanation, no mar
 1. **Start broad** — use 1-2 filters maximum. Each additional filter drastically reduces results.
 2. **Use personTitles broadly** — include many title variations and seniority levels (e.g. ["CEO", "Founder", "Managing Director", "Head of Operations", "COO"])
 3. **Prefer qKeywords for niche topics** — instead of combining qOrganizationKeywordTags + qOrganizationIndustryTagIds + qKeywords (3 AND'd filters), use a single broad qKeywords with OR syntax: "blockchain OR web3 OR crypto"
-4. **Do NOT combine qOrganizationKeywordTags with qOrganizationIndustryTagIds** — these overlap in meaning and AND'ing them often gives 0 results. Pick the one that best matches the intent.
-5. **organizationLocations is expensive** — only include when location is explicitly required by the user.
+4. **Do NOT combine qKeywords with qOrganizationIndustryTagIds** — free-text keywords already narrow results dramatically; adding an industry filter on top almost always gives 0 results. Pick one or the other.
+5. **Do NOT combine qOrganizationKeywordTags with qOrganizationIndustryTagIds** — these overlap in meaning and AND'ing them often gives 0 results. Pick the one that best matches the intent.
+6. **organizationLocations is expensive** — only include when location is explicitly required by the user.
 
 ## BAD example (too many AND'd filters → 0 results):
 {
@@ -115,7 +116,7 @@ Rules:
 - Only include fields that are relevant to the input
 - Use exact enum values for employee ranges
 - Use industry names for qOrganizationIndustryTagIds
-- NEVER use more than 3 filters at once — prefer 1-2
+- NEVER use more than 2 filters at once
 - Output raw JSON only, no wrapping`;
 }
 
@@ -134,6 +135,10 @@ Validation errors:
 ${errorLines}
 
 Fix these errors and output corrected JSON only.`;
+}
+
+export function stripMarkdownFences(text: string): string {
+  return text.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "").trim();
 }
 
 let anthropicClient: Anthropic | null = null;
@@ -187,7 +192,7 @@ export async function transformSearchParams(
     totalOutputTokens += response.usage.output_tokens;
 
     const text = response.content[0].type === "text" ? response.content[0].text : "";
-    lastAttempt = text.trim();
+    lastAttempt = stripMarkdownFences(text.trim());
 
     let parsed: ApolloSearchParams;
     try {
