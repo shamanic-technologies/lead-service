@@ -504,6 +504,14 @@
             "type": "string",
             "minLength": 1
           },
+          "anthropicKeySource": {
+            "type": "string",
+            "enum": [
+              "byok",
+              "app"
+            ],
+            "description": "How Apollo service should resolve the Anthropic API key: 'byok' = use the org's own key via key-service, 'app' = use the platform's key."
+          },
           "searchParams": {
             "type": "object",
             "additionalProperties": {
@@ -521,7 +529,8 @@
         "required": [
           "campaignId",
           "brandId",
-          "parentRunId"
+          "parentRunId",
+          "anthropicKeySource"
         ]
       },
       "CursorGetResponse": {

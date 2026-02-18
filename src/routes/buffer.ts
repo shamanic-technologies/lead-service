@@ -78,7 +78,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
   }
 
   try {
-    const { campaignId, brandId, parentRunId, searchParams, clerkUserId, idempotencyKey } = parsed.data;
+    const { campaignId, brandId, parentRunId, anthropicKeySource, searchParams, clerkUserId, idempotencyKey } = parsed.data;
     const clerkOrgId = req.externalOrgId ?? null;
 
     // Idempotency: return cached response if this key was already processed
@@ -111,6 +111,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       brandId,
       parentRunId,
       runId: serveRunId,
+      anthropicKeySource,
       searchParams: searchParams ?? undefined,
       clerkOrgId,
       clerkUserId: clerkUserId ?? null,

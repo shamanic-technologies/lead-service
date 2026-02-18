@@ -222,7 +222,7 @@ export interface ApolloSearchParamsResult {
 
 export async function apolloSearchParams(options: {
   context: string;
-  anthropicKeySource?: "byok" | "app";
+  anthropicKeySource: "byok" | "app";
   runId: string;
   appId: string;
   brandId: string;
@@ -236,7 +236,7 @@ export async function apolloSearchParams(options: {
     method: "POST",
     body: {
       context: options.context,
-      anthropicKeySource: options.anthropicKeySource ?? "app",
+      anthropicKeySource: options.anthropicKeySource,
       runId: options.runId,
       appId: options.appId,
       brandId: options.brandId,
