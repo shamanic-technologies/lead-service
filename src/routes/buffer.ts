@@ -88,7 +88,8 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       });
       if (cached) {
         console.log(`[buffer/next] Idempotency hit for key=${idempotencyKey}`);
-        return res.json(cached.response);
+        const cachedResult = cached.response as { found?: boolean };
+        return res.status(cachedResult.found ? 200 : 404).json(cached.response);
       }
     }
 
@@ -138,7 +139,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       console.error("[buffer/next] Failed to update run:", err);
     }
 
-    res.json(result);
+    res.status(result.found ? 200 : 404).json(result);
   } catch (error) {
     console.error("[buffer/next] Error:", error);
     res.status(500).json({ error: "Internal server error" });
