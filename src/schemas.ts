@@ -231,6 +231,10 @@ registry.registerPath({
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     401: { description: "Unauthorized" },
+    404: {
+      description: "No lead available in buffer",
+      content: { "application/json": { schema: BufferNextResponseSchema } },
+    },
   },
 });
 
