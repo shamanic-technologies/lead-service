@@ -2,8 +2,9 @@ import { eq, and, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { leadBuffer } from "../db/schema.js";
 import { isServed, markServed } from "./dedup.js";
-import { apolloSearchNext, apolloEnrich, type ApolloSearchParams } from "./apollo-client.js";
-import { transformSearchParams } from "./search-transform.js";
+import { apolloSearchNext, apolloEnrich, apolloSearchParams, type ApolloSearchParams } from "./apollo-client.js";
+import { fetchCampaign } from "./campaign-client.js";
+import { fetchBrand } from "./brand-client.js";
 
 export async function pushLeads(params: {
   organizationId: string;
@@ -76,12 +77,42 @@ async function fillBufferFromSearch(params: {
   clerkUserId?: string | null;
   appId?: string;
 }): Promise<{ filled: number }> {
-  // Transform + validate search params via LLM → Apollo /validate loop
-  const validatedParams = await transformSearchParams(
-    params.searchParams as Record<string, unknown>,
-    params.clerkOrgId,
-    params.pushRunId
-  );
+  // Fetch campaign + brand details in parallel for rich LLM context
+  const [campaign, brand] = await Promise.all([
+    fetchCampaign(params.campaignId, params.clerkOrgId),
+    fetchBrand(params.brandId, params.clerkOrgId),
+  ]);
+
+  // Build rich context string from campaign, brand, and raw searchParams
+  const contextParts: string[] = [];
+
+  if (campaign?.targetAudience) contextParts.push(`Target audience: ${campaign.targetAudience}`);
+  if (campaign?.targetOutcome) contextParts.push(`Expected outcome: ${campaign.targetOutcome}`);
+  if (campaign?.valueForTarget) contextParts.push(`Value for the audience: ${campaign.valueForTarget}`);
+
+  if (brand?.name) contextParts.push(`Brand: ${brand.name}`);
+  if (brand?.elevatorPitch) contextParts.push(`Brand pitch: ${brand.elevatorPitch}`);
+  if (brand?.bio) contextParts.push(`Brand bio: ${brand.bio}`);
+  if (brand?.mission) contextParts.push(`Brand mission: ${brand.mission}`);
+  if (brand?.categories) contextParts.push(`Brand categories: ${brand.categories}`);
+  if (brand?.location) contextParts.push(`Brand location: ${brand.location}`);
+
+  // Include raw searchParams as additional context
+  const rawSearch = typeof params.searchParams === "string"
+    ? params.searchParams
+    : JSON.stringify(params.searchParams);
+  contextParts.push(`Search parameters: ${rawSearch}`);
+
+  const context = contextParts.join("\n");
+
+  const { searchParams: validatedParams } = await apolloSearchParams({
+    context,
+    runId: params.pushRunId ?? "",
+    appId: params.appId ?? "",
+    brandId: params.brandId,
+    campaignId: params.campaignId,
+    clerkOrgId: params.clerkOrgId,
+  });
 
   let totalFilled = 0;
 

@@ -19,18 +19,23 @@ vi.mock("../../src/db/index.js", () => ({
 // Mock apollo-client
 vi.mock("../../src/lib/apollo-client.js", () => ({
   apolloSearchNext: vi.fn(),
+  apolloSearchParams: vi.fn(),
   apolloEnrich: vi.fn(),
 }));
 
-// Mock search-transform
-vi.mock("../../src/lib/search-transform.js", () => ({
-  transformSearchParams: vi.fn(),
+// Mock campaign-client — returns null by default (context enrichment is best-effort)
+vi.mock("../../src/lib/campaign-client.js", () => ({
+  fetchCampaign: vi.fn().mockResolvedValue(null),
+}));
+
+// Mock brand-client — returns null by default (context enrichment is best-effort)
+vi.mock("../../src/lib/brand-client.js", () => ({
+  fetchBrand: vi.fn().mockResolvedValue(null),
 }));
 
 import { db } from "../../src/db/index.js";
 import { pushLeads, pullNext } from "../../src/lib/buffer.js";
-import { apolloSearchNext } from "../../src/lib/apollo-client.js";
-import { transformSearchParams } from "../../src/lib/search-transform.js";
+import { apolloSearchNext, apolloSearchParams } from "../../src/lib/apollo-client.js";
 
 describe("buffer", () => {
   beforeEach(() => {
@@ -302,8 +307,8 @@ describe("buffer", () => {
         .mockResolvedValueOnce(undefined)   // 2: isInBuffer → not in buffer
         .mockResolvedValueOnce(newLeadRow); // 3: pullNext buffer → new lead
 
-      // transformSearchParams returns validated params
-      vi.mocked(transformSearchParams).mockResolvedValue({ personTitles: ["CEO"] });
+      // apolloSearchParams returns validated params
+      vi.mocked(apolloSearchParams).mockResolvedValue({ searchParams: { personTitles: ["CEO"] }, totalResults: 100, attempts: 1 });
 
       // apolloSearchNext returns 1 person
       vi.mocked(apolloSearchNext).mockResolvedValue({
@@ -339,7 +344,7 @@ describe("buffer", () => {
 
       expect(result.found).toBe(true);
       expect(result.lead?.email).toBe("new-lead@example.com");
-      expect(vi.mocked(transformSearchParams)).toHaveBeenCalledOnce();
+      expect(vi.mocked(apolloSearchParams)).toHaveBeenCalledOnce();
       // searchParams always passed on every call
       expect(vi.mocked(apolloSearchNext)).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -381,7 +386,7 @@ describe("buffer", () => {
         .mockResolvedValueOnce(undefined)   // 4: isInBuffer apollo-3
         .mockResolvedValueOnce(freshLeadRow); // 5: pullNext buffer → new lead
 
-      vi.mocked(transformSearchParams).mockResolvedValue({ personTitles: ["CEO"] });
+      vi.mocked(apolloSearchParams).mockResolvedValue({ searchParams: { personTitles: ["CEO"] }, totalResults: 100, attempts: 1 });
 
       // Page 1: all people are already served → page 2: fresh person
       vi.mocked(apolloSearchNext)
@@ -454,7 +459,7 @@ describe("buffer", () => {
     it("returns found: false when Apollo returns done: true with 0 people", async () => {
       vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue(undefined);
 
-      vi.mocked(transformSearchParams).mockResolvedValue({ personTitles: ["CEO"] });
+      vi.mocked(apolloSearchParams).mockResolvedValue({ searchParams: { personTitles: ["CEO"] }, totalResults: 100, attempts: 1 });
 
       vi.mocked(apolloSearchNext).mockResolvedValue({
         people: [],
@@ -477,7 +482,7 @@ describe("buffer", () => {
     it("does not permanently block — always retries Apollo on next call", async () => {
       // First pullNext: Apollo returns 0 people → found: false
       vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue(undefined);
-      vi.mocked(transformSearchParams).mockResolvedValue({ personTitles: ["CEO"] });
+      vi.mocked(apolloSearchParams).mockResolvedValue({ searchParams: { personTitles: ["CEO"] }, totalResults: 100, attempts: 1 });
 
       vi.mocked(apolloSearchNext).mockResolvedValue({
         people: [],
@@ -516,7 +521,7 @@ describe("buffer", () => {
           createdAt: new Date(),
         });
 
-      vi.mocked(transformSearchParams).mockResolvedValue({ personTitles: ["CEO"] });
+      vi.mocked(apolloSearchParams).mockResolvedValue({ searchParams: { personTitles: ["CEO"] }, totalResults: 100, attempts: 1 });
 
       vi.mocked(apolloSearchNext).mockResolvedValue({
         people: [{ id: "apollo-1", email: "new@example.com", firstName: "New" }],
