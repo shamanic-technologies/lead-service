@@ -85,6 +85,7 @@ describe("schema validation", () => {
         campaignId: "c1",
         brandId: "b1",
         parentRunId: "r1",
+        anthropicKeySource: "byok",
       });
       expect(result.success).toBe(true);
     });
@@ -94,6 +95,7 @@ describe("schema validation", () => {
         campaignId: "c1",
         brandId: "b1",
         parentRunId: "r1",
+        anthropicKeySource: "byok",
         idempotencyKey: "run-123",
       });
       expect(result.success).toBe(true);
