@@ -173,6 +173,45 @@ export async function apolloSearch(
   }
 }
 
+// --- Search Next (server-managed pagination) ---
+
+export interface ApolloSearchNextResult {
+  people: ApolloPersonResult[];
+  done: boolean;
+  totalEntries: number;
+}
+
+export async function apolloSearchNext(options: {
+  campaignId: string;
+  brandId: string;
+  appId: string;
+  searchParams?: ApolloSearchParams;
+  runId?: string | null;
+  clerkOrgId?: string | null;
+}): Promise<ApolloSearchNextResult | null> {
+  try {
+    const headers: Record<string, string> = {};
+    if (options.clerkOrgId) headers["x-clerk-org-id"] = options.clerkOrgId;
+
+    const body: Record<string, unknown> = {
+      campaignId: options.campaignId,
+      brandId: options.brandId,
+      appId: options.appId,
+    };
+    if (options.searchParams) body.searchParams = options.searchParams;
+    if (options.runId) body.runId = options.runId;
+
+    return await callApolloService<ApolloSearchNextResult>("/search/next", {
+      method: "POST",
+      body,
+      headers,
+    });
+  } catch (error) {
+    console.error("[apollo-client] SearchNext failed:", error);
+    return null;
+  }
+}
+
 // --- Validation ---
 
 export interface ValidationError {

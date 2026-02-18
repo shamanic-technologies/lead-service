@@ -10,9 +10,6 @@ vi.mock("../../src/db/index.js", () => ({
       leadBuffer: {
         findFirst: vi.fn(),
       },
-      cursors: {
-        findFirst: vi.fn(),
-      },
     },
     insert: vi.fn(),
     update: vi.fn(),
@@ -21,7 +18,7 @@ vi.mock("../../src/db/index.js", () => ({
 
 // Mock apollo-client
 vi.mock("../../src/lib/apollo-client.js", () => ({
-  apolloSearch: vi.fn(),
+  apolloSearchNext: vi.fn(),
   apolloEnrich: vi.fn(),
 }));
 
@@ -32,7 +29,7 @@ vi.mock("../../src/lib/search-transform.js", () => ({
 
 import { db } from "../../src/db/index.js";
 import { pushLeads, pullNext } from "../../src/lib/buffer.js";
-import { apolloSearch } from "../../src/lib/apollo-client.js";
+import { apolloSearchNext } from "../../src/lib/apollo-client.js";
 import { transformSearchParams } from "../../src/lib/search-transform.js";
 
 describe("buffer", () => {
@@ -279,8 +276,8 @@ describe("buffer", () => {
       expect(result.lead?.email).toBe("bob@acme.com");
     });
 
-    it("fills buffer from Apollo search when buffer empty and searchParams provided", async () => {
-      // leadBuffer.findFirst is called by:
+    it("fills buffer from apolloSearchNext when buffer empty and searchParams provided", async () => {
+      // leadBuffer.findFirst calls:
       //   1. pullNext buffer check → undefined (empty)
       //   2. isInBuffer check for apollo-1 → undefined (not in buffer)
       //   3. pullNext buffer check → new lead row
@@ -305,22 +302,20 @@ describe("buffer", () => {
         .mockResolvedValueOnce(undefined)   // 2: isInBuffer → not in buffer
         .mockResolvedValueOnce(newLeadRow); // 3: pullNext buffer → new lead
 
-      // getCursor returns default (no cursor row)
-      vi.mocked(db.query.cursors.findFirst).mockResolvedValue(undefined);
-
       // transformSearchParams returns validated params
       vi.mocked(transformSearchParams).mockResolvedValue({ personTitles: ["CEO"] });
 
-      // apolloSearch returns 1 person
-      vi.mocked(apolloSearch).mockResolvedValue({
+      // apolloSearchNext returns 1 person
+      vi.mocked(apolloSearchNext).mockResolvedValue({
         people: [{ id: "apollo-1", email: "new-lead@example.com", firstName: "New" }],
-        pagination: { page: 1, perPage: 25, totalEntries: 1, totalPages: 1 },
+        done: true,
+        totalEntries: 1,
       });
 
       // isServed returns false
       vi.mocked(db.query.servedLeads.findFirst).mockResolvedValue(undefined);
 
-      // db.insert for buffer row + cursor + markServed
+      // db.insert for buffer row + markServed
       const returningMock = vi.fn().mockResolvedValue([{ id: "served-1" }]);
       const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
       const valuesMock = vi.fn().mockReturnValue({
@@ -328,7 +323,7 @@ describe("buffer", () => {
       });
       vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
 
-      // Update buffer row status + setCursor
+      // Update buffer row status
       const setMock = vi.fn().mockReturnValue({
         where: vi.fn().mockResolvedValue(undefined),
       });
@@ -339,15 +334,20 @@ describe("buffer", () => {
         campaignId: "campaign-1",
         brandId: "brand-1",
         searchParams: { description: "tech CEOs" },
+        appId: "my-app",
       });
 
       expect(result.found).toBe(true);
       expect(result.lead?.email).toBe("new-lead@example.com");
       expect(vi.mocked(transformSearchParams)).toHaveBeenCalledOnce();
-      expect(vi.mocked(apolloSearch)).toHaveBeenCalledWith(
-        { personTitles: ["CEO"] },
-        1,
-        expect.any(Object)
+      // searchParams always passed on every call
+      expect(vi.mocked(apolloSearchNext)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          campaignId: "campaign-1",
+          brandId: "brand-1",
+          appId: "my-app",
+          searchParams: { personTitles: ["CEO"] },
+        })
       );
     });
 
@@ -381,35 +381,30 @@ describe("buffer", () => {
         .mockResolvedValueOnce(undefined)   // 4: isInBuffer apollo-3
         .mockResolvedValueOnce(freshLeadRow); // 5: pullNext buffer → new lead
 
-      // No cursor row
-      vi.mocked(db.query.cursors.findFirst).mockResolvedValue(undefined);
-
       vi.mocked(transformSearchParams).mockResolvedValue({ personTitles: ["CEO"] });
 
-      // Page 1: all people are already served
-      // Page 2: has a fresh person
-      vi.mocked(apolloSearch)
+      // Page 1: all people are already served → page 2: fresh person
+      vi.mocked(apolloSearchNext)
         .mockResolvedValueOnce({
           people: [
             { id: "apollo-1", email: "dupe1@example.com" },
             { id: "apollo-2", email: "dupe2@example.com" },
           ],
-          pagination: { page: 1, perPage: 25, totalEntries: 50, totalPages: 2 },
+          done: false,
+          totalEntries: 50,
         })
         .mockResolvedValueOnce({
           people: [
             { id: "apollo-3", email: "fresh@example.com" },
           ],
-          pagination: { page: 2, perPage: 25, totalEntries: 50, totalPages: 2 },
+          done: false,
+          totalEntries: 50,
         });
 
       // isServed: dupe1 and dupe2 are served, fresh is not
       let servedCallCount = 0;
       vi.mocked(db.query.servedLeads.findFirst).mockImplementation(async () => {
         servedCallCount++;
-        // Calls 1-2: isServed for dupe1, dupe2 (page 1 people) → served
-        // Call 3: isServed for fresh in fillBuffer → not served
-        // Call 4: isServed for fresh in pullNext serve loop → not served
         if (servedCallCount <= 2) {
           return {
             id: `served-${servedCallCount}`,
@@ -445,79 +440,63 @@ describe("buffer", () => {
         campaignId: "campaign-1",
         brandId: "brand-1",
         searchParams: { description: "tech CEOs" },
+        appId: "my-app",
       });
 
       expect(result.found).toBe(true);
       expect(result.lead?.email).toBe("fresh@example.com");
-      // Apollo was called for page 1 and page 2
-      expect(vi.mocked(apolloSearch)).toHaveBeenCalledTimes(2);
-      expect(vi.mocked(apolloSearch)).toHaveBeenCalledWith(
-        { personTitles: ["CEO"] },
-        1,
-        expect.any(Object)
-      );
-      expect(vi.mocked(apolloSearch)).toHaveBeenCalledWith(
-        { personTitles: ["CEO"] },
-        2,
-        expect.any(Object)
+      // apolloSearchNext called multiple times (page walk), always with searchParams
+      expect(vi.mocked(apolloSearchNext)).toHaveBeenCalledWith(
+        expect.objectContaining({ searchParams: { personTitles: ["CEO"] } })
       );
     });
 
-    it("returns found: false when Apollo returns 0 people", async () => {
+    it("returns found: false when Apollo returns done: true with 0 people", async () => {
       vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue(undefined);
-      vi.mocked(db.query.cursors.findFirst).mockResolvedValue(undefined);
 
       vi.mocked(transformSearchParams).mockResolvedValue({ personTitles: ["CEO"] });
 
-      vi.mocked(apolloSearch).mockResolvedValue({
+      vi.mocked(apolloSearchNext).mockResolvedValue({
         people: [],
-        pagination: { page: 1, perPage: 25, totalEntries: 0, totalPages: 0 },
+        done: true,
+        totalEntries: 0,
       });
-
-      // setCursor insert (no existing cursor)
-      const valuesMock = vi.fn().mockResolvedValue(undefined);
-      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
 
       const result = await pullNext({
         organizationId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
         searchParams: { description: "impossible search" },
+        appId: "my-app",
       });
 
       expect(result.found).toBe(false);
-      expect(vi.mocked(apolloSearch)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(apolloSearchNext)).toHaveBeenCalled();
     });
 
     it("does not permanently block — always retries Apollo on next call", async () => {
       // First pullNext: Apollo returns 0 people → found: false
       vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue(undefined);
-      vi.mocked(db.query.cursors.findFirst).mockResolvedValue(undefined);
       vi.mocked(transformSearchParams).mockResolvedValue({ personTitles: ["CEO"] });
 
-      vi.mocked(apolloSearch).mockResolvedValue({
+      vi.mocked(apolloSearchNext).mockResolvedValue({
         people: [],
-        pagination: { page: 1, perPage: 25, totalEntries: 0, totalPages: 0 },
+        done: true,
+        totalEntries: 0,
       });
-
-      const valuesMock = vi.fn().mockResolvedValue(undefined);
-      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
 
       const result1 = await pullNext({
         organizationId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
         searchParams: { description: "tech CEOs" },
+        appId: "my-app",
       });
       expect(result1.found).toBe(false);
 
-      // Second pullNext: Apollo now returns a person → should succeed (no exhausted blocking)
+      // Second pullNext: Apollo now returns a person → should succeed
       vi.clearAllMocks();
 
-      // leadBuffer.findFirst calls:
-      //   1. pullNext buffer check → undefined (empty)
-      //   2. isInBuffer for apollo-1 → undefined (not in buffer)
-      //   3. pullNext buffer check → new lead
       vi.mocked(db.query.leadBuffer.findFirst)
         .mockResolvedValueOnce(undefined)   // 1: buffer empty
         .mockResolvedValueOnce(undefined)   // 2: isInBuffer → not in buffer
@@ -537,23 +516,22 @@ describe("buffer", () => {
           createdAt: new Date(),
         });
 
-      // Cursor might have state from first call, but no exhausted
-      vi.mocked(db.query.cursors.findFirst).mockResolvedValue(undefined);
       vi.mocked(transformSearchParams).mockResolvedValue({ personTitles: ["CEO"] });
 
-      vi.mocked(apolloSearch).mockResolvedValue({
+      vi.mocked(apolloSearchNext).mockResolvedValue({
         people: [{ id: "apollo-1", email: "new@example.com", firstName: "New" }],
-        pagination: { page: 1, perPage: 25, totalEntries: 1, totalPages: 1 },
+        done: false,
+        totalEntries: 1,
       });
 
       vi.mocked(db.query.servedLeads.findFirst).mockResolvedValue(undefined);
 
       const returningMock = vi.fn().mockResolvedValue([{ id: "served-1" }]);
       const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
-      const valuesMock2 = vi.fn().mockReturnValue({
+      const valuesMock = vi.fn().mockReturnValue({
         onConflictDoNothing: onConflictMock,
       });
-      vi.mocked(db.insert).mockReturnValue({ values: valuesMock2 } as never);
+      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
 
       const setMock = vi.fn().mockReturnValue({
         where: vi.fn().mockResolvedValue(undefined),
@@ -565,12 +543,12 @@ describe("buffer", () => {
         campaignId: "campaign-1",
         brandId: "brand-1",
         searchParams: { description: "tech CEOs" },
+        appId: "my-app",
       });
 
       expect(result2.found).toBe(true);
       expect(result2.lead?.email).toBe("new@example.com");
-      // Apollo was called again — no permanent block
-      expect(vi.mocked(apolloSearch)).toHaveBeenCalled();
+      expect(vi.mocked(apolloSearchNext)).toHaveBeenCalled();
     });
   });
 });
