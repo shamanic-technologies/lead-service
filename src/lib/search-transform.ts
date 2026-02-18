@@ -10,12 +10,14 @@ import { addCosts } from "./runs-client.js";
 
 const MAX_RETRIES = 3;
 const CACHE_TTL = 6 * 30 * 24 * 60 * 60 * 1000; // ~6 months
+export const PROMPT_VERSION = "v2";
+export const MODEL = "claude-sonnet-4-6";
 
 // In-memory cache: hash(raw input) → validated ApolloSearchParams
 const transformCache = new Map<string, { params: ApolloSearchParams; cachedAt: number }>();
 
-function cacheKey(input: Record<string, unknown>): string {
-  return JSON.stringify(input, Object.keys(input).sort());
+export function cacheKey(input: Record<string, unknown>): string {
+  return `${PROMPT_VERSION}:${MODEL}:${JSON.stringify(input, Object.keys(input).sort())}`;
 }
 
 function getCached(key: string): ApolloSearchParams | null {
@@ -175,7 +177,7 @@ export async function transformSearchParams(
         : buildRetryPrompt(lastAttempt, lastErrors);
 
     const response = await client.messages.create({
-      model: "claude-sonnet-4-6",
+      model: MODEL,
       max_tokens: 1024,
       system: systemPrompt,
       messages: [{ role: "user", content: userMessage }],
