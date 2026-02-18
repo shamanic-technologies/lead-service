@@ -42,13 +42,36 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("Only 2 AND'd filters");
   });
 
-  it("lists all 6 available search fields", () => {
+  it("lists all available search fields", () => {
+    // Person filters
     expect(prompt).toContain("personTitles");
+    expect(prompt).toContain("personLocations");
+    expect(prompt).toContain("personSeniorities");
+    expect(prompt).toContain("contactEmailStatus");
+    // Organization filters
     expect(prompt).toContain("organizationLocations");
     expect(prompt).toContain("qOrganizationIndustryTagIds");
     expect(prompt).toContain("organizationNumEmployeesRanges");
     expect(prompt).toContain("qOrganizationKeywordTags");
+    expect(prompt).toContain("qOrganizationDomains");
+    expect(prompt).toContain("organizationIds");
+    expect(prompt).toContain("revenueRange");
+    expect(prompt).toContain("currentlyUsingAnyOfTechnologyUids");
+    // General
     expect(prompt).toContain("qKeywords");
+  });
+
+  it("documents valid enum values for personSeniorities", () => {
+    expect(prompt).toContain('"entry"');
+    expect(prompt).toContain('"director"');
+    expect(prompt).toContain('"c_suite"');
+    expect(prompt).toContain('"founder"');
+  });
+
+  it("documents valid enum values for contactEmailStatus", () => {
+    expect(prompt).toContain('"verified"');
+    expect(prompt).toContain('"guessed"');
+    expect(prompt).toContain('"unavailable"');
   });
 
   it("includes the provided industries", () => {
