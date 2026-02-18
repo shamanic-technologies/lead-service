@@ -1,6 +1,6 @@
 import { eq, and, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { leadBuffer } from "../db/schema.js";
+import { leadBuffer, enrichments } from "../db/schema.js";
 import { isServed, markServed } from "./dedup.js";
 import { apolloSearchNext, apolloEnrich, apolloSearchParams, type ApolloSearchParams } from "./apollo-client.js";
 import { fetchCampaign } from "./campaign-client.js";
@@ -264,25 +264,52 @@ export async function pullNext(params: {
     let email = row.email;
     let enrichedData = row.data;
     if (!email && row.externalId) {
-      const enrichResult = await apolloEnrich(row.externalId, {
-        runId: params.runId,
-        clerkOrgId: params.clerkOrgId,
-        appId: params.appId,
-        brandId: params.brandId,
-        campaignId: params.campaignId,
+      // Check enrichment cache first to avoid duplicate Apollo API calls
+      const cached = await db.query.enrichments.findFirst({
+        where: eq(enrichments.apolloPersonId, row.externalId),
       });
 
-      if (!enrichResult?.person?.email) {
-        console.warn(`[pullNext] Enrichment returned no email for personId=${row.externalId}`);
-        await db
-          .update(leadBuffer)
-          .set({ status: "skipped" })
-          .where(eq(leadBuffer.id, row.id));
-        continue;
-      }
+      if (cached?.email) {
+        // Use cached enrichment — no apollo-service call needed
+        email = cached.email;
+        enrichedData = cached.responseRaw ?? row.data;
+        console.log(`[pullNext] Enrichment cache hit for personId=${row.externalId}`);
+      } else {
+        const enrichResult = await apolloEnrich(row.externalId, {
+          runId: params.runId,
+          clerkOrgId: params.clerkOrgId,
+          appId: params.appId,
+          brandId: params.brandId,
+          campaignId: params.campaignId,
+        });
 
-      email = enrichResult.person.email;
-      enrichedData = { ...(row.data as object ?? {}), ...enrichResult.person };
+        if (!enrichResult?.person?.email) {
+          console.warn(`[pullNext] Enrichment returned no email for personId=${row.externalId}`);
+          await db
+            .update(leadBuffer)
+            .set({ status: "skipped" })
+            .where(eq(leadBuffer.id, row.id));
+          continue;
+        }
+
+        email = enrichResult.person.email;
+        enrichedData = { ...(row.data as object ?? {}), ...enrichResult.person };
+
+        // Save to enrichment cache for future lookups
+        await db.insert(enrichments).values({
+          email,
+          apolloPersonId: row.externalId,
+          firstName: enrichResult.person.firstName ?? null,
+          lastName: enrichResult.person.lastName ?? null,
+          title: enrichResult.person.title ?? null,
+          linkedinUrl: enrichResult.person.linkedinUrl ?? null,
+          organizationName: enrichResult.person.organizationName ?? null,
+          organizationDomain: enrichResult.person.organizationDomain ?? null,
+          organizationIndustry: enrichResult.person.organizationIndustry ?? null,
+          organizationSize: enrichResult.person.organizationSize ?? null,
+          responseRaw: enrichResult.person,
+        }).onConflictDoNothing();
+      }
 
       // Update buffer row with enriched email
       await db

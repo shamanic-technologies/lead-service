@@ -10,6 +10,9 @@ vi.mock("../../src/db/index.js", () => ({
       leadBuffer: {
         findFirst: vi.fn(),
       },
+      enrichments: {
+        findFirst: vi.fn(),
+      },
     },
     insert: vi.fn(),
     update: vi.fn(),
@@ -35,7 +38,7 @@ vi.mock("../../src/lib/brand-client.js", () => ({
 
 import { db } from "../../src/db/index.js";
 import { pushLeads, pullNext } from "../../src/lib/buffer.js";
-import { apolloSearchNext, apolloSearchParams } from "../../src/lib/apollo-client.js";
+import { apolloSearchNext, apolloSearchParams, apolloEnrich } from "../../src/lib/apollo-client.js";
 
 describe("buffer", () => {
   beforeEach(() => {
@@ -480,6 +483,227 @@ describe("buffer", () => {
 
       expect(result.found).toBe(false);
       expect(vi.mocked(apolloSearchNext)).toHaveBeenCalled();
+    });
+
+    it("uses cached enrichment instead of calling apolloEnrich", async () => {
+      // Buffer has a row without email
+      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue({
+        id: "buf-1",
+        organizationId: "org-1",
+        namespace: "campaign-1",
+        campaignId: "campaign-1",
+        email: "",
+        externalId: "apollo-person-1",
+        data: { firstName: "Ray" },
+        status: "buffered",
+        pushRunId: null,
+        brandId: "brand-1",
+        clerkOrgId: null,
+        clerkUserId: null,
+        createdAt: new Date(),
+      });
+
+      // Enrichment cache has a hit for this personId
+      vi.mocked(db.query.enrichments.findFirst).mockResolvedValue({
+        id: "enrich-1",
+        email: "ray@provaliant.com",
+        apolloPersonId: "apollo-person-1",
+        firstName: "Ray",
+        lastName: "Smith",
+        title: "Program Director",
+        linkedinUrl: "http://linkedin.com/in/ray-smith",
+        organizationName: "Provaliant",
+        organizationDomain: "provaliant.com",
+        organizationIndustry: "IT",
+        organizationSize: "27",
+        responseRaw: { firstName: "Ray", lastName: "Smith", email: "ray@provaliant.com", title: "Program Director" },
+        enrichedAt: new Date(),
+      });
+
+      // isServed returns false
+      vi.mocked(db.query.servedLeads.findFirst).mockResolvedValue(undefined);
+
+      // markServed insert
+      const returningMock = vi.fn().mockResolvedValue([{ id: "served-1" }]);
+      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
+      const valuesMock = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictMock });
+      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
+
+      // Update buffer row
+      const setMock = vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(undefined),
+      });
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
+
+      const result = await pullNext({
+        organizationId: "org-1",
+        campaignId: "campaign-1",
+        brandId: "brand-1",
+        runId: "run-1",
+      });
+
+      expect(result.found).toBe(true);
+      expect(result.lead?.email).toBe("ray@provaliant.com");
+      // apolloEnrich should NOT have been called — cache hit
+      expect(vi.mocked(apolloEnrich)).not.toHaveBeenCalled();
+    });
+
+    it("calls apolloEnrich on cache miss and saves result to cache", async () => {
+      // Buffer has a row without email
+      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue({
+        id: "buf-1",
+        organizationId: "org-1",
+        namespace: "campaign-1",
+        campaignId: "campaign-1",
+        email: "",
+        externalId: "apollo-person-2",
+        data: { firstName: "Alice" },
+        status: "buffered",
+        pushRunId: null,
+        brandId: "brand-1",
+        clerkOrgId: null,
+        clerkUserId: null,
+        createdAt: new Date(),
+      });
+
+      // Enrichment cache miss
+      vi.mocked(db.query.enrichments.findFirst).mockResolvedValue(undefined);
+
+      // apolloEnrich returns data
+      vi.mocked(apolloEnrich).mockResolvedValue({
+        person: {
+          id: "apollo-person-2",
+          email: "alice@acme.com",
+          firstName: "Alice",
+          lastName: "Johnson",
+          title: "CEO",
+        },
+      });
+
+      // isServed returns false
+      vi.mocked(db.query.servedLeads.findFirst).mockResolvedValue(undefined);
+
+      // db.insert for enrichment cache save + markServed
+      const returningMock = vi.fn().mockResolvedValue([{ id: "served-1" }]);
+      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
+      const valuesMock = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictMock });
+      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
+
+      // Update buffer row
+      const setMock = vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(undefined),
+      });
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
+
+      const result = await pullNext({
+        organizationId: "org-1",
+        campaignId: "campaign-1",
+        brandId: "brand-1",
+        runId: "run-1",
+      });
+
+      expect(result.found).toBe(true);
+      expect(result.lead?.email).toBe("alice@acme.com");
+      // apolloEnrich should have been called
+      expect(vi.mocked(apolloEnrich)).toHaveBeenCalledWith("apollo-person-2", expect.objectContaining({
+        runId: "run-1",
+        brandId: "brand-1",
+        campaignId: "campaign-1",
+      }));
+      // db.insert should have been called twice: once for enrichment cache, once for markServed
+      expect(vi.mocked(db.insert)).toHaveBeenCalledTimes(2);
+    });
+
+    it("skips apolloEnrich for already-cached persons when looping through served leads", async () => {
+      // Scenario: 3 email-less leads in buffer, all cached, first 2 are already served
+      // Only the 3rd should be served — and apolloEnrich should NEVER be called
+
+      const makeBufferRow = (id: string, externalId: string) => ({
+        id,
+        organizationId: "org-1",
+        namespace: "campaign-1",
+        campaignId: "campaign-1",
+        email: "",
+        externalId,
+        data: { firstName: externalId },
+        status: "buffered" as const,
+        pushRunId: null,
+        brandId: "brand-1",
+        clerkOrgId: null,
+        clerkUserId: null,
+        createdAt: new Date(),
+      });
+
+      vi.mocked(db.query.leadBuffer.findFirst)
+        .mockResolvedValueOnce(makeBufferRow("buf-1", "person-A"))
+        .mockResolvedValueOnce(makeBufferRow("buf-2", "person-B"))
+        .mockResolvedValueOnce(makeBufferRow("buf-3", "person-C"));
+
+      // All 3 are in enrichment cache
+      vi.mocked(db.query.enrichments.findFirst)
+        .mockResolvedValueOnce({
+          id: "e-1", email: "a@acme.com", apolloPersonId: "person-A",
+          firstName: "A", lastName: null, title: null, linkedinUrl: null,
+          organizationName: null, organizationDomain: null,
+          organizationIndustry: null, organizationSize: null,
+          responseRaw: { email: "a@acme.com" }, enrichedAt: new Date(),
+        })
+        .mockResolvedValueOnce({
+          id: "e-2", email: "b@acme.com", apolloPersonId: "person-B",
+          firstName: "B", lastName: null, title: null, linkedinUrl: null,
+          organizationName: null, organizationDomain: null,
+          organizationIndustry: null, organizationSize: null,
+          responseRaw: { email: "b@acme.com" }, enrichedAt: new Date(),
+        })
+        .mockResolvedValueOnce({
+          id: "e-3", email: "c@acme.com", apolloPersonId: "person-C",
+          firstName: "C", lastName: null, title: null, linkedinUrl: null,
+          organizationName: null, organizationDomain: null,
+          organizationIndustry: null, organizationSize: null,
+          responseRaw: { email: "c@acme.com" }, enrichedAt: new Date(),
+        });
+
+      // isServed: A and B are served, C is not
+      vi.mocked(db.query.servedLeads.findFirst)
+        .mockResolvedValueOnce({
+          id: "s-1", organizationId: "org-1", namespace: "campaign-1",
+          email: "a@acme.com", externalId: null, metadata: null,
+          parentRunId: null, runId: null, brandId: "brand-1",
+          campaignId: "campaign-1", servedAt: new Date(),
+        })
+        .mockResolvedValueOnce({
+          id: "s-2", organizationId: "org-1", namespace: "campaign-1",
+          email: "b@acme.com", externalId: null, metadata: null,
+          parentRunId: null, runId: null, brandId: "brand-1",
+          campaignId: "campaign-1", servedAt: new Date(),
+        })
+        .mockResolvedValueOnce(undefined); // C is not served
+
+      // markServed for C
+      const returningMock = vi.fn().mockResolvedValue([{ id: "served-3" }]);
+      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
+      const valuesMock = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictMock });
+      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
+
+      // Update buffer rows (skip A, skip B, serve C)
+      const setMock = vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(undefined),
+      });
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
+
+      const result = await pullNext({
+        organizationId: "org-1",
+        campaignId: "campaign-1",
+        brandId: "brand-1",
+        runId: "run-1",
+      });
+
+      expect(result.found).toBe(true);
+      expect(result.lead?.email).toBe("c@acme.com");
+      // apolloEnrich should NEVER have been called — all 3 were cached
+      expect(vi.mocked(apolloEnrich)).not.toHaveBeenCalled();
+      // enrichment cache was checked 3 times
+      expect(vi.mocked(db.query.enrichments.findFirst)).toHaveBeenCalledTimes(3);
     });
 
     it("does not permanently block — always retries Apollo on next call", async () => {
