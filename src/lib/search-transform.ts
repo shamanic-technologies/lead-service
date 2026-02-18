@@ -28,7 +28,7 @@ function getCached(key: string): ApolloSearchParams | null {
   return entry.params;
 }
 
-function buildSystemPrompt(
+export function buildSystemPrompt(
   industries: Array<{ id: string; name: string }>,
   employeeRanges: Array<{ value: string; label: string }>
 ): string {
@@ -36,13 +36,52 @@ function buildSystemPrompt(
 
 Output ONLY valid JSON matching the Apollo search schema. No explanation, no markdown.
 
-Apollo search fields:
+## Available fields
+
 - personTitles: string[] — job titles (e.g. ["VP Sales", "Head of Marketing"])
-- organizationLocations: string[] — locations (e.g. ["San Francisco, California, United States"])
-- qOrganizationIndustryTagIds: string[] — industry tag IDs from the list below
+- organizationLocations: string[] — organization HQ locations (e.g. ["California, US", "New York, US"])
+- qOrganizationIndustryTagIds: string[] — industry names from the valid list below
 - organizationNumEmployeesRanges: string[] — exact enum values from the list below
-- qOrganizationKeywordTags: string[] — keyword tags for organization search
-- qKeywords: string — free-text keyword search query
+- qOrganizationKeywordTags: string[] — keyword tags describing the organization (e.g. ["SaaS", "fintech"])
+- qKeywords: string — free-text keyword search across all person and organization fields
+
+## CRITICAL: How filters combine
+
+- BETWEEN different fields: **AND** — every field you include narrows the results further
+  personTitles AND qOrganizationIndustryTagIds AND qKeywords = must match ALL
+- WITHIN a single field: **OR** — values are alternatives
+  personTitles: ["CEO", "CTO", "Founder"] = matches CEO OR CTO OR Founder
+
+## Strategy for effective queries
+
+1. **Start broad** — use 1-2 filters maximum. Each additional filter drastically reduces results.
+2. **Use personTitles broadly** — include many title variations and seniority levels (e.g. ["CEO", "Founder", "Managing Director", "Head of Operations", "COO"])
+3. **Prefer qKeywords for niche topics** — instead of combining qOrganizationKeywordTags + qOrganizationIndustryTagIds + qKeywords (3 AND'd filters), use a single broad qKeywords with OR syntax: "blockchain OR web3 OR crypto"
+4. **Do NOT combine qOrganizationKeywordTags with qOrganizationIndustryTagIds** — these overlap in meaning and AND'ing them often gives 0 results. Pick the one that best matches the intent.
+5. **organizationLocations is expensive** — only include when location is explicitly required by the user.
+
+## BAD example (too many AND'd filters → 0 results):
+{
+  "personTitles": ["Executive Director", "Community Manager"],
+  "qOrganizationKeywordTags": ["community", "blockchain", "web3"],
+  "qOrganizationIndustryTagIds": ["Non-Profit Organization Management"],
+  "qKeywords": "blockchain OR web3 OR ambassador"
+}
+Problem: 4 filters AND'd together. Nonprofits + blockchain keywords + blockchain industry + those exact titles = empty intersection.
+
+## GOOD example (broad, effective):
+{
+  "personTitles": ["Executive Director", "Program Director", "Community Manager", "Community Director", "Outreach Director", "Engagement Manager", "Head of Community", "VP Community"],
+  "qKeywords": "blockchain OR web3 OR crypto OR decentralized"
+}
+Why it works: Only 2 AND'd filters. Many title variations (OR'd). Broad keyword search.
+
+## GOOD example (industry-focused):
+{
+  "personTitles": ["CEO", "Founder", "CTO", "VP Engineering", "Head of Engineering"],
+  "qOrganizationIndustryTagIds": ["Computer Software", "Information Technology and Services"]
+}
+Why it works: 2 filters only. Broad titles. Related industries.
 
 Valid employee ranges:
 ${employeeRanges.map((r) => `- "${r.value}" (${r.label})`).join("\n")}
@@ -54,6 +93,7 @@ Rules:
 - Only include fields that are relevant to the input
 - Use exact enum values for employee ranges
 - Use industry names for qOrganizationIndustryTagIds
+- NEVER use more than 3 filters at once — prefer 1-2
 - Output raw JSON only, no wrapping`;
 }
 
