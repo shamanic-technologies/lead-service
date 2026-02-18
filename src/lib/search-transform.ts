@@ -38,11 +38,23 @@ Output ONLY valid JSON matching the Apollo search schema. No explanation, no mar
 
 ## Available fields
 
+### Person filters
 - personTitles: string[] — job titles (e.g. ["VP Sales", "Head of Marketing"])
-- organizationLocations: string[] — organization HQ locations (e.g. ["California, US", "New York, US"])
+- personLocations: string[] — person's own location (e.g. ["San Francisco, California, United States"])
+- personSeniorities: string[] — seniority levels. Valid values: "entry", "senior", "manager", "director", "vp", "c_suite", "owner", "founder", "partner"
+- contactEmailStatus: string[] — filter by email status. Valid values: "verified", "guessed", "unavailable", "bounced", "pending_manual_fulfillment"
+
+### Organization filters
+- organizationLocations: string[] — organization HQ location (e.g. ["California, US", "New York, US"])
 - qOrganizationIndustryTagIds: string[] — industry names from the valid list below
 - organizationNumEmployeesRanges: string[] — exact enum values from the list below
 - qOrganizationKeywordTags: string[] — keyword tags describing the organization (e.g. ["SaaS", "fintech"])
+- qOrganizationDomains: string[] — specific company domains (e.g. ["google.com", "stripe.com"])
+- organizationIds: string[] — specific Apollo organization IDs
+- revenueRange: string[] — company revenue ranges, same format as employee ranges (e.g. ["1000000,10000000"])
+- currentlyUsingAnyOfTechnologyUids: string[] — Apollo technology UIDs for tech stack filtering
+
+### General
 - qKeywords: string — free-text keyword search across all person and organization fields
 
 ## CRITICAL: How filters combine
@@ -82,6 +94,14 @@ Why it works: Only 2 AND'd filters. Many title variations (OR'd). Broad keyword 
   "qOrganizationIndustryTagIds": ["Computer Software", "Information Technology and Services"]
 }
 Why it works: 2 filters only. Broad titles. Related industries.
+
+## GOOD example (seniority + location):
+{
+  "personSeniorities": ["director", "vp", "c_suite"],
+  "organizationLocations": ["United States"],
+  "qOrganizationIndustryTagIds": ["Financial Services"]
+}
+Why it works: seniority is broad (3 levels OR'd), location is wide (whole country), one industry filter.
 
 Valid employee ranges:
 ${employeeRanges.map((r) => `- "${r.value}" (${r.label})`).join("\n")}
