@@ -122,7 +122,7 @@
                 "nullable": true
               },
               "data": {
-                "nullable": true
+                "$ref": "#/components/schemas/ApolloPersonData"
               },
               "brandId": {
                 "type": "string"
@@ -139,6 +139,7 @@
             "required": [
               "email",
               "externalId",
+              "data",
               "brandId",
               "clerkOrgId",
               "clerkUserId"
@@ -148,6 +149,345 @@
         "required": [
           "found"
         ]
+      },
+      "ApolloPersonData": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "nullable": true
+          },
+          "emailStatus": {
+            "type": "string",
+            "nullable": true
+          },
+          "firstName": {
+            "type": "string",
+            "nullable": true
+          },
+          "lastName": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "linkedinUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "photoUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "headline": {
+            "type": "string",
+            "nullable": true
+          },
+          "city": {
+            "type": "string",
+            "nullable": true
+          },
+          "state": {
+            "type": "string",
+            "nullable": true
+          },
+          "country": {
+            "type": "string",
+            "nullable": true
+          },
+          "seniority": {
+            "type": "string",
+            "nullable": true
+          },
+          "departments": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "subdepartments": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "functions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "twitterUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "githubUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "facebookUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "employmentHistory": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "organizationName": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "startDate": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "endDate": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "description": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "current": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "organizationName": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationDomain": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationIndustry": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationSize": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationRevenueUsd": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationWebsiteUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationLogoUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationShortDescription": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationSeoDescription": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationLinkedinUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationTwitterUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationFacebookUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationBlogUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationCrunchbaseUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationAngellistUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationFoundedYear": {
+            "type": "number",
+            "nullable": true
+          },
+          "organizationPrimaryPhone": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationPubliclyTradedSymbol": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationPubliclyTradedExchange": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationAnnualRevenuePrinted": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationTotalFunding": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationTotalFundingPrinted": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationLatestFundingRoundDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationLatestFundingStage": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationFundingEvents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "date": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "type": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "investors": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "amount": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "nullable": true
+                    }
+                  ]
+                },
+                "currency": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "news_url": {
+                  "type": "string",
+                  "nullable": true
+                }
+              }
+            }
+          },
+          "organizationCity": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationState": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationCountry": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationStreetAddress": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationPostalCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "organizationTechnologyNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "organizationCurrentTechnologies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "uid": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "name": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "category": {
+                  "type": "string",
+                  "nullable": true
+                }
+              }
+            }
+          },
+          "organizationKeywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "organizationIndustries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "organizationSecondaryIndustries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "organizationNumSuborganizations": {
+            "type": "number",
+            "nullable": true
+          },
+          "organizationRetailLocationCount": {
+            "type": "number",
+            "nullable": true
+          },
+          "organizationAlexaRanking": {
+            "type": "number",
+            "nullable": true
+          }
+        },
+        "additionalProperties": {
+          "nullable": true
+        },
+        "description": "Apollo person + organization data in flat camelCase format. Organization fields are prefixed with 'organization' (e.g. organizationDomain, organizationName) — there is NO nested 'organization' object. Additional fields from Apollo may be present."
       },
       "BufferNextRequest": {
         "type": "object",
@@ -247,7 +587,7 @@
             "nullable": true
           },
           "metadata": {
-            "nullable": true
+            "$ref": "#/components/schemas/ApolloPersonData"
           },
           "parentRunId": {
             "type": "string",
@@ -275,7 +615,7 @@
             "type": "string"
           },
           "enrichment": {
-            "$ref": "#/components/schemas/Enrichment"
+            "$ref": "#/components/schemas/ApolloPersonData"
           }
         },
         "required": [
@@ -284,6 +624,7 @@
           "namespace",
           "email",
           "externalId",
+          "metadata",
           "parentRunId",
           "runId",
           "brandId",
@@ -293,14 +634,6 @@
           "servedAt",
           "enrichment"
         ]
-      },
-      "Enrichment": {
-        "type": "object",
-        "nullable": true,
-        "additionalProperties": {
-          "nullable": true
-        },
-        "description": "All enrichment data from Apollo — passthrough, no filtering"
       },
       "StatsResponse": {
         "type": "object",

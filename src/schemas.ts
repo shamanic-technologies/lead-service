@@ -72,6 +72,105 @@ const BufferPushResponseSchema = z
   })
   .openapi("BufferPushResponse");
 
+// --- Apollo Person Data (flat camelCase — matches Apollo enrichment API) ---
+
+const EmploymentHistorySchema = z.object({
+  title: z.string().nullable().optional(),
+  organizationName: z.string().nullable().optional(),
+  startDate: z.string().nullable().optional(),
+  endDate: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  current: z.boolean().optional(),
+});
+
+const FundingEventSchema = z.object({
+  id: z.string().nullable().optional(),
+  date: z.string().nullable().optional(),
+  type: z.string().nullable().optional(),
+  investors: z.string().nullable().optional(),
+  amount: z.union([z.number(), z.string()]).nullable().optional(),
+  currency: z.string().nullable().optional(),
+  news_url: z.string().nullable().optional(),
+});
+
+const TechnologySchema = z.object({
+  uid: z.string().nullable().optional(),
+  name: z.string().nullable().optional(),
+  category: z.string().nullable().optional(),
+});
+
+const ApolloPersonDataSchema = z
+  .object({
+    // Person identifiers
+    id: z.string().optional(),
+    email: z.string().nullable().optional(),
+    emailStatus: z.string().nullable().optional(),
+    firstName: z.string().nullable().optional(),
+    lastName: z.string().nullable().optional(),
+    title: z.string().nullable().optional(),
+    linkedinUrl: z.string().nullable().optional(),
+    // Person details
+    photoUrl: z.string().nullable().optional(),
+    headline: z.string().nullable().optional(),
+    city: z.string().nullable().optional(),
+    state: z.string().nullable().optional(),
+    country: z.string().nullable().optional(),
+    seniority: z.string().nullable().optional(),
+    departments: z.array(z.string()).optional(),
+    subdepartments: z.array(z.string()).optional(),
+    functions: z.array(z.string()).optional(),
+    twitterUrl: z.string().nullable().optional(),
+    githubUrl: z.string().nullable().optional(),
+    facebookUrl: z.string().nullable().optional(),
+    employmentHistory: z.array(EmploymentHistorySchema).optional(),
+    // Organization details (flat, NOT nested)
+    organizationName: z.string().nullable().optional(),
+    organizationDomain: z.string().nullable().optional(),
+    organizationIndustry: z.string().nullable().optional(),
+    organizationSize: z.string().nullable().optional(),
+    organizationRevenueUsd: z.string().nullable().optional(),
+    organizationWebsiteUrl: z.string().nullable().optional(),
+    organizationLogoUrl: z.string().nullable().optional(),
+    organizationShortDescription: z.string().nullable().optional(),
+    organizationSeoDescription: z.string().nullable().optional(),
+    organizationLinkedinUrl: z.string().nullable().optional(),
+    organizationTwitterUrl: z.string().nullable().optional(),
+    organizationFacebookUrl: z.string().nullable().optional(),
+    organizationBlogUrl: z.string().nullable().optional(),
+    organizationCrunchbaseUrl: z.string().nullable().optional(),
+    organizationAngellistUrl: z.string().nullable().optional(),
+    organizationFoundedYear: z.number().nullable().optional(),
+    organizationPrimaryPhone: z.string().nullable().optional(),
+    organizationPubliclyTradedSymbol: z.string().nullable().optional(),
+    organizationPubliclyTradedExchange: z.string().nullable().optional(),
+    organizationAnnualRevenuePrinted: z.string().nullable().optional(),
+    organizationTotalFunding: z.string().nullable().optional(),
+    organizationTotalFundingPrinted: z.string().nullable().optional(),
+    organizationLatestFundingRoundDate: z.string().nullable().optional(),
+    organizationLatestFundingStage: z.string().nullable().optional(),
+    organizationFundingEvents: z.array(FundingEventSchema).optional(),
+    organizationCity: z.string().nullable().optional(),
+    organizationState: z.string().nullable().optional(),
+    organizationCountry: z.string().nullable().optional(),
+    organizationStreetAddress: z.string().nullable().optional(),
+    organizationPostalCode: z.string().nullable().optional(),
+    organizationTechnologyNames: z.array(z.string()).optional(),
+    organizationCurrentTechnologies: z.array(TechnologySchema).optional(),
+    organizationKeywords: z.array(z.string()).optional(),
+    organizationIndustries: z.array(z.string()).optional(),
+    organizationSecondaryIndustries: z.array(z.string()).optional(),
+    organizationNumSuborganizations: z.number().nullable().optional(),
+    organizationRetailLocationCount: z.number().nullable().optional(),
+    organizationAlexaRanking: z.number().nullable().optional(),
+  })
+  .passthrough()
+  .openapi("ApolloPersonData", {
+    description:
+      "Apollo person + organization data in flat camelCase format. " +
+      "Organization fields are prefixed with 'organization' (e.g. organizationDomain, organizationName) — " +
+      "there is NO nested 'organization' object. Additional fields from Apollo may be present.",
+  });
+
 // --- Buffer Next ---
 
 export const BufferNextRequestSchema = z
@@ -88,7 +187,7 @@ export const BufferNextRequestSchema = z
 const ServedLeadSchema = z.object({
   email: z.string(),
   externalId: z.string().nullable(),
-  data: z.unknown(),
+  data: ApolloPersonDataSchema.nullable(),
   brandId: z.string(),
   clerkOrgId: z.string().nullable(),
   clerkUserId: z.string().nullable(),
@@ -123,12 +222,6 @@ const CursorSetResponseSchema = z
 
 // --- Leads ---
 
-const EnrichmentSchema = z
-  .record(z.string(), z.unknown())
-  .openapi("Enrichment", {
-    description: "All enrichment data from Apollo — passthrough, no filtering",
-  });
-
 const LeadDetailSchema = z
   .object({
     id: z.string().uuid(),
@@ -136,7 +229,7 @@ const LeadDetailSchema = z
     namespace: z.string(),
     email: z.string(),
     externalId: z.string().nullable(),
-    metadata: z.unknown().nullable(),
+    metadata: ApolloPersonDataSchema.nullable(),
     parentRunId: z.string().nullable(),
     runId: z.string().nullable(),
     brandId: z.string(),
@@ -144,7 +237,7 @@ const LeadDetailSchema = z
     clerkOrgId: z.string().nullable(),
     clerkUserId: z.string().nullable(),
     servedAt: z.string(),
-    enrichment: EnrichmentSchema.nullable(),
+    enrichment: ApolloPersonDataSchema.nullable(),
   })
   .openapi("LeadDetail");
 
