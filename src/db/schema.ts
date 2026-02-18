@@ -105,6 +105,7 @@ export const enrichments = pgTable(
   },
   (table) => [
     uniqueIndex("idx_enrichments_email").on(table.email),
+    uniqueIndex("idx_enrichments_apollo_person_id").on(table.apolloPersonId),
   ]
 );
 
