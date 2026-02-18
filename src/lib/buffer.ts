@@ -1,8 +1,8 @@
 import { eq, and, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { leadBuffer, cursors } from "../db/schema.js";
+import { leadBuffer } from "../db/schema.js";
 import { isServed, markServed } from "./dedup.js";
-import { apolloSearch, apolloEnrich, type ApolloSearchParams } from "./apollo-client.js";
+import { apolloSearchNext, apolloEnrich, type ApolloSearchParams } from "./apollo-client.js";
 import { transformSearchParams } from "./search-transform.js";
 
 export async function pushLeads(params: {
@@ -53,42 +53,6 @@ export async function pushLeads(params: {
   return { buffered, skippedAlreadyServed };
 }
 
-interface CursorState {
-  page: number;
-}
-
-async function getCursor(organizationId: string, campaignId: string): Promise<CursorState> {
-  const cursor = await db.query.cursors.findFirst({
-    where: and(
-      eq(cursors.organizationId, organizationId),
-      eq(cursors.namespace, campaignId)
-    ),
-  });
-  return { page: (cursor?.state as { page?: number })?.page ?? 1 };
-}
-
-async function setCursor(organizationId: string, campaignId: string, state: CursorState): Promise<void> {
-  const existing = await db.query.cursors.findFirst({
-    where: and(
-      eq(cursors.organizationId, organizationId),
-      eq(cursors.namespace, campaignId)
-    ),
-  });
-
-  if (existing) {
-    await db
-      .update(cursors)
-      .set({ state, updatedAt: new Date() })
-      .where(eq(cursors.id, existing.id));
-  } else {
-    await db.insert(cursors).values({
-      organizationId,
-      namespace: campaignId,
-      state,
-    });
-  }
-}
-
 async function isInBuffer(organizationId: string, campaignId: string, externalId: string): Promise<boolean> {
   const row = await db.query.leadBuffer.findFirst({
     where: and(
@@ -121,23 +85,25 @@ async function fillBufferFromSearch(params: {
 
   let totalFilled = 0;
 
-  // Walk pages starting from 1 until we find new leads or Apollo returns empty
+  // Call apolloSearchNext in a loop — apollo-service manages pagination server-side.
+  // Always pass searchParams so the cursor stays matched to this campaign's filters.
   for (let page = 1; page <= MAX_PAGES; page++) {
-    const result = await apolloSearch(validatedParams, page, {
+    const result = await apolloSearchNext({
+      campaignId: params.campaignId,
+      brandId: params.brandId,
+      appId: params.appId ?? "",
+      searchParams: validatedParams,
       runId: params.pushRunId,
       clerkOrgId: params.clerkOrgId,
-      appId: params.appId,
-      brandId: params.brandId,
-      campaignId: params.campaignId,
     });
 
     if (!result) {
-      console.warn(`[fillBuffer] Apollo returned null on page ${page} (search failed or network error)`);
+      console.warn(`[fillBuffer] apolloSearchNext returned null (network error)`);
       break;
     }
 
     if (result.people.length === 0) {
-      console.log(`[fillBuffer] Apollo returned 0 people on page ${page}, stopping`);
+      console.log(`[fillBuffer] Apollo returned 0 people (done=${result.done}), stopping`);
       break;
     }
 
@@ -183,21 +149,18 @@ async function fillBufferFromSearch(params: {
     // Found new leads on this page — stop walking, let pullNext serve them
     if (pageFilled > 0) {
       console.log(`[fillBuffer] Buffered ${pageFilled} new leads from page ${page}`);
-      await setCursor(params.organizationId, params.campaignId, { page });
       return { filled: totalFilled };
     }
 
     // All people on this page were dupes — continue to next page
     console.log(`[fillBuffer] Page ${page}: all ${result.people.length} people already seen, continuing`);
 
-    // Stop if we've reached the last page
-    if (page >= result.pagination.totalPages) {
-      console.log(`[fillBuffer] Reached last Apollo page (${result.pagination.totalPages}), no new leads found`);
+    if (result.done) {
+      console.log(`[fillBuffer] Apollo exhausted all pages, no new leads found`);
       break;
     }
   }
 
-  await setCursor(params.organizationId, params.campaignId, { page: 1 });
   return { filled: totalFilled };
 }
 
