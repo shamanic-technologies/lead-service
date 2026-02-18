@@ -22,8 +22,9 @@ Single source of truth for lead management — buffering, deduplication, enrichm
 - `src/lib/buffer.ts` — pushLeads(), pullNext() buffer logic
 - `src/lib/dedup.ts` — isServed(), markServed() deduplication
 - `src/lib/apollo-client.ts` — Apollo enrichment service integration
+- `src/lib/campaign-client.ts` — Campaign service client (fetch campaign details for search context)
+- `src/lib/brand-client.ts` — Brand service client (fetch brand details for search context)
 - `src/lib/runs-client.ts` — Runs service client for distributed tracing
-- `src/lib/search-transform.ts` — LLM search query transforms
 - `src/db/schema.ts` — Drizzle ORM table definitions (PostgreSQL)
 - `src/db/index.ts` — Database connection
 - `src/config.ts` — Environment config
