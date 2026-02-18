@@ -175,7 +175,7 @@ export async function transformSearchParams(
         : buildRetryPrompt(lastAttempt, lastErrors);
 
     const response = await client.messages.create({
-      model: "claude-opus-4-5",
+      model: "claude-sonnet-4-6",
       max_tokens: 1024,
       system: systemPrompt,
       messages: [{ role: "user", content: userMessage }],
@@ -223,8 +223,8 @@ async function logCosts(
   if (!runId || (inputTokens === 0 && outputTokens === 0)) return;
   try {
     await addCosts(runId, [
-      { costName: "anthropic-opus-4.5-tokens-input", quantity: inputTokens },
-      { costName: "anthropic-opus-4.5-tokens-output", quantity: outputTokens },
+      { costName: "anthropic-sonnet-4.6-tokens-input", quantity: inputTokens },
+      { costName: "anthropic-sonnet-4.6-tokens-output", quantity: outputTokens },
     ]);
   } catch (err) {
     console.error("[search-transform] Failed to log costs:", err);
