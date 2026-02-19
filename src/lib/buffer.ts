@@ -148,7 +148,7 @@ async function fillBufferFromSearch(params: {
         continue;
       }
 
-      // If person has email, check served dedup early; otherwise defer to enrichment in pullNext
+      // If person has email, check served dedup early; otherwise check enrichment cache
       if (person.email) {
         const alreadyServed = await isServed(
           params.organizationId,
@@ -158,6 +158,27 @@ async function fillBufferFromSearch(params: {
 
         if (alreadyServed) {
           continue;
+        }
+      } else if (person.id) {
+        // No email — check enrichment cache to avoid buffering people we already know about
+        const cached = await db.query.enrichments.findFirst({
+          where: eq(enrichments.apolloPersonId, person.id),
+        });
+
+        if (cached) {
+          if (!cached.email) {
+            // Previously enriched, no email found — skip entirely
+            continue;
+          }
+          // Has cached email — check if already served
+          const alreadyServed = await isServed(
+            params.organizationId,
+            params.brandId,
+            cached.email
+          );
+          if (alreadyServed) {
+            continue;
+          }
         }
       }
 
@@ -269,11 +290,21 @@ export async function pullNext(params: {
         where: eq(enrichments.apolloPersonId, row.externalId),
       });
 
-      if (cached?.email) {
-        // Use cached enrichment — no apollo-service call needed
-        email = cached.email;
-        enrichedData = cached.responseRaw ?? row.data;
-        console.log(`[pullNext] Enrichment cache hit for personId=${row.externalId}`);
+      if (cached) {
+        if (cached.email) {
+          // Use cached enrichment — no apollo-service call needed
+          email = cached.email;
+          enrichedData = cached.responseRaw ?? row.data;
+          console.log(`[pullNext] Enrichment cache hit for personId=${row.externalId}`);
+        } else {
+          // Previously enriched but no email found — skip without calling Apollo
+          console.log(`[pullNext] Enrichment cache hit (no email) for personId=${row.externalId}, skipping`);
+          await db
+            .update(leadBuffer)
+            .set({ status: "skipped" })
+            .where(eq(leadBuffer.id, row.id));
+          continue;
+        }
       } else {
         const enrichResult = await apolloEnrich(row.externalId, {
           runId: params.runId,
@@ -285,6 +316,20 @@ export async function pullNext(params: {
 
         if (!enrichResult?.person?.email) {
           console.warn(`[pullNext] Enrichment returned no email for personId=${row.externalId}`);
+          // Cache the no-email result to avoid re-enriching this person
+          await db.insert(enrichments).values({
+            email: null,
+            apolloPersonId: row.externalId,
+            firstName: enrichResult?.person?.firstName ?? null,
+            lastName: enrichResult?.person?.lastName ?? null,
+            title: enrichResult?.person?.title ?? null,
+            linkedinUrl: enrichResult?.person?.linkedinUrl ?? null,
+            organizationName: enrichResult?.person?.organizationName ?? null,
+            organizationDomain: enrichResult?.person?.organizationDomain ?? null,
+            organizationIndustry: enrichResult?.person?.organizationIndustry ?? null,
+            organizationSize: enrichResult?.person?.organizationSize ?? null,
+            responseRaw: enrichResult?.person ?? null,
+          }).onConflictDoNothing();
           await db
             .update(leadBuffer)
             .set({ status: "skipped" })
