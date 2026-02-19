@@ -90,7 +90,7 @@ export const enrichments = pgTable(
   "enrichments",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    email: text("email").notNull().unique(),
+    email: text("email"),
     apolloPersonId: text("apollo_person_id"),
     firstName: text("first_name"),
     lastName: text("last_name"),
