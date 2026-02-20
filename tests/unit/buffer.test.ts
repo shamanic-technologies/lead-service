@@ -1045,6 +1045,88 @@ describe("buffer", () => {
       expect(vi.mocked(apolloEnrich)).toHaveBeenCalledWith("fresh-person", expect.anything());
     });
 
+    it("passes workflowName to apolloSearchParams, apolloSearchNext, and apolloEnrich", async () => {
+      // Buffer empty → fillBufferFromSearch → apolloSearchParams + apolloSearchNext
+      // Then pullNext picks up the lead and calls apolloEnrich (no email, cache miss)
+
+      const newLeadRow = {
+        id: "buf-wf",
+        organizationId: "org-1",
+        namespace: "campaign-1",
+        campaignId: "campaign-1",
+        email: "",
+        externalId: "apollo-wf-1",
+        data: { firstName: "Workflow" },
+        status: "buffered",
+        pushRunId: null,
+        brandId: "brand-1",
+        clerkOrgId: null,
+        clerkUserId: null,
+        createdAt: new Date(),
+      };
+
+      vi.mocked(db.query.leadBuffer.findFirst)
+        .mockResolvedValueOnce(undefined)    // 1: pullNext buffer empty
+        .mockResolvedValueOnce(undefined)    // 2: isInBuffer → not in buffer
+        .mockResolvedValueOnce(newLeadRow);  // 3: pullNext buffer → new lead
+
+      vi.mocked(apolloSearchParams).mockResolvedValue({
+        searchParams: { personTitles: ["CEO"] }, totalResults: 100, attempts: 1,
+      });
+
+      vi.mocked(apolloSearchNext).mockResolvedValue({
+        people: [{ id: "apollo-wf-1", firstName: "Workflow" }],
+        done: true,
+        totalEntries: 1,
+      });
+
+      // No enrichment cache
+      vi.mocked(db.query.enrichments.findFirst).mockResolvedValue(undefined);
+
+      // apolloEnrich returns with email
+      vi.mocked(apolloEnrich).mockResolvedValue({
+        person: { id: "apollo-wf-1", email: "wf@acme.com", firstName: "Workflow" },
+      });
+
+      // isServed: false
+      vi.mocked(db.query.servedLeads.findFirst).mockResolvedValue(undefined);
+
+      const returningMock = vi.fn().mockResolvedValue([{ id: "served-1" }]);
+      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
+      const valuesMock = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictMock });
+      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
+
+      const setMock = vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(undefined),
+      });
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
+
+      const result = await pullNext({
+        organizationId: "org-1",
+        campaignId: "campaign-1",
+        brandId: "brand-1",
+        keySource: "byok",
+        searchParams: { description: "tech CEOs" },
+        appId: "my-app",
+        workflowName: "cold-email-outreach",
+      });
+
+      expect(result.found).toBe(true);
+      expect(result.lead?.email).toBe("wf@acme.com");
+
+      // Verify workflowName was passed to all 3 apollo-client functions
+      expect(vi.mocked(apolloSearchParams)).toHaveBeenCalledWith(
+        expect.objectContaining({ workflowName: "cold-email-outreach" })
+      );
+      expect(vi.mocked(apolloSearchNext)).toHaveBeenCalledWith(
+        expect.objectContaining({ workflowName: "cold-email-outreach" })
+      );
+      expect(vi.mocked(apolloEnrich)).toHaveBeenCalledWith(
+        "apollo-wf-1",
+        expect.objectContaining({ workflowName: "cold-email-outreach" })
+      );
+    });
+
     it("does not permanently block — always retries Apollo on next call", async () => {
       // First pullNext: Apollo returns 0 people → found: false
       vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue(undefined);

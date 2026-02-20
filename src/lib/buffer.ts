@@ -77,6 +77,7 @@ async function fillBufferFromSearch(params: {
   clerkOrgId?: string | null;
   clerkUserId?: string | null;
   appId?: string;
+  workflowName?: string;
 }): Promise<{ filled: number }> {
   // Fetch campaign + brand details in parallel for rich LLM context
   const [campaign, brand] = await Promise.all([
@@ -114,6 +115,7 @@ async function fillBufferFromSearch(params: {
     brandId: params.brandId,
     campaignId: params.campaignId,
     clerkOrgId: params.clerkOrgId,
+    workflowName: params.workflowName,
   });
 
   let totalFilled = 0;
@@ -128,6 +130,7 @@ async function fillBufferFromSearch(params: {
       searchParams: validatedParams,
       runId: params.pushRunId,
       clerkOrgId: params.clerkOrgId,
+      workflowName: params.workflowName,
     });
 
     if (!result) {
@@ -229,6 +232,7 @@ export async function pullNext(params: {
   clerkOrgId?: string | null;
   clerkUserId?: string | null;
   appId?: string;
+  workflowName?: string;
 }): Promise<{
   found: boolean;
   lead?: {
@@ -271,6 +275,7 @@ export async function pullNext(params: {
           clerkOrgId: params.clerkOrgId,
           clerkUserId: params.clerkUserId,
           appId: params.appId,
+          workflowName: params.workflowName,
         });
 
         if (filled > 0) {
@@ -312,6 +317,7 @@ export async function pullNext(params: {
           appId: params.appId,
           brandId: params.brandId,
           campaignId: params.campaignId,
+          workflowName: params.workflowName,
         });
 
         if (!enrichResult?.person?.email) {

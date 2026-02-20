@@ -139,7 +139,7 @@ interface ApolloSearchRawResponse {
 export async function apolloSearch(
   params: ApolloSearchParams,
   page: number = 1,
-  options?: { runId?: string | null; clerkOrgId?: string | null; appId?: string; brandId?: string; campaignId?: string }
+  options?: { runId?: string | null; clerkOrgId?: string | null; appId?: string; brandId?: string; campaignId?: string; workflowName?: string }
 ): Promise<ApolloSearchResult | null> {
   try {
     const headers: Record<string, string> = {};
@@ -154,6 +154,7 @@ export async function apolloSearch(
         ...(options?.appId ? { appId: options.appId } : {}),
         ...(options?.brandId ? { brandId: options.brandId } : {}),
         ...(options?.campaignId ? { campaignId: options.campaignId } : {}),
+        ...(options?.workflowName ? { workflowName: options.workflowName } : {}),
       },
       headers,
     });
@@ -188,6 +189,7 @@ export async function apolloSearchNext(options: {
   searchParams?: ApolloSearchParams;
   runId?: string | null;
   clerkOrgId?: string | null;
+  workflowName?: string;
 }): Promise<ApolloSearchNextResult | null> {
   try {
     const headers: Record<string, string> = {};
@@ -200,6 +202,7 @@ export async function apolloSearchNext(options: {
     };
     if (options.searchParams) body.searchParams = options.searchParams;
     if (options.runId) body.runId = options.runId;
+    if (options.workflowName) body.workflowName = options.workflowName;
 
     return await callApolloService<ApolloSearchNextResult>("/search/next", {
       method: "POST",
@@ -228,6 +231,7 @@ export async function apolloSearchParams(options: {
   brandId: string;
   campaignId: string;
   clerkOrgId?: string | null;
+  workflowName?: string;
 }): Promise<ApolloSearchParamsResult> {
   const headers: Record<string, string> = {};
   if (options.clerkOrgId) headers["x-clerk-org-id"] = options.clerkOrgId;
@@ -241,6 +245,7 @@ export async function apolloSearchParams(options: {
       appId: options.appId,
       brandId: options.brandId,
       campaignId: options.campaignId,
+      ...(options.workflowName ? { workflowName: options.workflowName } : {}),
     },
     headers,
   });
@@ -284,7 +289,7 @@ export interface ApolloEnrichResult {
 
 export async function apolloEnrich(
   personId: string,
-  options?: { runId?: string | null; clerkOrgId?: string | null; appId?: string; brandId?: string; campaignId?: string }
+  options?: { runId?: string | null; clerkOrgId?: string | null; appId?: string; brandId?: string; campaignId?: string; workflowName?: string }
 ): Promise<ApolloEnrichResult | null> {
   try {
     const headers: Record<string, string> = {};
@@ -298,6 +303,7 @@ export async function apolloEnrich(
         ...(options?.appId ? { appId: options.appId } : {}),
         ...(options?.brandId ? { brandId: options.brandId } : {}),
         ...(options?.campaignId ? { campaignId: options.campaignId } : {}),
+        ...(options?.workflowName ? { workflowName: options.workflowName } : {}),
       },
       headers,
     });
