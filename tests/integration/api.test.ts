@@ -8,6 +8,7 @@ import {
   getAuthHeaders,
   TEST_API_KEY,
 } from "./setup.js";
+import { createRun } from "../../src/lib/runs-client.js";
 
 vi.mock("../../src/lib/runs-client.js", () => ({
   ensureOrganization: vi.fn().mockResolvedValue("mock-org-id"),
@@ -105,6 +106,25 @@ describe("API Integration Tests", () => {
       expect(res.status).toBe(400);
       expect(res.body.details.fieldErrors.brandId).toBeDefined();
     });
+
+    it("passes workflowName to createRun", async () => {
+      vi.mocked(createRun).mockClear();
+
+      await request(app)
+        .post("/buffer/push")
+        .set(getAuthHeaders())
+        .send({
+          campaignId: "campaign-wf-push",
+          brandId: "brand-wf-push",
+          parentRunId: "test-run-wf-push",
+          workflowName: "cold-email-outreach",
+          leads: [{ email: "wf-push@example.com" }],
+        });
+
+      expect(createRun).toHaveBeenCalledWith(
+        expect.objectContaining({ workflowName: "cold-email-outreach" })
+      );
+    });
   });
 
   describe("POST /buffer/next", () => {
@@ -149,6 +169,38 @@ describe("API Integration Tests", () => {
 
       expect(res.status).toBe(400);
       expect(res.body.details.fieldErrors.brandId).toBeDefined();
+    });
+
+    it("passes workflowName to createRun", async () => {
+      vi.mocked(createRun).mockClear();
+
+      // Push a lead first
+      await request(app)
+        .post("/buffer/push")
+        .set(getAuthHeaders())
+        .send({
+          campaignId: "campaign-wf-next",
+          brandId: "brand-wf-next",
+          parentRunId: "test-run-wf-push-next",
+          leads: [{ email: "wf-next@example.com" }],
+        });
+
+      vi.mocked(createRun).mockClear();
+
+      // Pull with workflowName
+      await request(app)
+        .post("/buffer/next")
+        .set(getAuthHeaders())
+        .send({
+          campaignId: "campaign-wf-next",
+          brandId: "brand-wf-next",
+          parentRunId: "test-run-wf-next",
+          workflowName: "cold-email-outreach",
+        });
+
+      expect(createRun).toHaveBeenCalledWith(
+        expect.objectContaining({ workflowName: "cold-email-outreach" })
+      );
     });
 
     it("deduplicates — same lead not served twice", async () => {

@@ -46,6 +46,33 @@ describe("schema validation", () => {
       });
       expect(result.success).toBe(true);
     });
+
+    it("accepts optional workflowName", () => {
+      const result = BufferPushRequestSchema.safeParse({
+        campaignId: "c1",
+        brandId: "b1",
+        parentRunId: "r1",
+        workflowName: "cold-email-outreach",
+        leads: [{ email: "test@example.com" }],
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.workflowName).toBe("cold-email-outreach");
+      }
+    });
+
+    it("accepts request without workflowName", () => {
+      const result = BufferPushRequestSchema.safeParse({
+        campaignId: "c1",
+        brandId: "b1",
+        parentRunId: "r1",
+        leads: [],
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.workflowName).toBeUndefined();
+      }
+    });
   });
 
   describe("BufferNextRequestSchema", () => {
@@ -109,6 +136,33 @@ describe("schema validation", () => {
         idempotencyKey: "",
       });
       expect(result.success).toBe(false);
+    });
+
+    it("accepts optional workflowName", () => {
+      const result = BufferNextRequestSchema.safeParse({
+        campaignId: "c1",
+        brandId: "b1",
+        parentRunId: "r1",
+        keySource: "byok",
+        workflowName: "cold-email-outreach",
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.workflowName).toBe("cold-email-outreach");
+      }
+    });
+
+    it("accepts request without workflowName", () => {
+      const result = BufferNextRequestSchema.safeParse({
+        campaignId: "c1",
+        brandId: "b1",
+        parentRunId: "r1",
+        keySource: "app",
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.workflowName).toBeUndefined();
+      }
     });
   });
 });

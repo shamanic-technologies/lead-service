@@ -32,7 +32,7 @@ router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res)
   }
 
   try {
-    const { campaignId, brandId, parentRunId, clerkUserId, leads } = parsed.data;
+    const { campaignId, brandId, parentRunId, clerkUserId, workflowName, leads } = parsed.data;
     const clerkOrgId = req.externalOrgId ?? null;
 
     // Create child run for traceability
@@ -45,6 +45,7 @@ router.post("/buffer/push", authenticate, async (req: AuthenticatedRequest, res)
       clerkUserId,
       brandId,
       campaignId,
+      workflowName,
     });
     const pushRunId = childRun.id;
 
@@ -78,7 +79,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
   }
 
   try {
-    const { campaignId, brandId, parentRunId, keySource, searchParams, clerkUserId, idempotencyKey } = parsed.data;
+    const { campaignId, brandId, parentRunId, keySource, searchParams, clerkUserId, workflowName, idempotencyKey } = parsed.data;
     const clerkOrgId = req.externalOrgId ?? null;
 
     // Idempotency: return cached response if this key was already processed
@@ -102,6 +103,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       clerkUserId,
       brandId,
       campaignId,
+      workflowName,
     });
     const serveRunId = childRun.id;
 

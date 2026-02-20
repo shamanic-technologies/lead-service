@@ -61,6 +61,7 @@ export const BufferPushRequestSchema = z
     brandId: z.string().min(1),
     parentRunId: z.string().min(1),
     clerkUserId: z.string().optional(),
+    workflowName: z.string().optional(),
     leads: z.array(LeadInputSchema),
   })
   .openapi("BufferPushRequest");
@@ -183,6 +184,7 @@ export const BufferNextRequestSchema = z
     }),
     searchParams: z.record(z.string(), z.unknown()).optional(),
     clerkUserId: z.string().optional(),
+    workflowName: z.string().optional(),
     idempotencyKey: z.string().min(1).optional(),
   })
   .openapi("BufferNextRequest");

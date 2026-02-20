@@ -33,6 +33,7 @@ export async function createRun(params: {
   clerkUserId?: string;
   brandId?: string;
   campaignId?: string;
+  workflowName?: string;
 }): Promise<{ id: string }> {
   return callRunsService("/runs", {
     method: "POST",
