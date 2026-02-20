@@ -118,6 +118,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       clerkOrgId,
       clerkUserId: clerkUserId ?? null,
       appId: req.appId,
+      workflowName,
     });
 
     // Cache the response for idempotency + probabilistic TTL cleanup (~1% of requests)
