@@ -76,6 +76,9 @@
           "clerkUserId": {
             "type": "string"
           },
+          "workflowName": {
+            "type": "string"
+          },
           "leads": {
             "type": "array",
             "items": {
@@ -519,6 +522,9 @@
             }
           },
           "clerkUserId": {
+            "type": "string"
+          },
+          "workflowName": {
             "type": "string"
           },
           "idempotencyKey": {
