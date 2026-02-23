@@ -321,7 +321,7 @@ export async function pullNext(params: {
         });
 
         if (!enrichResult?.person?.email) {
-          console.warn(`[pullNext] Enrichment returned no email for personId=${row.externalId}`);
+          console.log(`[pullNext] Enrichment returned no email for personId=${row.externalId}`);
           // Cache the no-email result to avoid re-enriching this person
           await db.insert(enrichments).values({
             email: null,
