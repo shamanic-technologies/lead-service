@@ -335,6 +335,16 @@ export async function pullNext(params: {
         .where(eq(leadBuffer.id, row.id));
     }
 
+    // Skip leads with no email — found: true must always have a usable email
+    if (!email) {
+      console.log(`[pullNext] No email after enrichment for buffer row ${row.id}, skipping`);
+      await db
+        .update(leadBuffer)
+        .set({ status: "skipped" })
+        .where(eq(leadBuffer.id, row.id));
+      continue;
+    }
+
     // Resolve or create the lead identity
     const { leadId } = await resolveOrCreateLead({
       apolloPersonId: row.externalId,
