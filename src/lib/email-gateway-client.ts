@@ -5,7 +5,7 @@ const EMAIL_GATEWAY_SERVICE_API_KEY =
 
 export interface DeliveryStatusItem {
   leadId: string;
-  email?: string;
+  email: string;
 }
 
 export interface LeadDeliveryStatus {
@@ -40,7 +40,7 @@ export interface ProviderStatus {
 
 export interface StatusResult {
   leadId: string;
-  email?: string;
+  email: string;
   broadcast?: ProviderStatus;
   transactional?: ProviderStatus;
 }
