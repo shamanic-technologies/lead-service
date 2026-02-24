@@ -77,7 +77,15 @@ export async function checkDeliveryStatus(
 
     return (await response.json()) as DeliveryStatusResponse;
   } catch (error) {
-    console.error("[email-gateway-client] Status check error:", error);
+    const isConnectionError =
+      error instanceof TypeError && error.message === "fetch failed";
+    if (isConnectionError) {
+      console.warn(
+        "[email-gateway-client] email-gateway unreachable, skipping delivery check"
+      );
+    } else {
+      console.error("[email-gateway-client] Status check error:", error);
+    }
     return null;
   }
 }

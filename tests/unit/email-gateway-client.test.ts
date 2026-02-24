@@ -97,14 +97,42 @@ describe("email-gateway-client", () => {
       expect(result).toBeNull();
     });
 
-    it("returns null on network error", async () => {
-      mockFetch.mockRejectedValue(new Error("ECONNREFUSED"));
+    it("returns null and logs warn on connection error (fetch failed)", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      mockFetch.mockRejectedValue(new TypeError("fetch failed"));
 
       const result = await checkDeliveryStatus("brand-1", "campaign-1", [
         { leadId: "lead-1", email: "alice@acme.com" },
       ]);
 
       expect(result).toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[email-gateway-client] email-gateway unreachable, skipping delivery check"
+      );
+      expect(errorSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    });
+
+    it("returns null and logs error on unexpected errors", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const unexpectedError = new Error("something unexpected");
+      mockFetch.mockRejectedValue(unexpectedError);
+
+      const result = await checkDeliveryStatus("brand-1", "campaign-1", [
+        { leadId: "lead-1", email: "alice@acme.com" },
+      ]);
+
+      expect(result).toBeNull();
+      expect(errorSpy).toHaveBeenCalledWith(
+        "[email-gateway-client] Status check error:",
+        unexpectedError
+      );
+      expect(warnSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
     });
   });
 
