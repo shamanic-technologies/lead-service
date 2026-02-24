@@ -74,14 +74,14 @@ const TechnologySchema = z.object({
   category: z.string().nullable().optional(),
 });
 
-const ApolloPersonDataSchema = z
+export const ApolloPersonDataSchema = z
   .object({
     // Person identifiers
     id: z.string().optional(),
     email: z.string().nullable().optional(),
     emailStatus: z.string().nullable().optional(),
-    firstName: z.string().nullable().optional(),
-    lastName: z.string().nullable().optional(),
+    firstName: z.string(),
+    lastName: z.string(),
     title: z.string().nullable().optional(),
     linkedinUrl: z.string().nullable().optional(),
     // Person details
@@ -99,7 +99,7 @@ const ApolloPersonDataSchema = z
     facebookUrl: z.string().nullable().optional(),
     employmentHistory: z.array(EmploymentHistorySchema).optional(),
     // Organization details (flat, NOT nested)
-    organizationName: z.string().nullable().optional(),
+    organizationName: z.string(),
     organizationDomain: z.string().nullable().optional(),
     organizationIndustry: z.string().nullable().optional(),
     organizationSize: z.string().nullable().optional(),
