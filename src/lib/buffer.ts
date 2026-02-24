@@ -97,7 +97,8 @@ async function fillBufferFromSearch(params: {
 
     // Collect candidates from this page (not already in buffer)
     const candidates: Array<{
-      person: (typeof result.people)[0];
+      data: Record<string, unknown>;
+      externalId?: string;
       email?: string;
       leadId?: string;
     }> = [];
@@ -110,6 +111,7 @@ async function fillBufferFromSearch(params: {
 
       let email = person.email || undefined;
       let leadId: string | undefined;
+      let data: Record<string, unknown> = person;
 
       // Check enrichment cache for people without email
       if (!email && person.id) {
@@ -123,6 +125,10 @@ async function fillBufferFromSearch(params: {
             continue;
           }
           email = cached.email;
+          // Merge enriched data so buffer row has full person data (lastName, etc.)
+          if (cached.responseRaw && typeof cached.responseRaw === "object") {
+            data = { ...person, ...(cached.responseRaw as Record<string, unknown>) };
+          }
         }
       }
 
@@ -132,7 +138,7 @@ async function fillBufferFromSearch(params: {
         if (existingLeadId) leadId = existingLeadId;
       }
 
-      candidates.push({ person, email, leadId });
+      candidates.push({ data, externalId: person.id, email, leadId });
     }
 
     // Batch delivery check for candidates with emails and leadIds
@@ -147,7 +153,7 @@ async function fillBufferFromSearch(params: {
 
     let pageFilled = 0;
 
-    for (const { person, email } of candidates) {
+    for (const { data, externalId, email } of candidates) {
       if (email && deliveredMap.get(email)) continue;
 
       await db.insert(leadBuffer).values({
@@ -155,8 +161,8 @@ async function fillBufferFromSearch(params: {
         namespace: params.campaignId,
         campaignId: params.campaignId,
         email: email ?? "",
-        externalId: person.id,
-        data: person,
+        externalId: externalId,
+        data,
         status: "buffered",
         pushRunId: params.pushRunId ?? null,
         brandId: params.brandId,
