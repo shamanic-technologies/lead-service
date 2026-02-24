@@ -41,15 +41,8 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
         where: eq(idempotencyCache.idempotencyKey, idempotencyKey),
       });
       if (cached) {
-        const cachedResponse = cached.response as { found?: boolean; lead?: { email?: string } };
-        // Invalidate stale cached responses that have found: true but no email
-        if (cachedResponse.found && !cachedResponse.lead?.email) {
-          console.warn(`[buffer/next] Invalidating stale idempotency cache (found: true, no email) for key=${idempotencyKey}`);
-          await db.delete(idempotencyCache).where(eq(idempotencyCache.idempotencyKey, idempotencyKey));
-        } else {
-          console.log(`[buffer/next] Idempotency hit for key=${idempotencyKey}`);
-          return res.json(cached.response);
-        }
+        console.log(`[buffer/next] Idempotency hit for key=${idempotencyKey}`);
+        return res.json(cached.response);
       }
     }
 
@@ -80,13 +73,6 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       appId: req.appId,
       workflowName,
     });
-
-    // Safety net: never return found: true without a usable email
-    if (result.found && !result.lead?.email) {
-      console.error(`[buffer/next] BUG: pullNext returned found: true with no email — overriding to found: false. campaignId=${campaignId} brandId=${brandId}`);
-      result.found = false;
-      result.lead = undefined;
-    }
 
     // Cache the response for idempotency + probabilistic TTL cleanup (~1% of requests)
     if (idempotencyKey) {
