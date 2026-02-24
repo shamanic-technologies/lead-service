@@ -307,6 +307,98 @@ describe("buffer", () => {
       expect(vi.mocked(apolloSearchParams)).toHaveBeenCalledOnce();
     });
 
+    it("merges enrichment cache data into buffer when filling from search", async () => {
+      // Scenario: Apollo search returns sparse person data (no lastName).
+      // Enrichment cache has full data (with lastName). fillBufferFromSearch should
+      // merge the enriched data so pullNext returns complete lead.data.
+      const enrichedLeadRow = {
+        id: "buf-enriched",
+        organizationId: "org-1",
+        namespace: "campaign-1",
+        campaignId: "campaign-1",
+        email: "briannah@example.com",
+        externalId: "apollo-enr-1",
+        data: {
+          id: "apollo-enr-1",
+          firstName: "Briannah",
+          lastName: "Drew",
+          email: "briannah@example.com",
+          organizationName: "Braven",
+          title: "Managing Director",
+        },
+        status: "buffered",
+        pushRunId: null,
+        brandId: "brand-1",
+        clerkOrgId: null,
+        clerkUserId: null,
+        createdAt: new Date(),
+      };
+
+      vi.mocked(db.query.leadBuffer.findFirst)
+        .mockResolvedValueOnce(undefined)     // pullNext: buffer empty
+        .mockResolvedValueOnce(undefined)     // isInBuffer → not found
+        .mockResolvedValueOnce(enrichedLeadRow); // pullNext retry: merged lead
+
+      vi.mocked(apolloSearchParams).mockResolvedValue({ searchParams: { personTitles: ["Director"] }, totalResults: 50, attempts: 1 });
+
+      // Apollo search returns sparse data — no lastName
+      vi.mocked(apolloSearchNext).mockResolvedValue({
+        people: [{ id: "apollo-enr-1", email: null, firstName: "Briannah", title: "Managing Director", organizationName: "Braven" }],
+        done: true,
+        totalEntries: 1,
+      });
+
+      // Enrichment cache has full data with lastName
+      vi.mocked(db.query.enrichments.findFirst).mockResolvedValueOnce({
+        id: "e-1", email: "briannah@example.com", apolloPersonId: "apollo-enr-1",
+        firstName: "Briannah", lastName: "Drew", title: "Managing Director",
+        linkedinUrl: null, organizationName: "Braven", organizationDomain: "bebraven.org",
+        organizationIndustry: "Education", organizationSize: "51-200",
+        responseRaw: {
+          id: "apollo-enr-1", email: "briannah@example.com",
+          firstName: "Briannah", lastName: "Drew", title: "Managing Director",
+          organizationName: "Braven", organizationDomain: "bebraven.org",
+        },
+        enrichedAt: new Date(),
+      });
+
+      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
+
+      const insertCalls: unknown[] = [];
+      const returningMock = vi.fn().mockResolvedValue([{ id: "served-1" }]);
+      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
+      const valuesMock = vi.fn().mockImplementation((vals: unknown) => {
+        insertCalls.push(vals);
+        return { onConflictDoNothing: onConflictMock };
+      });
+      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
+
+      const setMock = vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(undefined),
+      });
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
+
+      const result = await pullNext({
+        organizationId: "org-1",
+        campaignId: "campaign-1",
+        brandId: "brand-1",
+        keySource: "byok",
+        searchParams: { description: "community directors" },
+        appId: "my-app",
+      });
+
+      expect(result.found).toBe(true);
+      expect(result.lead?.email).toBe("briannah@example.com");
+
+      // Verify the buffer insert included merged data with lastName
+      const bufferInsert = insertCalls.find(
+        (c: any) => c.email === "briannah@example.com" && c.status === "buffered"
+      ) as any;
+      expect(bufferInsert).toBeDefined();
+      expect(bufferInsert.data.lastName).toBe("Drew");
+      expect(bufferInsert.data.organizationDomain).toBe("bebraven.org");
+    });
+
     it("returns found: false when Apollo returns done: true with 0 people", async () => {
       vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue(undefined);
 
