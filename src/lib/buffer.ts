@@ -385,6 +385,12 @@ export async function pullNext(params: {
       .set({ status: "served" })
       .where(eq(leadBuffer.id, row.id));
 
+    // Ensure data.email always matches the canonical email
+    const finalData =
+      enrichedData && typeof enrichedData === "object"
+        ? { ...(enrichedData as Record<string, unknown>), email }
+        : { email };
+
     console.log(`[pullNext] Served lead: ${email} (leadId=${leadId})`);
 
     return {
@@ -393,7 +399,7 @@ export async function pullNext(params: {
         leadId,
         email,
         externalId: row.externalId,
-        data: enrichedData,
+        data: finalData,
         brandId: params.brandId,
         clerkOrgId: row.clerkOrgId,
         clerkUserId: row.clerkUserId,

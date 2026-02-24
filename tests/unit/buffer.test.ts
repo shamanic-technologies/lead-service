@@ -119,7 +119,7 @@ describe("buffer", () => {
       expect(result.lead?.leadId).toBe("lead-abc");
       expect(result.lead?.email).toBe("alice@acme.com");
       expect(result.lead?.externalId).toBe("e-1");
-      expect(result.lead?.data).toEqual({ name: "Alice" });
+      expect(result.lead?.data).toEqual({ name: "Alice", email: "alice@acme.com" });
     });
 
     it("passes lead data through as-is without modification", async () => {
@@ -165,7 +165,8 @@ describe("buffer", () => {
       });
 
       expect(result.found).toBe(true);
-      expect(result.lead?.data).toEqual(apolloData);
+      // data includes all original fields PLUS email is always synced
+      expect(result.lead?.data).toEqual({ ...apolloData, email: "svitlana@hashtagweb3.com" });
     });
 
     it("skips already-delivered buffer rows and tries next", async () => {
@@ -525,6 +526,50 @@ describe("buffer", () => {
         "apollo-wf-1",
         expect.objectContaining({ workflowName: "cold-email-outreach" })
       );
+    });
+
+    it("always includes email in data even when data.email is null (DAG reads data.email)", async () => {
+      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue({
+        id: "buf-1",
+        organizationId: "org-1",
+        namespace: "campaign-1",
+        campaignId: "campaign-1",
+        email: "torian@theorion.com",
+        externalId: "e-1",
+        data: { firstName: "Torian", email: null, title: "Director" },
+        status: "buffered",
+        pushRunId: null,
+        brandId: "brand-1",
+        clerkOrgId: null,
+        clerkUserId: null,
+        createdAt: new Date(),
+      });
+
+      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
+
+      const returningMock = vi.fn().mockResolvedValue([{ id: "served-1" }]);
+      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
+      const valuesMock = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictMock });
+      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
+
+      const setMock = vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(undefined),
+      });
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
+
+      const result = await pullNext({
+        organizationId: "org-1",
+        campaignId: "campaign-1",
+        brandId: "brand-1",
+      });
+
+      expect(result.found).toBe(true);
+      expect(result.lead?.email).toBe("torian@theorion.com");
+      // Critical: data.email must match lead.email, never null
+      const data = result.lead?.data as Record<string, unknown>;
+      expect(data.email).toBe("torian@theorion.com");
+      expect(data.firstName).toBe("Torian");
+      expect(data.title).toBe("Director");
     });
 
     it("skips buffer rows with no email and no externalId (never returns found: true with empty email)", async () => {
