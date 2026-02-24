@@ -47,7 +47,7 @@ vi.mock("../../src/lib/leads-registry.js", () => ({
 }));
 
 import { db } from "../../src/db/index.js";
-import { pushLeads, pullNext } from "../../src/lib/buffer.js";
+import { pullNext } from "../../src/lib/buffer.js";
 import { apolloSearchNext, apolloSearchParams, apolloEnrich } from "../../src/lib/apollo-client.js";
 import { checkDeliveryStatus } from "../../src/lib/email-gateway-client.js";
 import { resolveOrCreateLead } from "../../src/lib/leads-registry.js";
@@ -58,76 +58,6 @@ describe("buffer", () => {
     // Reset default mocks
     vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
     vi.mocked(resolveOrCreateLead).mockResolvedValue({ leadId: "lead-uuid-1", isNew: true });
-  });
-
-  describe("pushLeads", () => {
-    it("buffers leads that are not already delivered", async () => {
-      // email-gateway returns empty results (not delivered)
-      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
-
-      const valuesMock = vi.fn().mockResolvedValue(undefined);
-      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
-
-      const result = await pushLeads({
-        organizationId: "org-1",
-        campaignId: "campaign-1",
-        brandId: "brand-1",
-        leads: [
-          { email: "alice@acme.com", externalId: "e-1", data: { name: "Alice" } },
-          { email: "bob@acme.com", externalId: "e-2", data: { name: "Bob" } },
-        ],
-      });
-
-      expect(result.buffered).toBe(2);
-      expect(result.skippedAlreadyServed).toBe(0);
-      expect(checkDeliveryStatus).toHaveBeenCalledOnce();
-    });
-
-    it("skips leads that are already delivered", async () => {
-      // alice is delivered, bob is not
-      vi.mocked(checkDeliveryStatus).mockResolvedValue({
-        results: [
-          {
-            email: "alice@acme.com",
-            broadcast: {
-              campaign: {
-                lead: { contacted: true, delivered: true, replied: false, lastDeliveredAt: "2024-01-01" },
-                email: { contacted: true, delivered: true, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
-              },
-              global: {
-                lead: { contacted: true, delivered: true, replied: false, lastDeliveredAt: "2024-01-01" },
-                email: { contacted: true, delivered: true, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
-              },
-            },
-          },
-          {
-            email: "bob@acme.com",
-          },
-        ],
-      });
-
-      // Need to re-import isDelivered since we need it to return true for alice
-      const { isDelivered } = await import("../../src/lib/email-gateway-client.js");
-      vi.mocked(isDelivered)
-        .mockReturnValueOnce(true)   // alice: delivered
-        .mockReturnValueOnce(false); // bob: not delivered
-
-      const valuesMock = vi.fn().mockResolvedValue(undefined);
-      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
-
-      const result = await pushLeads({
-        organizationId: "org-1",
-        campaignId: "campaign-1",
-        brandId: "brand-1",
-        leads: [
-          { email: "alice@acme.com", externalId: "e-1" },
-          { email: "bob@acme.com", externalId: "e-2" },
-        ],
-      });
-
-      expect(result.buffered).toBe(1);
-      expect(result.skippedAlreadyServed).toBe(1);
-    });
   });
 
   describe("pullNext", () => {

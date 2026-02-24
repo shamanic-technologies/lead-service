@@ -13,23 +13,24 @@ import {
  * the downstream /send endpoint has its own idempotency.
  */
 export async function checkDelivered(
+  brandId: string,
   campaignId: string,
   items: DeliveryStatusItem[]
 ): Promise<Map<string, boolean>> {
   const result = new Map<string, boolean>();
 
-  const statusResponse = await checkDeliveryStatus(campaignId, items);
+  const statusResponse = await checkDeliveryStatus(brandId, campaignId, items);
 
   if (statusResponse) {
     for (const sr of statusResponse.results) {
-      result.set(sr.email, isDelivered(sr));
+      if (sr.email) result.set(sr.email, isDelivered(sr));
     }
   } else {
     console.warn(
       "[dedup] email-gateway unreachable, proceeding without delivery check"
     );
     for (const item of items) {
-      result.set(item.email, false);
+      if (item.email) result.set(item.email, false);
     }
   }
 

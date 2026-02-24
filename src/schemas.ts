@@ -47,32 +47,6 @@ const HealthResponseSchema = z
   })
   .openapi("HealthResponse");
 
-// --- Buffer Push ---
-
-const LeadInputSchema = z.object({
-  email: z.string(),
-  externalId: z.string().nullish(),
-  data: z.unknown().optional(),
-});
-
-export const BufferPushRequestSchema = z
-  .object({
-    campaignId: z.string().min(1),
-    brandId: z.string().min(1),
-    parentRunId: z.string().min(1),
-    clerkUserId: z.string().optional(),
-    workflowName: z.string().optional(),
-    leads: z.array(LeadInputSchema),
-  })
-  .openapi("BufferPushRequest");
-
-const BufferPushResponseSchema = z
-  .object({
-    buffered: z.number(),
-    skippedAlreadyServed: z.number(),
-  })
-  .openapi("BufferPushResponse");
-
 // --- Apollo Person Data (flat camelCase — matches Apollo enrichment API) ---
 
 const EmploymentHistorySchema = z.object({
@@ -283,30 +257,6 @@ registry.registerPath({
       description: "Service is healthy",
       content: { "application/json": { schema: HealthResponseSchema } },
     },
-  },
-});
-
-registry.registerPath({
-  method: "post",
-  path: "/buffer/push",
-  summary: "Push leads into the buffer",
-  request: {
-    params: z.object({}),
-    body: {
-      content: { "application/json": { schema: BufferPushRequestSchema } },
-    },
-  },
-  parameters: AuthHeaders,
-  responses: {
-    200: {
-      description: "Leads buffered successfully",
-      content: { "application/json": { schema: BufferPushResponseSchema } },
-    },
-    400: {
-      description: "Invalid request",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    401: { description: "Unauthorized" },
   },
 });
 

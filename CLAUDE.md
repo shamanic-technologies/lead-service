@@ -19,8 +19,10 @@ Single source of truth for lead management — buffering, deduplication, enrichm
 - `src/schemas.ts` — Zod schemas (source of truth for validation + OpenAPI)
 - `src/routes/` — Express route handlers (buffer, leads, cursor, health, stats)
 - `src/middleware/auth.ts` — API key + multi-tenant header auth
-- `src/lib/buffer.ts` — pushLeads(), pullNext() buffer logic
-- `src/lib/dedup.ts` — isServed(), markServed() deduplication
+- `src/lib/buffer.ts` — pullNext(), fillBufferFromSearch() buffer logic
+- `src/lib/dedup.ts` — checkDelivered() (via email-gateway), markServed() deduplication
+- `src/lib/email-gateway-client.ts` — Email-gateway POST /status client for delivery checks
+- `src/lib/leads-registry.ts` — Global lead identity registry (leads + leadEmails tables)
 - `src/lib/apollo-client.ts` — Apollo enrichment service integration
 - `src/lib/campaign-client.ts` — Campaign service client (fetch campaign details for search context)
 - `src/lib/brand-client.ts` — Brand service client (fetch brand details for search context)

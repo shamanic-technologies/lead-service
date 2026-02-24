@@ -32,82 +32,6 @@
           "service"
         ]
       },
-      "BufferPushResponse": {
-        "type": "object",
-        "properties": {
-          "buffered": {
-            "type": "number"
-          },
-          "skippedAlreadyServed": {
-            "type": "number"
-          }
-        },
-        "required": [
-          "buffered",
-          "skippedAlreadyServed"
-        ]
-      },
-      "ErrorResponse": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "error"
-        ]
-      },
-      "BufferPushRequest": {
-        "type": "object",
-        "properties": {
-          "campaignId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "brandId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "parentRunId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "clerkUserId": {
-            "type": "string"
-          },
-          "workflowName": {
-            "type": "string"
-          },
-          "leads": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "email": {
-                  "type": "string"
-                },
-                "externalId": {
-                  "type": "string",
-                  "nullable": true
-                },
-                "data": {
-                  "nullable": true
-                }
-              },
-              "required": [
-                "email"
-              ]
-            }
-          }
-        },
-        "required": [
-          "campaignId",
-          "brandId",
-          "parentRunId",
-          "leads"
-        ]
-      },
       "BufferNextResponse": {
         "type": "object",
         "properties": {
@@ -497,6 +421,17 @@
         },
         "description": "Apollo person + organization data in flat camelCase format. Organization fields are prefixed with 'organization' (e.g. organizationDomain, organizationName) — there is NO nested 'organization' object. Additional fields from Apollo may be present."
       },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
       "BufferNextRequest": {
         "type": "object",
         "properties": {
@@ -729,74 +664,6 @@
                 }
               }
             }
-          }
-        }
-      }
-    },
-    "/buffer/push": {
-      "post": {
-        "summary": "Push leads into the buffer",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "x-api-key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "API key for authenticating requests"
-          },
-          {
-            "in": "header",
-            "name": "x-app-id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Identifies the calling application, e.g. mcpfactory"
-          },
-          {
-            "in": "header",
-            "name": "x-org-id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "External organization ID, e.g. Clerk org ID"
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BufferPushRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Leads buffered successfully",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BufferPushResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
           }
         }
       }

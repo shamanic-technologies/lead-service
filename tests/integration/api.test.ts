@@ -6,6 +6,7 @@ import {
   cleanupTestData,
   closeDb,
   getAuthHeaders,
+  seedBuffer,
   TEST_API_KEY,
 } from "./setup.js";
 import { createRun } from "../../src/lib/runs-client.js";
@@ -51,102 +52,32 @@ describe("API Integration Tests", () => {
   describe("Authentication", () => {
     it("rejects requests without API key", async () => {
       const res = await request(app)
-        .post("/buffer/push")
-        .send({ campaignId: "c1", brandId: "b1", leads: [] });
+        .post("/buffer/next")
+        .send({ campaignId: "c1", brandId: "b1", parentRunId: "r1", keySource: "app" });
 
       expect(res.status).toBe(401);
     });
 
     it("rejects requests with invalid API key", async () => {
       const res = await request(app)
-        .post("/buffer/push")
+        .post("/buffer/next")
         .set("x-api-key", "wrong-key")
         .set("x-app-id", "test")
         .set("x-org-id", "test")
-        .send({ campaignId: "c1", brandId: "b1", leads: [] });
+        .send({ campaignId: "c1", brandId: "b1", parentRunId: "r1", keySource: "app" });
 
       expect(res.status).toBe(401);
     });
   });
 
-  describe("POST /buffer/push", () => {
-    it("buffers new leads", async () => {
-      const res = await request(app)
-        .post("/buffer/push")
-        .set(getAuthHeaders())
-        .send({
-          campaignId: "campaign-a",
-          brandId: "brand-a",
-          parentRunId: "test-run-push-a",
-          leads: [
-            { email: "alice@example.com", externalId: "e1", data: { name: "Alice" } },
-            { email: "bob@example.com", externalId: "e2", data: { name: "Bob" } },
-          ],
-        });
-
-      expect(res.status).toBe(200);
-      expect(res.body.buffered).toBe(2);
-      expect(res.body.skippedAlreadyServed).toBe(0);
-    });
-
-    it("returns 400 when campaignId or brandId missing", async () => {
-      const res = await request(app)
-        .post("/buffer/push")
-        .set(getAuthHeaders())
-        .send({ leads: [] });
-
-      expect(res.status).toBe(400);
-    });
-
-    it("returns 400 when brandId is empty string", async () => {
-      const res = await request(app)
-        .post("/buffer/push")
-        .set(getAuthHeaders())
-        .send({
-          campaignId: "campaign-x",
-          brandId: "",
-          parentRunId: "test-run",
-          leads: [{ email: "test@example.com" }],
-        });
-
-      expect(res.status).toBe(400);
-      expect(res.body.details.fieldErrors.brandId).toBeDefined();
-    });
-
-    it("passes workflowName to createRun", async () => {
-      vi.mocked(createRun).mockClear();
-
-      await request(app)
-        .post("/buffer/push")
-        .set(getAuthHeaders())
-        .send({
-          campaignId: "campaign-wf-push",
-          brandId: "brand-wf-push",
-          parentRunId: "test-run-wf-push",
-          workflowName: "cold-email-outreach",
-          leads: [{ email: "wf-push@example.com" }],
-        });
-
-      expect(createRun).toHaveBeenCalledWith(
-        expect.objectContaining({ workflowName: "cold-email-outreach" })
-      );
-    });
-  });
-
   describe("POST /buffer/next", () => {
     it("pulls next lead from buffer", async () => {
-      // First push a lead
-      await request(app)
-        .post("/buffer/push")
-        .set(getAuthHeaders())
-        .send({
-          campaignId: "campaign-b",
-          brandId: "brand-b",
-          parentRunId: "test-run-push-b",
-          leads: [{ email: "charlie@example.com", data: { name: "Charlie" } }],
-        });
+      await seedBuffer({
+        campaignId: "campaign-b",
+        brandId: "brand-b",
+        leads: [{ email: "charlie@example.com", data: { name: "Charlie" } }],
+      });
 
-      // Then pull it
       const res = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
@@ -179,22 +110,14 @@ describe("API Integration Tests", () => {
     });
 
     it("passes workflowName to createRun", async () => {
-      vi.mocked(createRun).mockClear();
-
-      // Push a lead first
-      await request(app)
-        .post("/buffer/push")
-        .set(getAuthHeaders())
-        .send({
-          campaignId: "campaign-wf-next",
-          brandId: "brand-wf-next",
-          parentRunId: "test-run-wf-push-next",
-          leads: [{ email: "wf-next@example.com" }],
-        });
+      await seedBuffer({
+        campaignId: "campaign-wf-next",
+        brandId: "brand-wf-next",
+        leads: [{ email: "wf-next@example.com" }],
+      });
 
       vi.mocked(createRun).mockClear();
 
-      // Pull with workflowName
       await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
@@ -212,57 +135,52 @@ describe("API Integration Tests", () => {
     });
 
     it("deduplicates — skips leads that email-gateway reports as delivered", async () => {
-      // Push a lead
-      await request(app)
-        .post("/buffer/push")
-        .set(getAuthHeaders())
-        .send({
-          campaignId: "campaign-c",
-          brandId: "brand-c",
-          parentRunId: "test-run-push-c1",
-          leads: [{ email: "dedup@example.com" }],
-        });
+      await seedBuffer({
+        campaignId: "campaign-c",
+        brandId: "brand-c",
+        leads: [
+          { email: "dedup@example.com" },
+          { email: "fresh@example.com" },
+        ],
+      });
 
-      // Pull it once (email-gateway says not delivered)
-      const first = await request(app)
+      // First call: email-gateway reports dedup@example.com as delivered
+      // Second call: fresh@example.com not delivered
+      vi.mocked(checkDeliveryStatus)
+        .mockResolvedValueOnce({
+          results: [{
+            leadId: "any",
+            email: "dedup@example.com",
+            broadcast: {
+              campaign: {
+                lead: { contacted: true, delivered: true, replied: false, lastDeliveredAt: "2024-01-01" },
+                email: { contacted: true, delivered: true, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
+              },
+              brand: {
+                lead: { contacted: true, delivered: true, replied: false, lastDeliveredAt: "2024-01-01" },
+                email: { contacted: true, delivered: true, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
+              },
+              global: {
+                email: { contacted: true, delivered: true, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
+              },
+            },
+          }],
+        })
+        .mockResolvedValue({ results: [] });
+
+      vi.mocked(isDelivered)
+        .mockReturnValueOnce(true)
+        .mockReturnValue(false);
+
+      const res = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ campaignId: "campaign-c", brandId: "brand-c", parentRunId: "test-run-next-c1", keySource: "app" });
+        .send({ campaignId: "campaign-c", brandId: "brand-c", parentRunId: "test-run-next-c", keySource: "app" });
 
-      expect(first.body.found).toBe(true);
+      expect(res.body.found).toBe(true);
+      expect(res.body.lead.email).toBe("fresh@example.com");
 
-      // Now email-gateway reports this email as delivered
-      vi.mocked(checkDeliveryStatus).mockResolvedValue({
-        results: [{
-          email: "dedup@example.com",
-          broadcast: {
-            campaign: {
-              lead: { contacted: true, delivered: true, replied: false, lastDeliveredAt: "2024-01-01" },
-              email: { contacted: true, delivered: true, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
-            },
-            global: {
-              lead: { contacted: true, delivered: true, replied: false, lastDeliveredAt: "2024-01-01" },
-              email: { contacted: true, delivered: true, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
-            },
-          },
-        }],
-      });
-      vi.mocked(isDelivered).mockReturnValue(true);
-
-      // Push again — should be skipped
-      const pushAgain = await request(app)
-        .post("/buffer/push")
-        .set(getAuthHeaders())
-        .send({
-          campaignId: "campaign-c",
-          brandId: "brand-c",
-          parentRunId: "test-run-push-c2",
-          leads: [{ email: "dedup@example.com" }],
-        });
-
-      expect(pushAgain.body.skippedAlreadyServed).toBe(1);
-
-      // Reset mock for subsequent tests
+      // Reset mocks for subsequent tests
       vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
       vi.mocked(isDelivered).mockReturnValue(false);
     }, 10000);
@@ -270,16 +188,11 @@ describe("API Integration Tests", () => {
 
   describe("POST /buffer/next idempotency", () => {
     it("returns same lead on retry with same idempotencyKey", async () => {
-      // Push a lead
-      await request(app)
-        .post("/buffer/push")
-        .set(getAuthHeaders())
-        .send({
-          campaignId: "campaign-idem-1",
-          brandId: "brand-idem-1",
-          parentRunId: "test-run-push-idem-1",
-          leads: [{ email: "idem@example.com", data: { name: "Idem" } }],
-        });
+      await seedBuffer({
+        campaignId: "campaign-idem-1",
+        brandId: "brand-idem-1",
+        leads: [{ email: "idem@example.com", data: { name: "Idem" } }],
+      });
 
       // First pull with idempotencyKey
       const first = await request(app)
@@ -316,19 +229,14 @@ describe("API Integration Tests", () => {
     });
 
     it("does not consume extra leads on retry", async () => {
-      // Push two leads
-      await request(app)
-        .post("/buffer/push")
-        .set(getAuthHeaders())
-        .send({
-          campaignId: "campaign-idem-2",
-          brandId: "brand-idem-2",
-          parentRunId: "test-run-push-idem-2",
-          leads: [
-            { email: "first@example.com", data: { name: "First" } },
-            { email: "second@example.com", data: { name: "Second" } },
-          ],
-        });
+      await seedBuffer({
+        campaignId: "campaign-idem-2",
+        brandId: "brand-idem-2",
+        leads: [
+          { email: "first@example.com", data: { name: "First" } },
+          { email: "second@example.com", data: { name: "Second" } },
+        ],
+      });
 
       // Pull with idempotencyKey
       const first = await request(app)
@@ -388,16 +296,12 @@ describe("API Integration Tests", () => {
 
       expect(first.body.found).toBe(false);
 
-      // Now push a lead to that campaign
-      await request(app)
-        .post("/buffer/push")
-        .set(getAuthHeaders())
-        .send({
-          campaignId: "campaign-idem-empty",
-          brandId: "brand-idem-empty",
-          parentRunId: "test-run-push-idem-empty",
-          leads: [{ email: "late@example.com" }],
-        });
+      // Now seed a lead to that campaign
+      await seedBuffer({
+        campaignId: "campaign-idem-empty",
+        brandId: "brand-idem-empty",
+        leads: [{ email: "late@example.com" }],
+      });
 
       // Retry with same key — should still return cached found: false
       const retry = await request(app)
@@ -415,15 +319,11 @@ describe("API Integration Tests", () => {
     });
 
     it("works without idempotencyKey (backwards compatible)", async () => {
-      await request(app)
-        .post("/buffer/push")
-        .set(getAuthHeaders())
-        .send({
-          campaignId: "campaign-idem-compat",
-          brandId: "brand-idem-compat",
-          parentRunId: "test-run-push-idem-compat",
-          leads: [{ email: "compat@example.com" }],
-        });
+      await seedBuffer({
+        campaignId: "campaign-idem-compat",
+        brandId: "brand-idem-compat",
+        leads: [{ email: "compat@example.com" }],
+      });
 
       const res = await request(app)
         .post("/buffer/next")
@@ -443,7 +343,6 @@ describe("API Integration Tests", () => {
 
   describe("GET /leads", () => {
     it("returns served leads with full enrichment data (no filtering)", async () => {
-      // Push a lead with rich metadata that simulates Apollo data
       const richData = {
         firstName: "Diana",
         lastName: "Prince",
@@ -454,7 +353,6 @@ describe("API Integration Tests", () => {
         organizationDomain: "themyscira.com",
         organizationIndustry: "Defense",
         organizationSize: "501-1000",
-        // Extra fields that were previously filtered out:
         headline: "CEO & Founder at Themyscira Inc",
         city: "Gateway City",
         state: "CA",
@@ -467,15 +365,11 @@ describe("API Integration Tests", () => {
         photoUrl: "https://example.com/diana.jpg",
       };
 
-      await request(app)
-        .post("/buffer/push")
-        .set(getAuthHeaders())
-        .send({
-          campaignId: "campaign-leads",
-          brandId: "brand-leads",
-          parentRunId: "test-run-push-leads",
-          leads: [{ email: "diana@example.com", externalId: "apollo-1", data: richData }],
-        });
+      await seedBuffer({
+        campaignId: "campaign-leads",
+        brandId: "brand-leads",
+        leads: [{ email: "diana@example.com", externalId: "apollo-1", data: richData }],
+      });
 
       // Pull it to move to served_leads
       await request(app)
@@ -495,13 +389,11 @@ describe("API Integration Tests", () => {
       expect(lead).toBeDefined();
       expect(lead.enrichment).not.toBeNull();
 
-      // Verify ALL fields pass through — not just the old 8
+      // Verify ALL fields pass through
       expect(lead.enrichment.firstName).toBe("Diana");
       expect(lead.enrichment.lastName).toBe("Prince");
       expect(lead.enrichment.title).toBe("CEO");
       expect(lead.enrichment.organizationName).toBe("Themyscira Inc");
-
-      // These would have been stripped by the old extractEnrichment
       expect(lead.enrichment.headline).toBe("CEO & Founder at Themyscira Inc");
       expect(lead.enrichment.city).toBe("Gateway City");
       expect(lead.enrichment.country).toBe("United States");
@@ -514,16 +406,11 @@ describe("API Integration Tests", () => {
     });
 
     it("returns null enrichment when metadata is empty", async () => {
-      // Push a lead with no enrichment data
-      await request(app)
-        .post("/buffer/push")
-        .set(getAuthHeaders())
-        .send({
-          campaignId: "campaign-leads-empty",
-          brandId: "brand-leads-empty",
-          parentRunId: "test-run-push-leads-empty",
-          leads: [{ email: "empty@example.com" }],
-        });
+      await seedBuffer({
+        campaignId: "campaign-leads-empty",
+        brandId: "brand-leads-empty",
+        leads: [{ email: "empty@example.com" }],
+      });
 
       await request(app)
         .post("/buffer/next")

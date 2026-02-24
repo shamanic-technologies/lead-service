@@ -47,3 +47,27 @@ export function getAuthHeaders() {
     "x-org-id": TEST_ORG_ID,
   };
 }
+
+/** Insert leads directly into leadBuffer for testing (replaces POST /buffer/push). */
+export async function seedBuffer(params: {
+  campaignId: string;
+  brandId: string;
+  leads: Array<{ email: string; externalId?: string; data?: unknown }>;
+}): Promise<void> {
+  if (!testOrgUuid) throw new Error("setupTestOrg() must be called first");
+  for (const lead of params.leads) {
+    await db.insert(leadBuffer).values({
+      organizationId: testOrgUuid,
+      namespace: params.campaignId,
+      campaignId: params.campaignId,
+      email: lead.email,
+      externalId: lead.externalId ?? null,
+      data: lead.data ?? null,
+      status: "buffered",
+      pushRunId: null,
+      brandId: params.brandId,
+      clerkOrgId: TEST_ORG_ID,
+      clerkUserId: null,
+    });
+  }
+}

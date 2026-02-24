@@ -4,8 +4,8 @@ const EMAIL_GATEWAY_SERVICE_API_KEY =
   process.env.EMAIL_GATEWAY_SERVICE_API_KEY || "";
 
 export interface DeliveryStatusItem {
-  leadId?: string;
-  email: string;
+  leadId: string;
+  email?: string;
 }
 
 export interface LeadDeliveryStatus {
@@ -23,19 +23,24 @@ export interface EmailDeliveryStatus {
   lastDeliveredAt: string | null;
 }
 
-export interface StatusScope {
+export interface ScopedStatus {
   lead: LeadDeliveryStatus;
   email: EmailDeliveryStatus;
 }
 
+export interface GlobalStatus {
+  email: EmailDeliveryStatus;
+}
+
 export interface ProviderStatus {
-  campaign: StatusScope;
-  global: StatusScope;
+  campaign: ScopedStatus;
+  brand: ScopedStatus;
+  global: GlobalStatus;
 }
 
 export interface StatusResult {
-  leadId?: string;
-  email: string;
+  leadId: string;
+  email?: string;
   broadcast?: ProviderStatus;
   transactional?: ProviderStatus;
 }
@@ -45,17 +50,21 @@ export interface DeliveryStatusResponse {
 }
 
 export async function checkDeliveryStatus(
-  campaignId: string,
+  brandId: string,
+  campaignId: string | undefined,
   items: DeliveryStatusItem[]
 ): Promise<DeliveryStatusResponse | null> {
   try {
+    const body: Record<string, unknown> = { brandId, items };
+    if (campaignId) body.campaignId = campaignId;
+
     const response = await fetch(`${EMAIL_GATEWAY_SERVICE_URL}/status`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-API-Key": EMAIL_GATEWAY_SERVICE_API_KEY,
       },
-      body: JSON.stringify({ campaignId, items }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -74,8 +83,8 @@ export async function checkDeliveryStatus(
 }
 
 /**
- * Check if a status result indicates the lead/email has been delivered
- * via any provider (broadcast or transactional) at any scope (campaign or global).
+ * Check if a status result indicates the lead/email has been contacted
+ * via any provider (broadcast or transactional) at any scope (campaign, brand, or global).
  */
 export function isDelivered(result: StatusResult): boolean {
   const bc = result.broadcast;
@@ -83,11 +92,13 @@ export function isDelivered(result: StatusResult): boolean {
   return !!(
     bc?.campaign.lead.contacted ||
     bc?.campaign.email.contacted ||
-    bc?.global.lead.contacted ||
+    bc?.brand.lead.contacted ||
+    bc?.brand.email.contacted ||
     bc?.global.email.contacted ||
     tx?.campaign.lead.contacted ||
     tx?.campaign.email.contacted ||
-    tx?.global.lead.contacted ||
+    tx?.brand.lead.contacted ||
+    tx?.brand.email.contacted ||
     tx?.global.email.contacted
   );
 }
