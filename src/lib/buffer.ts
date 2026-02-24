@@ -7,58 +7,6 @@ import { apolloSearchNext, apolloEnrich, apolloSearchParams, type ApolloSearchPa
 import { fetchCampaign } from "./campaign-client.js";
 import { fetchBrand } from "./brand-client.js";
 
-export async function pushLeads(params: {
-  organizationId: string;
-  campaignId: string;
-  brandId: string;
-  pushRunId?: string | null;
-  clerkOrgId?: string | null;
-  clerkUserId?: string | null;
-  leads: Array<{
-    email: string;
-    externalId?: string | null;
-    data?: unknown;
-  }>;
-}): Promise<{ buffered: number; skippedAlreadyServed: number }> {
-  let buffered = 0;
-  let skippedAlreadyServed = 0;
-
-  // Batch delivery check via email-gateway
-  const itemsToCheck = params.leads
-    .filter((l) => l.email)
-    .map((l) => ({ email: l.email }));
-
-  const deliveredMap =
-    itemsToCheck.length > 0
-      ? await checkDelivered(params.campaignId, itemsToCheck)
-      : new Map<string, boolean>();
-
-  for (const lead of params.leads) {
-    if (lead.email && deliveredMap.get(lead.email)) {
-      skippedAlreadyServed++;
-      continue;
-    }
-
-    await db.insert(leadBuffer).values({
-      organizationId: params.organizationId,
-      namespace: params.campaignId,
-      campaignId: params.campaignId,
-      email: lead.email,
-      externalId: lead.externalId ?? null,
-      data: lead.data ?? null,
-      status: "buffered",
-      pushRunId: params.pushRunId ?? null,
-      brandId: params.brandId,
-      clerkOrgId: params.clerkOrgId ?? null,
-      clerkUserId: params.clerkUserId ?? null,
-    });
-    buffered++;
-  }
-
-  console.log(`[pushLeads] buffered=${buffered} skipped=${skippedAlreadyServed}`);
-  return { buffered, skippedAlreadyServed };
-}
-
 async function isInBuffer(organizationId: string, campaignId: string, externalId: string): Promise<boolean> {
   const row = await db.query.leadBuffer.findFirst({
     where: and(
@@ -187,14 +135,14 @@ async function fillBufferFromSearch(params: {
       candidates.push({ person, email, leadId });
     }
 
-    // Batch delivery check for candidates with emails
+    // Batch delivery check for candidates with emails and leadIds
     const itemsWithEmails = candidates
-      .filter((c) => c.email)
-      .map((c) => ({ email: c.email!, leadId: c.leadId }));
+      .filter((c): c is typeof c & { email: string; leadId: string } => !!c.email && !!c.leadId)
+      .map((c) => ({ email: c.email, leadId: c.leadId }));
 
     const deliveredMap =
       itemsWithEmails.length > 0
-        ? await checkDelivered(params.campaignId, itemsWithEmails)
+        ? await checkDelivered(params.brandId, params.campaignId, itemsWithEmails)
         : new Map<string, boolean>();
 
     let pageFilled = 0;
@@ -395,7 +343,7 @@ export async function pullNext(params: {
     });
 
     // Check delivery status via email-gateway
-    const deliveredMap = await checkDelivered(params.campaignId, [
+    const deliveredMap = await checkDelivered(params.brandId, params.campaignId, [
       { leadId, email },
     ]);
 
