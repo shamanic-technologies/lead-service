@@ -41,7 +41,8 @@ export async function cleanupTestData(): Promise<void> {
     await db.delete(cursors).where(eq(cursors.organizationId, testOrgUuid));
     await db.delete(leadBuffer).where(eq(leadBuffer.organizationId, testOrgUuid));
     await db.delete(servedLeads).where(eq(servedLeads.organizationId, testOrgUuid));
-    // Clean up leadEmails and leads (global tables, clean all test-created rows)
+    // Clean up global tables in FK-safe order: served_leads → lead_emails → leads
+    await sql`DELETE FROM served_leads WHERE lead_id IN (SELECT id FROM leads)`;
     await sql`DELETE FROM lead_emails WHERE lead_id IN (SELECT id FROM leads)`;
     await sql`DELETE FROM leads`;
     await db.delete(organizations).where(eq(organizations.id, testOrgUuid));
