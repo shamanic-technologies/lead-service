@@ -1,7 +1,8 @@
 import { eq, and, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { leadBuffer, enrichments } from "../db/schema.js";
-import { isServed, markServed } from "./dedup.js";
+import { checkDelivered, markServed } from "./dedup.js";
+import { resolveOrCreateLead, findLeadByApolloPersonId } from "./leads-registry.js";
 import { apolloSearchNext, apolloEnrich, apolloSearchParams, type ApolloSearchParams } from "./apollo-client.js";
 import { fetchCampaign } from "./campaign-client.js";
 import { fetchBrand } from "./brand-client.js";
@@ -22,14 +23,18 @@ export async function pushLeads(params: {
   let buffered = 0;
   let skippedAlreadyServed = 0;
 
-  for (const lead of params.leads) {
-    const alreadyServed = await isServed(
-      params.organizationId,
-      params.brandId,
-      lead.email
-    );
+  // Batch delivery check via email-gateway
+  const itemsToCheck = params.leads
+    .filter((l) => l.email)
+    .map((l) => ({ email: l.email }));
 
-    if (alreadyServed) {
+  const deliveredMap =
+    itemsToCheck.length > 0
+      ? await checkDelivered(params.campaignId, itemsToCheck)
+      : new Map<string, boolean>();
+
+  for (const lead of params.leads) {
+    if (lead.email && deliveredMap.get(lead.email)) {
       skippedAlreadyServed++;
       continue;
     }
@@ -121,7 +126,6 @@ async function fillBufferFromSearch(params: {
   let totalFilled = 0;
 
   // Call apolloSearchNext in a loop — apollo-service manages pagination server-side.
-  // Always pass searchParams so the cursor stays matched to this campaign's filters.
   for (let page = 1; page <= MAX_PAGES; page++) {
     const result = await apolloSearchNext({
       campaignId: params.campaignId,
@@ -143,27 +147,24 @@ async function fillBufferFromSearch(params: {
       break;
     }
 
-    let pageFilled = 0;
+    // Collect candidates from this page (not already in buffer)
+    const candidates: Array<{
+      person: (typeof result.people)[0];
+      email?: string;
+      leadId?: string;
+    }> = [];
 
     for (const person of result.people) {
-      // Skip if already in buffer (prevents re-inserting across page walks)
+      // Skip if already in buffer
       if (person.id && await isInBuffer(params.organizationId, params.campaignId, person.id)) {
         continue;
       }
 
-      // If person has email, check served dedup early; otherwise check enrichment cache
-      if (person.email) {
-        const alreadyServed = await isServed(
-          params.organizationId,
-          params.brandId,
-          person.email
-        );
+      let email = person.email || undefined;
+      let leadId: string | undefined;
 
-        if (alreadyServed) {
-          continue;
-        }
-      } else if (person.id) {
-        // No email — check enrichment cache to avoid buffering people we already know about
+      // Check enrichment cache for people without email
+      if (!email && person.id) {
         const cached = await db.query.enrichments.findFirst({
           where: eq(enrichments.apolloPersonId, person.id),
         });
@@ -173,23 +174,39 @@ async function fillBufferFromSearch(params: {
             // Previously enriched, no email found — skip entirely
             continue;
           }
-          // Has cached email — check if already served
-          const alreadyServed = await isServed(
-            params.organizationId,
-            params.brandId,
-            cached.email
-          );
-          if (alreadyServed) {
-            continue;
-          }
+          email = cached.email;
         }
       }
+
+      // Try to find existing leadId
+      if (person.id) {
+        const existingLeadId = await findLeadByApolloPersonId(person.id);
+        if (existingLeadId) leadId = existingLeadId;
+      }
+
+      candidates.push({ person, email, leadId });
+    }
+
+    // Batch delivery check for candidates with emails
+    const itemsWithEmails = candidates
+      .filter((c) => c.email)
+      .map((c) => ({ email: c.email!, leadId: c.leadId }));
+
+    const deliveredMap =
+      itemsWithEmails.length > 0
+        ? await checkDelivered(params.campaignId, itemsWithEmails)
+        : new Map<string, boolean>();
+
+    let pageFilled = 0;
+
+    for (const { person, email } of candidates) {
+      if (email && deliveredMap.get(email)) continue;
 
       await db.insert(leadBuffer).values({
         organizationId: params.organizationId,
         namespace: params.campaignId,
         campaignId: params.campaignId,
-        email: person.email ?? "",
+        email: email ?? "",
         externalId: person.id,
         data: person,
         status: "buffered",
@@ -236,6 +253,7 @@ export async function pullNext(params: {
 }): Promise<{
   found: boolean;
   lead?: {
+    leadId: string;
     email: string;
     externalId: string | null;
     data: unknown;
@@ -369,13 +387,19 @@ export async function pullNext(params: {
         .where(eq(leadBuffer.id, row.id));
     }
 
-    const alreadyServed = await isServed(
-      params.organizationId,
-      params.brandId,
-      email
-    );
+    // Resolve or create the lead identity
+    const { leadId } = await resolveOrCreateLead({
+      apolloPersonId: row.externalId,
+      email,
+      metadata: enrichedData,
+    });
 
-    if (alreadyServed) {
+    // Check delivery status via email-gateway
+    const deliveredMap = await checkDelivered(params.campaignId, [
+      { leadId, email },
+    ]);
+
+    if (deliveredMap.get(email)) {
       await db
         .update(leadBuffer)
         .set({ status: "skipped" })
@@ -389,6 +413,7 @@ export async function pullNext(params: {
       brandId: params.brandId,
       campaignId: params.campaignId,
       email,
+      leadId,
       externalId: row.externalId,
       metadata: enrichedData,
       parentRunId: params.parentRunId ?? null,
@@ -402,11 +427,12 @@ export async function pullNext(params: {
       .set({ status: "served" })
       .where(eq(leadBuffer.id, row.id));
 
-    console.log(`[pullNext] Served lead: ${email}`);
+    console.log(`[pullNext] Served lead: ${email} (leadId=${leadId})`);
 
     return {
       found: true,
       lead: {
+        leadId,
         email,
         externalId: row.externalId,
         data: enrichedData,

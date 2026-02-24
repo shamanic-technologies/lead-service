@@ -117,6 +117,10 @@
           "lead": {
             "type": "object",
             "properties": {
+              "leadId": {
+                "type": "string",
+                "format": "uuid"
+              },
               "email": {
                 "type": "string"
               },
@@ -140,6 +144,7 @@
               }
             },
             "required": [
+              "leadId",
               "email",
               "externalId",
               "data",
@@ -587,6 +592,11 @@
             "type": "string",
             "format": "uuid"
           },
+          "leadId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid"
+          },
           "organizationId": {
             "type": "string",
             "format": "uuid"
@@ -635,6 +645,7 @@
         },
         "required": [
           "id",
+          "leadId",
           "organizationId",
           "namespace",
           "email",

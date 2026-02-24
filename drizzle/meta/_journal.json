@@ -43,6 +43,13 @@
       "when": 1771464312612,
       "tag": "0005_public_klaw",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1771914700973,
+      "tag": "0006_loose_phil_sheldon",
+      "breakpoints": true
     }
   ]
 }

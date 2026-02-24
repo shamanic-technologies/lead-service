@@ -1,28 +1,52 @@
-import { eq, and } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { servedLeads } from "../db/schema.js";
+import {
+  checkDeliveryStatus,
+  isDelivered,
+  type DeliveryStatusItem,
+} from "./email-gateway-client.js";
 
-export async function isServed(
-  organizationId: string,
-  brandId: string,
-  email: string
-): Promise<boolean> {
-  const existing = await db.query.servedLeads.findFirst({
-    where: and(
-      eq(servedLeads.organizationId, organizationId),
-      eq(servedLeads.brandId, brandId),
-      eq(servedLeads.email, email)
-    ),
-  });
-  return !!existing;
+/**
+ * Check if items have been delivered via email-gateway.
+ * Returns a Map of email -> boolean (delivered or not).
+ * Falls back to all-false if email-gateway is unreachable —
+ * the downstream /send endpoint has its own idempotency.
+ */
+export async function checkDelivered(
+  campaignId: string,
+  items: DeliveryStatusItem[]
+): Promise<Map<string, boolean>> {
+  const result = new Map<string, boolean>();
+
+  const statusResponse = await checkDeliveryStatus(campaignId, items);
+
+  if (statusResponse) {
+    for (const sr of statusResponse.results) {
+      result.set(sr.email, isDelivered(sr));
+    }
+  } else {
+    console.warn(
+      "[dedup] email-gateway unreachable, proceeding without delivery check"
+    );
+    for (const item of items) {
+      result.set(item.email, false);
+    }
+  }
+
+  return result;
 }
 
+/**
+ * Record a served lead in the audit log (servedLeads table).
+ * Now includes leadId for the global identity link.
+ */
 export async function markServed(params: {
   organizationId: string;
   namespace: string;
   brandId: string;
   campaignId: string;
   email: string;
+  leadId?: string | null;
   externalId?: string | null;
   metadata?: unknown;
   parentRunId?: string | null;
@@ -36,6 +60,7 @@ export async function markServed(params: {
       organizationId: params.organizationId,
       namespace: params.namespace,
       email: params.email,
+      leadId: params.leadId ?? null,
       externalId: params.externalId ?? null,
       metadata: params.metadata ?? null,
       parentRunId: params.parentRunId ?? null,

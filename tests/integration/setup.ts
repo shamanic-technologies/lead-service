@@ -1,5 +1,5 @@
 import { db, sql } from "../../src/db/index.js";
-import { organizations, servedLeads, leadBuffer, cursors, idempotencyCache } from "../../src/db/schema.js";
+import { organizations, servedLeads, leadBuffer, cursors, idempotencyCache, leadEmails, leads } from "../../src/db/schema.js";
 import { eq } from "drizzle-orm";
 
 export const TEST_API_KEY = "test-api-key-12345";
@@ -28,6 +28,9 @@ export async function cleanupTestData(): Promise<void> {
     await db.delete(cursors).where(eq(cursors.organizationId, testOrgUuid));
     await db.delete(leadBuffer).where(eq(leadBuffer.organizationId, testOrgUuid));
     await db.delete(servedLeads).where(eq(servedLeads.organizationId, testOrgUuid));
+    // Clean up leadEmails and leads (global tables, clean all test-created rows)
+    await sql`DELETE FROM lead_emails WHERE lead_id IN (SELECT id FROM leads)`;
+    await sql`DELETE FROM leads`;
     await db.delete(organizations).where(eq(organizations.id, testOrgUuid));
     testOrgUuid = null;
   }
