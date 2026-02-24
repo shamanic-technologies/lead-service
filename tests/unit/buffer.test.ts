@@ -527,6 +527,102 @@ describe("buffer", () => {
       );
     });
 
+    it("skips buffer rows with no email and no externalId (never returns found: true with empty email)", async () => {
+      vi.mocked(db.query.leadBuffer.findFirst)
+        .mockResolvedValueOnce({
+          id: "buf-no-email",
+          organizationId: "org-1",
+          namespace: "campaign-1",
+          campaignId: "campaign-1",
+          email: "",
+          externalId: null,
+          data: { name: "Ghost" },
+          status: "buffered",
+          pushRunId: null,
+          brandId: "brand-1",
+          clerkOrgId: null,
+          clerkUserId: null,
+          createdAt: new Date(),
+        })
+        .mockResolvedValueOnce(undefined); // no more rows
+
+      const setMock = vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(undefined),
+      });
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
+
+      const result = await pullNext({
+        organizationId: "org-1",
+        campaignId: "campaign-1",
+        brandId: "brand-1",
+      });
+
+      expect(result.found).toBe(false);
+      // Verify it was marked as skipped
+      expect(db.update).toHaveBeenCalled();
+    });
+
+    it("skips lead with no email after failed enrichment and serves next lead", async () => {
+      vi.mocked(db.query.leadBuffer.findFirst)
+        .mockResolvedValueOnce({
+          id: "buf-no-email",
+          organizationId: "org-1",
+          namespace: "campaign-1",
+          campaignId: "campaign-1",
+          email: "",
+          externalId: "apollo-no-email",
+          data: { name: "NoEmail" },
+          status: "buffered",
+          pushRunId: null,
+          brandId: "brand-1",
+          clerkOrgId: null,
+          clerkUserId: null,
+          createdAt: new Date(),
+        })
+        .mockResolvedValueOnce({
+          id: "buf-good",
+          organizationId: "org-1",
+          namespace: "campaign-1",
+          campaignId: "campaign-1",
+          email: "good@acme.com",
+          externalId: "e-good",
+          data: { name: "Good" },
+          status: "buffered",
+          pushRunId: null,
+          brandId: "brand-1",
+          clerkOrgId: null,
+          clerkUserId: null,
+          createdAt: new Date(),
+        });
+
+      // Enrichment returns no email
+      vi.mocked(db.query.enrichments.findFirst).mockResolvedValueOnce(undefined);
+      vi.mocked(apolloEnrich).mockResolvedValueOnce({
+        person: { id: "apollo-no-email", firstName: "NoEmail", email: null },
+      });
+
+      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
+
+      const returningMock = vi.fn().mockResolvedValue([{ id: "served-1" }]);
+      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
+      const valuesMock = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictMock });
+      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
+
+      const setMock = vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(undefined),
+      });
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
+
+      const result = await pullNext({
+        organizationId: "org-1",
+        campaignId: "campaign-1",
+        brandId: "brand-1",
+      });
+
+      expect(result.found).toBe(true);
+      expect(result.lead?.email).toBe("good@acme.com");
+    });
+
     it("continues when email-gateway is unreachable (fallback)", async () => {
       vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue({
         id: "buf-1",
