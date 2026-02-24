@@ -150,7 +150,7 @@ describe("API Integration Tests", () => {
       const res = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ campaignId: "campaign-b", brandId: "brand-b", parentRunId: "test-run-next-b" });
+        .send({ campaignId: "campaign-b", brandId: "brand-b", parentRunId: "test-run-next-b", keySource: "app" });
 
       expect(res.status).toBe(200);
       expect(res.body.found).toBe(true);
@@ -162,7 +162,7 @@ describe("API Integration Tests", () => {
       const res = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ campaignId: "campaign-empty", brandId: "brand-empty", parentRunId: "test-run-next-empty" });
+        .send({ campaignId: "campaign-empty", brandId: "brand-empty", parentRunId: "test-run-next-empty", keySource: "app" });
 
       expect(res.status).toBe(200);
       expect(res.body.found).toBe(false);
@@ -172,7 +172,7 @@ describe("API Integration Tests", () => {
       const res = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ campaignId: "campaign-x", brandId: "", parentRunId: "test-run" });
+        .send({ campaignId: "campaign-x", brandId: "", parentRunId: "test-run", keySource: "app" });
 
       expect(res.status).toBe(400);
       expect(res.body.details.fieldErrors.brandId).toBeDefined();
@@ -202,6 +202,7 @@ describe("API Integration Tests", () => {
           campaignId: "campaign-wf-next",
           brandId: "brand-wf-next",
           parentRunId: "test-run-wf-next",
+          keySource: "app",
           workflowName: "cold-email-outreach",
         });
 
@@ -226,7 +227,7 @@ describe("API Integration Tests", () => {
       const first = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ campaignId: "campaign-c", brandId: "brand-c", parentRunId: "test-run-next-c1" });
+        .send({ campaignId: "campaign-c", brandId: "brand-c", parentRunId: "test-run-next-c1", keySource: "app" });
 
       expect(first.body.found).toBe(true);
 
@@ -288,6 +289,7 @@ describe("API Integration Tests", () => {
           campaignId: "campaign-idem-1",
           brandId: "brand-idem-1",
           parentRunId: "test-run-idem-1",
+          keySource: "app",
           idempotencyKey: "run-idem-1",
         });
 
@@ -304,6 +306,7 @@ describe("API Integration Tests", () => {
           campaignId: "campaign-idem-1",
           brandId: "brand-idem-1",
           parentRunId: "test-run-idem-1",
+          keySource: "app",
           idempotencyKey: "run-idem-1",
         });
 
@@ -335,6 +338,7 @@ describe("API Integration Tests", () => {
           campaignId: "campaign-idem-2",
           brandId: "brand-idem-2",
           parentRunId: "test-run-idem-2a",
+          keySource: "app",
           idempotencyKey: "run-idem-2",
         });
 
@@ -349,6 +353,7 @@ describe("API Integration Tests", () => {
           campaignId: "campaign-idem-2",
           brandId: "brand-idem-2",
           parentRunId: "test-run-idem-2a",
+          keySource: "app",
           idempotencyKey: "run-idem-2",
         });
 
@@ -360,6 +365,7 @@ describe("API Integration Tests", () => {
           campaignId: "campaign-idem-2",
           brandId: "brand-idem-2",
           parentRunId: "test-run-idem-2b",
+          keySource: "app",
           idempotencyKey: "run-idem-2b",
         });
 
@@ -376,6 +382,7 @@ describe("API Integration Tests", () => {
           campaignId: "campaign-idem-empty",
           brandId: "brand-idem-empty",
           parentRunId: "test-run-idem-empty",
+          keySource: "app",
           idempotencyKey: "run-idem-empty",
         });
 
@@ -400,6 +407,7 @@ describe("API Integration Tests", () => {
           campaignId: "campaign-idem-empty",
           brandId: "brand-idem-empty",
           parentRunId: "test-run-idem-empty",
+          keySource: "app",
           idempotencyKey: "run-idem-empty",
         });
 
@@ -424,6 +432,7 @@ describe("API Integration Tests", () => {
           campaignId: "campaign-idem-compat",
           brandId: "brand-idem-compat",
           parentRunId: "test-run-idem-compat",
+          keySource: "app",
         });
 
       expect(res.status).toBe(200);
@@ -472,7 +481,7 @@ describe("API Integration Tests", () => {
       await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ campaignId: "campaign-leads", brandId: "brand-leads", parentRunId: "test-run-next-leads" });
+        .send({ campaignId: "campaign-leads", brandId: "brand-leads", parentRunId: "test-run-next-leads", keySource: "app" });
 
       // Query GET /leads
       const res = await request(app)
@@ -519,7 +528,7 @@ describe("API Integration Tests", () => {
       await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ campaignId: "campaign-leads-empty", brandId: "brand-leads-empty", parentRunId: "test-run-next-leads-empty" });
+        .send({ campaignId: "campaign-leads-empty", brandId: "brand-leads-empty", parentRunId: "test-run-next-leads-empty", keySource: "app" });
 
       const res = await request(app)
         .get("/leads?brandId=brand-leads-empty&campaignId=campaign-leads-empty")
