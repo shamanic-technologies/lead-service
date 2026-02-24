@@ -98,12 +98,10 @@
             "nullable": true
           },
           "firstName": {
-            "type": "string",
-            "nullable": true
+            "type": "string"
           },
           "lastName": {
-            "type": "string",
-            "nullable": true
+            "type": "string"
           },
           "title": {
             "type": "string",
@@ -199,8 +197,7 @@
             }
           },
           "organizationName": {
-            "type": "string",
-            "nullable": true
+            "type": "string"
           },
           "organizationDomain": {
             "type": "string",
@@ -416,6 +413,11 @@
             "nullable": true
           }
         },
+        "required": [
+          "firstName",
+          "lastName",
+          "organizationName"
+        ],
         "additionalProperties": {
           "nullable": true
         },
