@@ -43,6 +43,7 @@ router.get("/leads", authenticate, async (req: AuthenticatedRequest, res) => {
     // Extract enrichment from metadata (Apollo data is stored in servedLeads.metadata)
     const enrichedLeads = leads.map((lead) => ({
       ...lead,
+      leadId: lead.leadId ?? null,
       enrichment: extractEnrichment(lead.metadata),
     }));
 

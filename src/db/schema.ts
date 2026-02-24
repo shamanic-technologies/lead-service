@@ -30,7 +30,38 @@ export const users = pgTable(
   ]
 );
 
-// Served leads — the dedup registry (dedup scoped by orgId × brandId)
+// Leads — global identity registry (no org/brand/campaign scoping)
+export const leads = pgTable(
+  "leads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    apolloPersonId: text("apollo_person_id"),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_leads_apollo_person_id").on(table.apolloPersonId),
+  ]
+);
+
+// Lead emails — email addresses belonging to a lead (1:N)
+export const leadEmails = pgTable(
+  "lead_emails",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    leadId: uuid("lead_id")
+      .notNull()
+      .references(() => leads.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_lead_emails_lead_email").on(table.leadId, table.email),
+    uniqueIndex("idx_lead_emails_email").on(table.email),
+  ]
+);
+
+// Served leads — audit log of leads pulled from buffer (dedup now via email-gateway)
 export const servedLeads = pgTable(
   "served_leads",
   {
@@ -38,6 +69,7 @@ export const servedLeads = pgTable(
     organizationId: uuid("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
+    leadId: uuid("lead_id").references(() => leads.id),
     namespace: text("namespace").notNull(),
     email: text("email").notNull(),
     externalId: text("external_id"),
@@ -158,3 +190,7 @@ export type Enrichment = typeof enrichments.$inferSelect;
 export type NewEnrichment = typeof enrichments.$inferInsert;
 export type IdempotencyCacheRow = typeof idempotencyCache.$inferSelect;
 export type NewIdempotencyCacheRow = typeof idempotencyCache.$inferInsert;
+export type Lead = typeof leads.$inferSelect;
+export type NewLead = typeof leads.$inferInsert;
+export type LeadEmail = typeof leadEmails.$inferSelect;
+export type NewLeadEmail = typeof leadEmails.$inferInsert;

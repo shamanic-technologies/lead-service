@@ -190,6 +190,7 @@ export const BufferNextRequestSchema = z
   .openapi("BufferNextRequest");
 
 const ServedLeadSchema = z.object({
+  leadId: z.string().uuid(),
   email: z.string(),
   externalId: z.string().nullable(),
   data: ApolloPersonDataSchema.nullable(),
@@ -230,6 +231,7 @@ const CursorSetResponseSchema = z
 const LeadDetailSchema = z
   .object({
     id: z.string().uuid(),
+    leadId: z.string().uuid().nullable(),
     organizationId: z.string().uuid(),
     namespace: z.string(),
     email: z.string(),

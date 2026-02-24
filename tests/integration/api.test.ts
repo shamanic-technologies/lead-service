@@ -9,12 +9,18 @@ import {
   TEST_API_KEY,
 } from "./setup.js";
 import { createRun } from "../../src/lib/runs-client.js";
+import { checkDeliveryStatus, isDelivered } from "../../src/lib/email-gateway-client.js";
 
 vi.mock("../../src/lib/runs-client.js", () => ({
   ensureOrganization: vi.fn().mockResolvedValue("mock-org-id"),
   createRun: vi.fn().mockResolvedValue({ id: "mock-run-id" }),
   updateRun: vi.fn().mockResolvedValue(undefined),
   addCosts: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../../src/lib/email-gateway-client.js", () => ({
+  checkDeliveryStatus: vi.fn().mockResolvedValue({ results: [] }),
+  isDelivered: vi.fn().mockReturnValue(false),
 }));
 
 describe("API Integration Tests", () => {
@@ -149,6 +155,7 @@ describe("API Integration Tests", () => {
       expect(res.status).toBe(200);
       expect(res.body.found).toBe(true);
       expect(res.body.lead.email).toBe("charlie@example.com");
+      expect(res.body.lead.leadId).toBeDefined();
     });
 
     it("returns found: false when buffer empty", async () => {
@@ -203,8 +210,8 @@ describe("API Integration Tests", () => {
       );
     });
 
-    it("deduplicates — same lead not served twice", async () => {
-      // Push same lead twice to a new campaign
+    it("deduplicates — skips leads that email-gateway reports as delivered", async () => {
+      // Push a lead
       await request(app)
         .post("/buffer/push")
         .set(getAuthHeaders())
@@ -215,7 +222,7 @@ describe("API Integration Tests", () => {
           leads: [{ email: "dedup@example.com" }],
         });
 
-      // Pull it once
+      // Pull it once (email-gateway says not delivered)
       const first = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
@@ -223,7 +230,25 @@ describe("API Integration Tests", () => {
 
       expect(first.body.found).toBe(true);
 
-      // Push again
+      // Now email-gateway reports this email as delivered
+      vi.mocked(checkDeliveryStatus).mockResolvedValue({
+        results: [{
+          email: "dedup@example.com",
+          broadcast: {
+            campaign: {
+              lead: { contacted: true, delivered: true, replied: false, lastDeliveredAt: "2024-01-01" },
+              email: { contacted: true, delivered: true, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
+            },
+            global: {
+              lead: { contacted: true, delivered: true, replied: false, lastDeliveredAt: "2024-01-01" },
+              email: { contacted: true, delivered: true, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
+            },
+          },
+        }],
+      });
+      vi.mocked(isDelivered).mockReturnValue(true);
+
+      // Push again — should be skipped
       const pushAgain = await request(app)
         .post("/buffer/push")
         .set(getAuthHeaders())
@@ -236,14 +261,10 @@ describe("API Integration Tests", () => {
 
       expect(pushAgain.body.skippedAlreadyServed).toBe(1);
 
-      // Pull again — should find nothing
-      const second = await request(app)
-        .post("/buffer/next")
-        .set(getAuthHeaders())
-        .send({ campaignId: "campaign-c", brandId: "brand-c", parentRunId: "test-run-next-c2" });
-
-      expect(second.body.found).toBe(false);
-    }, 10000); // Increased timeout for CI database latency
+      // Reset mock for subsequent tests
+      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
+      vi.mocked(isDelivered).mockReturnValue(false);
+    }, 10000);
   });
 
   describe("POST /buffer/next idempotency", () => {
@@ -273,6 +294,7 @@ describe("API Integration Tests", () => {
       expect(first.status).toBe(200);
       expect(first.body.found).toBe(true);
       expect(first.body.lead.email).toBe("idem@example.com");
+      expect(first.body.lead.leadId).toBeDefined();
 
       // Retry with same idempotencyKey — should return cached result
       const retry = await request(app)
