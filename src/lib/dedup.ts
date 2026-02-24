@@ -23,14 +23,14 @@ export async function checkDelivered(
 
   if (statusResponse) {
     for (const sr of statusResponse.results) {
-      if (sr.email) result.set(sr.email, isDelivered(sr));
+      result.set(sr.email, isDelivered(sr));
     }
   } else {
     console.warn(
       "[dedup] email-gateway unreachable, proceeding without delivery check"
     );
     for (const item of items) {
-      if (item.email) result.set(item.email, false);
+      result.set(item.email, false);
     }
   }
 
