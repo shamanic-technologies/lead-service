@@ -1,6 +1,6 @@
 import { db, sql } from "../../src/db/index.js";
 import { organizations, servedLeads, leadBuffer, cursors, idempotencyCache, leadEmails, leads } from "../../src/db/schema.js";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 export const TEST_API_KEY = "test-api-key-12345";
 export const TEST_APP_ID = "test-app";
@@ -9,8 +9,21 @@ export const TEST_ORG_ID = "test-org-integration";
 let testOrgUuid: string | null = null;
 
 export async function setupTestOrg(): Promise<string> {
-  // Clean up any existing test org
-  await cleanupTestData();
+  // Clean up stale test data from previous runs (by appId/externalId, not in-memory uuid)
+  const existing = await db
+    .select({ id: organizations.id })
+    .from(organizations)
+    .where(
+      and(
+        eq(organizations.appId, TEST_APP_ID),
+        eq(organizations.externalId, TEST_ORG_ID)
+      )
+    );
+
+  if (existing.length > 0) {
+    testOrgUuid = existing[0].id;
+    await cleanupTestData();
+  }
 
   // Create test organization
   const [org] = await db
