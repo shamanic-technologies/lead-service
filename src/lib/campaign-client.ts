@@ -11,14 +11,15 @@ export interface CampaignDetails {
 
 export async function fetchCampaign(
   campaignId: string,
-  clerkOrgId?: string | null
+  orgId?: string | null
 ): Promise<CampaignDetails | null> {
   try {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "X-API-Key": CAMPAIGN_SERVICE_API_KEY,
     };
-    if (clerkOrgId) headers["x-clerk-org-id"] = clerkOrgId;
+    // TODO: rename header when campaign-service is migrated
+    if (orgId) headers["x-clerk-org-id"] = orgId;
 
     const response = await fetch(`${CAMPAIGN_SERVICE_URL}/campaigns/${campaignId}`, {
       headers,

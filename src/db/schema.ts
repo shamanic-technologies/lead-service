@@ -1,6 +1,6 @@
 import { pgTable, uuid, text, timestamp, uniqueIndex, index, jsonb } from "drizzle-orm/pg-core";
 
-// Organizations — maps external org IDs (e.g., Clerk) to internal UUIDs
+// Organizations — maps external org IDs to internal UUIDs
 export const organizations = pgTable(
   "organizations",
   {
@@ -78,8 +78,8 @@ export const servedLeads = pgTable(
     runId: text("run_id"),
     brandId: text("brand_id").notNull(),
     campaignId: text("campaign_id").notNull(),
-    clerkOrgId: text("clerk_org_id"),
-    clerkUserId: text("clerk_user_id"),
+    orgId: text("org_id"),
+    userId: text("user_id"),
     servedAt: timestamp("served_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -87,8 +87,8 @@ export const servedLeads = pgTable(
     index("idx_served_org").on(table.organizationId),
     index("idx_served_brand").on(table.brandId),
     index("idx_served_campaign").on(table.campaignId),
-    index("idx_served_clerk_org").on(table.clerkOrgId),
-    index("idx_served_clerk_user").on(table.clerkUserId),
+    index("idx_served_org_id").on(table.orgId),
+    index("idx_served_user_id").on(table.userId),
   ]
 );
 
@@ -108,8 +108,8 @@ export const leadBuffer = pgTable(
     status: text("status").notNull().default("buffered"),
     pushRunId: text("push_run_id"),
     brandId: text("brand_id"),
-    clerkOrgId: text("clerk_org_id"),
-    clerkUserId: text("clerk_user_id"),
+    orgId: text("org_id"),
+    userId: text("user_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

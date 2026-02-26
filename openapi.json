@@ -58,11 +58,11 @@
               "brandId": {
                 "type": "string"
               },
-              "clerkOrgId": {
+              "orgId": {
                 "type": "string",
                 "nullable": true
               },
-              "clerkUserId": {
+              "userId": {
                 "type": "string",
                 "nullable": true
               }
@@ -73,8 +73,8 @@
               "externalId",
               "data",
               "brandId",
-              "clerkOrgId",
-              "clerkUserId"
+              "orgId",
+              "userId"
             ]
           }
         },
@@ -463,7 +463,7 @@
               "nullable": true
             }
           },
-          "clerkUserId": {
+          "userId": {
             "type": "string"
           },
           "workflowName": {
@@ -565,11 +565,11 @@
           "campaignId": {
             "type": "string"
           },
-          "clerkOrgId": {
+          "orgId": {
             "type": "string",
             "nullable": true
           },
-          "clerkUserId": {
+          "userId": {
             "type": "string",
             "nullable": true
           },
@@ -592,8 +592,8 @@
           "runId",
           "brandId",
           "campaignId",
-          "clerkOrgId",
-          "clerkUserId",
+          "orgId",
+          "userId",
           "servedAt",
           "enrichment"
         ]
@@ -699,7 +699,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "External organization ID, e.g. Clerk org ID"
+            "description": "External organization ID"
           }
         ],
         "requestBody": {
@@ -767,7 +767,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "External organization ID, e.g. Clerk org ID"
+            "description": "External organization ID"
           },
           {
             "schema": {
@@ -822,7 +822,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "External organization ID, e.g. Clerk org ID"
+            "description": "External organization ID"
           },
           {
             "schema": {
@@ -898,7 +898,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "External organization ID, e.g. Clerk org ID"
+            "description": "External organization ID"
           },
           {
             "in": "query",
@@ -918,7 +918,7 @@
           },
           {
             "in": "query",
-            "name": "clerkOrgId",
+            "name": "orgId",
             "required": false,
             "schema": {
               "type": "string"
@@ -926,7 +926,7 @@
           },
           {
             "in": "query",
-            "name": "clerkUserId",
+            "name": "userId",
             "required": false,
             "schema": {
               "type": "string"
@@ -980,7 +980,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "External organization ID, e.g. Clerk org ID"
+            "description": "External organization ID"
           },
           {
             "in": "query",
@@ -1000,7 +1000,7 @@
           },
           {
             "in": "query",
-            "name": "clerkOrgId",
+            "name": "orgId",
             "required": false,
             "schema": {
               "type": "string"
@@ -1008,7 +1008,7 @@
           },
           {
             "in": "query",
-            "name": "clerkUserId",
+            "name": "userId",
             "required": false,
             "schema": {
               "type": "string"

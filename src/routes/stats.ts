@@ -9,12 +9,12 @@ const router = Router();
 
 router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
   try {
-    const { brandId, campaignId, clerkOrgId, clerkUserId, appId, runIds } = req.query;
+    const { brandId, campaignId, orgId, userId, appId, runIds } = req.query;
     const str = (v: unknown): string | undefined => typeof v === "string" ? v : undefined;
     const brandIdStr = str(brandId);
     const campaignIdStr = str(campaignId);
-    const clerkOrgIdStr = str(clerkOrgId);
-    const clerkUserIdStr = str(clerkUserId);
+    const orgIdStr = str(orgId);
+    const userIdStr = str(userId);
     const appIdStr = str(appId);
     const runIdList = typeof runIds === "string" ? runIds.split(",").filter(Boolean) : [];
 
@@ -29,13 +29,13 @@ router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
       servedConditions.push(eq(servedLeads.campaignId, campaignIdStr));
       bufferConditions.push(eq(leadBuffer.campaignId, campaignIdStr));
     }
-    if (clerkOrgIdStr) {
-      servedConditions.push(eq(servedLeads.clerkOrgId, clerkOrgIdStr));
-      bufferConditions.push(eq(leadBuffer.clerkOrgId, clerkOrgIdStr));
+    if (orgIdStr) {
+      servedConditions.push(eq(servedLeads.orgId, orgIdStr));
+      bufferConditions.push(eq(leadBuffer.orgId, orgIdStr));
     }
-    if (clerkUserIdStr) {
-      servedConditions.push(eq(servedLeads.clerkUserId, clerkUserIdStr));
-      bufferConditions.push(eq(leadBuffer.clerkUserId, clerkUserIdStr));
+    if (userIdStr) {
+      servedConditions.push(eq(servedLeads.userId, userIdStr));
+      bufferConditions.push(eq(leadBuffer.userId, userIdStr));
     }
     if (appIdStr) {
       const orgs = await db.query.organizations.findMany({
@@ -69,7 +69,7 @@ router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
     const [servedResult, bufferRows, apollo] = await Promise.all([
       db.select({ count: count() }).from(servedLeads).where(and(...servedConditions)).then(([r]) => r),
       db.select({ status: leadBuffer.status, count: count() }).from(leadBuffer).where(and(...bufferConditions)).groupBy(leadBuffer.status),
-      fetchApolloStats(apolloFilters as Parameters<typeof fetchApolloStats>[0], clerkOrgIdStr ?? req.externalOrgId),
+      fetchApolloStats(apolloFilters as Parameters<typeof fetchApolloStats>[0], orgIdStr ?? req.externalOrgId),
     ]);
 
     const bufferByStatus = Object.fromEntries(bufferRows.map((r) => [r.status, r.count]));

@@ -50,6 +50,13 @@
       "when": 1771914700973,
       "tag": "0006_loose_phil_sheldon",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1772064000000,
+      "tag": "0007_rename_clerk_to_org_user",
+      "breakpoints": true
     }
   ]
 }

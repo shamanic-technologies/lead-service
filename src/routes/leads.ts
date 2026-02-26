@@ -17,7 +17,7 @@ export function extractEnrichment(metadata: unknown): Record<string, unknown> | 
 
 router.get("/leads", authenticate, async (req: AuthenticatedRequest, res) => {
   try {
-    const { brandId, campaignId, clerkOrgId, clerkUserId } = req.query;
+    const { brandId, campaignId, orgId, userId } = req.query;
 
     // Build filter conditions
     const conditions: SQL[] = [eq(servedLeads.organizationId, req.organizationId!)];
@@ -28,11 +28,11 @@ router.get("/leads", authenticate, async (req: AuthenticatedRequest, res) => {
     if (campaignId && typeof campaignId === "string") {
       conditions.push(eq(servedLeads.campaignId, campaignId));
     }
-    if (clerkOrgId && typeof clerkOrgId === "string") {
-      conditions.push(eq(servedLeads.clerkOrgId, clerkOrgId));
+    if (orgId && typeof orgId === "string") {
+      conditions.push(eq(servedLeads.orgId, orgId));
     }
-    if (clerkUserId && typeof clerkUserId === "string") {
-      conditions.push(eq(servedLeads.clerkUserId, clerkUserId));
+    if (userId && typeof userId === "string") {
+      conditions.push(eq(servedLeads.userId, userId));
     }
 
     // Get served leads

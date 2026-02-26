@@ -85,8 +85,8 @@ describe("buffer", () => {
         status: "buffered",
         pushRunId: null,
         brandId: "brand-1",
-        clerkOrgId: null,
-        clerkUserId: null,
+        orgId: null,
+        userId: null,
         createdAt: new Date(),
       });
 
@@ -141,8 +141,8 @@ describe("buffer", () => {
         status: "buffered",
         pushRunId: null,
         brandId: "brand-1",
-        clerkOrgId: null,
-        clerkUserId: null,
+        orgId: null,
+        userId: null,
         createdAt: new Date(),
       });
 
@@ -182,8 +182,8 @@ describe("buffer", () => {
           status: "buffered",
           pushRunId: null,
           brandId: "brand-1",
-          clerkOrgId: null,
-          clerkUserId: null,
+          orgId: null,
+          userId: null,
           createdAt: new Date(),
         })
         .mockResolvedValueOnce({
@@ -197,8 +197,8 @@ describe("buffer", () => {
           status: "buffered",
           pushRunId: null,
           brandId: "brand-1",
-          clerkOrgId: null,
-          clerkUserId: null,
+          orgId: null,
+          userId: null,
           createdAt: new Date(),
         });
 
@@ -260,8 +260,8 @@ describe("buffer", () => {
         status: "buffered",
         pushRunId: null,
         brandId: "brand-1",
-        clerkOrgId: null,
-        clerkUserId: null,
+        orgId: null,
+        userId: null,
         createdAt: new Date(),
       };
 
@@ -329,8 +329,8 @@ describe("buffer", () => {
         status: "buffered",
         pushRunId: null,
         brandId: "brand-1",
-        clerkOrgId: null,
-        clerkUserId: null,
+        orgId: null,
+        userId: null,
         createdAt: new Date(),
       };
 
@@ -435,8 +435,8 @@ describe("buffer", () => {
         status: "buffered",
         pushRunId: null,
         brandId: "brand-1",
-        clerkOrgId: null,
-        clerkUserId: null,
+        orgId: null,
+        userId: null,
         createdAt: new Date(),
       });
 
@@ -494,8 +494,8 @@ describe("buffer", () => {
           status: "buffered",
           pushRunId: null,
           brandId: "brand-1",
-          clerkOrgId: null,
-          clerkUserId: null,
+          orgId: null,
+          userId: null,
           createdAt: new Date(),
         })
         .mockResolvedValueOnce({
@@ -509,8 +509,8 @@ describe("buffer", () => {
           status: "buffered",
           pushRunId: null,
           brandId: "brand-1",
-          clerkOrgId: null,
-          clerkUserId: null,
+          orgId: null,
+          userId: null,
           createdAt: new Date(),
         });
 
@@ -557,8 +557,8 @@ describe("buffer", () => {
         status: "buffered",
         pushRunId: null,
         brandId: "brand-1",
-        clerkOrgId: null,
-        clerkUserId: null,
+        orgId: null,
+        userId: null,
         createdAt: new Date(),
       };
 
@@ -632,8 +632,8 @@ describe("buffer", () => {
         status: "buffered",
         pushRunId: null,
         brandId: "brand-1",
-        clerkOrgId: null,
-        clerkUserId: null,
+        orgId: null,
+        userId: null,
         createdAt: new Date(),
       });
 
@@ -677,8 +677,8 @@ describe("buffer", () => {
           status: "buffered",
           pushRunId: null,
           brandId: "brand-1",
-          clerkOrgId: null,
-          clerkUserId: null,
+          orgId: null,
+          userId: null,
           createdAt: new Date(),
         })
         .mockResolvedValueOnce(undefined); // no more rows
@@ -712,8 +712,8 @@ describe("buffer", () => {
           status: "buffered",
           pushRunId: null,
           brandId: "brand-1",
-          clerkOrgId: null,
-          clerkUserId: null,
+          orgId: null,
+          userId: null,
           createdAt: new Date(),
         })
         .mockResolvedValueOnce({
@@ -727,8 +727,8 @@ describe("buffer", () => {
           status: "buffered",
           pushRunId: null,
           brandId: "brand-1",
-          clerkOrgId: null,
-          clerkUserId: null,
+          orgId: null,
+          userId: null,
           createdAt: new Date(),
         });
 
@@ -772,8 +772,8 @@ describe("buffer", () => {
         status: "buffered",
         pushRunId: null,
         brandId: "brand-1",
-        clerkOrgId: null,
-        clerkUserId: null,
+        orgId: null,
+        userId: null,
         createdAt: new Date(),
       });
 

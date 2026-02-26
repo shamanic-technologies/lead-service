@@ -27,15 +27,15 @@ async function fillBufferFromSearch(params: {
   searchParams: ApolloSearchParams;
   keySource: "byok" | "app";
   pushRunId?: string | null;
-  clerkOrgId?: string | null;
-  clerkUserId?: string | null;
+  orgId?: string | null;
+  userId?: string | null;
   appId?: string;
   workflowName?: string;
 }): Promise<{ filled: number }> {
   // Fetch campaign + brand details in parallel for rich LLM context
   const [campaign, brand] = await Promise.all([
-    fetchCampaign(params.campaignId, params.clerkOrgId),
-    fetchBrand(params.brandId, params.clerkOrgId),
+    fetchCampaign(params.campaignId, params.orgId),
+    fetchBrand(params.brandId, params.orgId),
   ]);
 
   // Build rich context string from campaign, brand, and raw searchParams
@@ -67,7 +67,7 @@ async function fillBufferFromSearch(params: {
     appId: params.appId ?? "",
     brandId: params.brandId,
     campaignId: params.campaignId,
-    clerkOrgId: params.clerkOrgId,
+    orgId: params.orgId,
     workflowName: params.workflowName,
   });
 
@@ -81,7 +81,7 @@ async function fillBufferFromSearch(params: {
       appId: params.appId ?? "",
       searchParams: validatedParams,
       runId: params.pushRunId,
-      clerkOrgId: params.clerkOrgId,
+      orgId: params.orgId,
       workflowName: params.workflowName,
     });
 
@@ -166,8 +166,8 @@ async function fillBufferFromSearch(params: {
         status: "buffered",
         pushRunId: params.pushRunId ?? null,
         brandId: params.brandId,
-        clerkOrgId: params.clerkOrgId ?? null,
-        clerkUserId: params.clerkUserId ?? null,
+        orgId: params.orgId ?? null,
+        userId: params.userId ?? null,
       });
       pageFilled++;
     }
@@ -200,8 +200,8 @@ export async function pullNext(params: {
   runId?: string | null;
   keySource?: "byok" | "app";
   searchParams?: ApolloSearchParams;
-  clerkOrgId?: string | null;
-  clerkUserId?: string | null;
+  orgId?: string | null;
+  userId?: string | null;
   appId?: string;
   workflowName?: string;
 }): Promise<{
@@ -212,8 +212,8 @@ export async function pullNext(params: {
     externalId: string | null;
     data: unknown;
     brandId: string;
-    clerkOrgId: string | null;
-    clerkUserId: string | null;
+    orgId: string | null;
+    userId: string | null;
   };
 }> {
   const MAX_ITERATIONS = 100;
@@ -244,8 +244,8 @@ export async function pullNext(params: {
           searchParams: params.searchParams,
           keySource: params.keySource,
           pushRunId: params.runId,
-          clerkOrgId: params.clerkOrgId,
-          clerkUserId: params.clerkUserId,
+          orgId: params.orgId,
+          userId: params.userId,
           appId: params.appId,
           workflowName: params.workflowName,
         });
@@ -285,7 +285,7 @@ export async function pullNext(params: {
       } else {
         const enrichResult = await apolloEnrich(row.externalId, {
           runId: params.runId,
-          clerkOrgId: params.clerkOrgId,
+          orgId: params.orgId,
           appId: params.appId,
           brandId: params.brandId,
           campaignId: params.campaignId,
@@ -382,8 +382,8 @@ export async function pullNext(params: {
       metadata: enrichedData,
       parentRunId: params.parentRunId ?? null,
       runId: params.runId ?? null,
-      clerkOrgId: row.clerkOrgId,
-      clerkUserId: row.clerkUserId,
+      orgId: row.orgId,
+      userId: row.userId,
     });
 
     await db
@@ -407,8 +407,8 @@ export async function pullNext(params: {
         externalId: row.externalId,
         data: finalData,
         brandId: params.brandId,
-        clerkOrgId: row.clerkOrgId,
-        clerkUserId: row.clerkUserId,
+        orgId: row.orgId,
+        userId: row.userId,
       },
     };
   }
