@@ -80,8 +80,8 @@ export async function seedBuffer(params: {
       status: "buffered",
       pushRunId: null,
       brandId: params.brandId,
-      clerkOrgId: TEST_ORG_ID,
-      clerkUserId: null,
+      orgId: TEST_ORG_ID,
+      userId: null,
     });
   }
 }

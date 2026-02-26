@@ -14,17 +14,18 @@ export interface BrandDetails {
 
 export async function fetchBrand(
   brandId: string,
-  clerkOrgId?: string | null
+  orgId?: string | null
 ): Promise<BrandDetails | null> {
   try {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "X-API-Key": BRAND_SERVICE_API_KEY,
     };
-    if (clerkOrgId) headers["x-clerk-org-id"] = clerkOrgId;
+    // TODO: rename header + query param when brand-service is migrated
+    if (orgId) headers["x-clerk-org-id"] = orgId;
 
     const url = new URL(`${BRAND_SERVICE_URL}/brands/${brandId}`);
-    if (clerkOrgId) url.searchParams.set("clerkOrgId", clerkOrgId);
+    if (orgId) url.searchParams.set("clerkOrgId", orgId);
 
     const response = await fetch(url.toString(), { headers });
 

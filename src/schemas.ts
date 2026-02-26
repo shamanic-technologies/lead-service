@@ -34,7 +34,7 @@ const AuthHeaders = [
     name: "x-org-id",
     required: true,
     schema: { type: "string" as const },
-    description: "External organization ID, e.g. Clerk org ID",
+    description: "External organization ID",
   },
 ];
 
@@ -157,7 +157,7 @@ export const BufferNextRequestSchema = z
       description: "How downstream services resolve API keys: 'byok' = use the org's own keys via key-service, 'app' = use platform keys.",
     }),
     searchParams: z.record(z.string(), z.unknown()).optional(),
-    clerkUserId: z.string().optional(),
+    userId: z.string().optional(),
     workflowName: z.string().optional(),
     idempotencyKey: z.string().min(1).optional(),
   })
@@ -169,8 +169,8 @@ const ServedLeadSchema = z.object({
   externalId: z.string().nullable(),
   data: ApolloPersonDataSchema.nullable(),
   brandId: z.string(),
-  clerkOrgId: z.string().nullable(),
-  clerkUserId: z.string().nullable(),
+  orgId: z.string().nullable(),
+  userId: z.string().nullable(),
 });
 
 const BufferNextResponseSchema = z
@@ -215,8 +215,8 @@ const LeadDetailSchema = z
     runId: z.string().nullable(),
     brandId: z.string(),
     campaignId: z.string(),
-    clerkOrgId: z.string().nullable(),
-    clerkUserId: z.string().nullable(),
+    orgId: z.string().nullable(),
+    userId: z.string().nullable(),
     servedAt: z.string(),
     enrichment: ApolloPersonDataSchema.nullable(),
   })
@@ -345,13 +345,13 @@ registry.registerPath({
     },
     {
       in: "query" as const,
-      name: "clerkOrgId",
+      name: "orgId",
       required: false,
       schema: { type: "string" as const },
     },
     {
       in: "query" as const,
-      name: "clerkUserId",
+      name: "userId",
       required: false,
       schema: { type: "string" as const },
     },
@@ -387,13 +387,13 @@ registry.registerPath({
     },
     {
       in: "query" as const,
-      name: "clerkOrgId",
+      name: "orgId",
       required: false,
       schema: { type: "string" as const },
     },
     {
       in: "query" as const,
-      name: "clerkUserId",
+      name: "userId",
       required: false,
       schema: { type: "string" as const },
     },

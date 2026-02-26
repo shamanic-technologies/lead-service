@@ -32,8 +32,8 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
   }
 
   try {
-    const { campaignId, brandId, parentRunId, keySource, searchParams, clerkUserId, workflowName, idempotencyKey } = parsed.data;
-    const clerkOrgId = req.externalOrgId ?? null;
+    const { campaignId, brandId, parentRunId, keySource, searchParams, userId, workflowName, idempotencyKey } = parsed.data;
+    const orgId = req.externalOrgId ?? null;
 
     // Idempotency: return cached response if this key was already processed
     if (idempotencyKey) {
@@ -48,12 +48,12 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
 
     // Create child run for traceability
     const childRun = await createRun({
-      clerkOrgId: req.externalOrgId!,
+      orgId: req.externalOrgId!,
       appId: req.appId || "mcpfactory",
       serviceName: "lead-service",
       taskName: "lead-serve",
       parentRunId,
-      clerkUserId,
+      userId,
       brandId,
       campaignId,
       workflowName,
@@ -68,8 +68,8 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       runId: serveRunId,
       keySource,
       searchParams: searchParams ?? undefined,
-      clerkOrgId,
-      clerkUserId: clerkUserId ?? null,
+      orgId,
+      userId: userId ?? null,
       appId: req.appId,
       workflowName,
     });
