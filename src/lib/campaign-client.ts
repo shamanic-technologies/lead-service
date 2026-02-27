@@ -18,8 +18,7 @@ export async function fetchCampaign(
       "Content-Type": "application/json",
       "X-API-Key": CAMPAIGN_SERVICE_API_KEY,
     };
-    // TODO: rename header when campaign-service is migrated
-    if (orgId) headers["x-clerk-org-id"] = orgId;
+    if (orgId) headers["x-org-id"] = orgId;
 
     const response = await fetch(`${CAMPAIGN_SERVICE_URL}/campaigns/${campaignId}`, {
       headers,

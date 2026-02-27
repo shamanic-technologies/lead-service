@@ -143,7 +143,7 @@ export async function apolloSearch(
 ): Promise<ApolloSearchResult | null> {
   try {
     const headers: Record<string, string> = {};
-    if (options?.orgId) headers["x-clerk-org-id"] = options.orgId;
+    if (options?.orgId) headers["x-org-id"] = options.orgId;
 
     const raw = await callApolloService<ApolloSearchRawResponse>("/search", {
       method: "POST",
@@ -193,7 +193,7 @@ export async function apolloSearchNext(options: {
 }): Promise<ApolloSearchNextResult | null> {
   try {
     const headers: Record<string, string> = {};
-    if (options.orgId) headers["x-clerk-org-id"] = options.orgId;
+    if (options.orgId) headers["x-org-id"] = options.orgId;
 
     const body: Record<string, unknown> = {
       campaignId: options.campaignId,
@@ -234,7 +234,7 @@ export async function apolloSearchParams(options: {
   workflowName?: string;
 }): Promise<ApolloSearchParamsResult> {
   const headers: Record<string, string> = {};
-  if (options.orgId) headers["x-clerk-org-id"] = options.orgId;
+  if (options.orgId) headers["x-org-id"] = options.orgId;
 
   return callApolloService<ApolloSearchParamsResult>("/search/params", {
     method: "POST",
@@ -266,7 +266,7 @@ export async function fetchApolloStats(
 ): Promise<ApolloStats> {
   try {
     const headers: Record<string, string> = {};
-    if (orgId) headers["x-clerk-org-id"] = orgId;
+    if (orgId) headers["x-org-id"] = orgId;
 
     const result = await callApolloService<{ stats: ApolloStats }>("/stats", {
       method: "POST",
@@ -293,7 +293,7 @@ export async function apolloEnrich(
 ): Promise<ApolloEnrichResult | null> {
   try {
     const headers: Record<string, string> = {};
-    if (options?.orgId) headers["x-clerk-org-id"] = options.orgId;
+    if (options?.orgId) headers["x-org-id"] = options.orgId;
 
     const result = await callApolloService<ApolloEnrichResult>("/enrich", {
       method: "POST",

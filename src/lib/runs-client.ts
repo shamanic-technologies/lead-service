@@ -35,16 +35,15 @@ export async function createRun(params: {
   campaignId?: string;
   workflowName?: string;
 }): Promise<{ id: string }> {
-  // TODO: rename body fields when runs-service is migrated
   return callRunsService("/runs", {
     method: "POST",
     body: {
-      clerkOrgId: params.orgId,
+      orgId: params.orgId,
       appId: params.appId,
       serviceName: params.serviceName,
       taskName: params.taskName,
       parentRunId: params.parentRunId,
-      clerkUserId: params.userId,
+      userId: params.userId,
       brandId: params.brandId,
       campaignId: params.campaignId,
       workflowName: params.workflowName,

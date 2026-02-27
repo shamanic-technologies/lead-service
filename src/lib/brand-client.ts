@@ -21,11 +21,10 @@ export async function fetchBrand(
       "Content-Type": "application/json",
       "X-API-Key": BRAND_SERVICE_API_KEY,
     };
-    // TODO: rename header + query param when brand-service is migrated
-    if (orgId) headers["x-clerk-org-id"] = orgId;
+    if (orgId) headers["x-org-id"] = orgId;
 
     const url = new URL(`${BRAND_SERVICE_URL}/brands/${brandId}`);
-    if (orgId) url.searchParams.set("clerkOrgId", orgId);
+    if (orgId) url.searchParams.set("orgId", orgId);
 
     const response = await fetch(url.toString(), { headers });
 
