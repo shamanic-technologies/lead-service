@@ -91,6 +91,19 @@ describe("schema validation", () => {
         expect(result.data.workflowName).toBeUndefined();
       }
     });
+
+    it("accepts keySource 'platform'", () => {
+      const result = BufferNextRequestSchema.safeParse({
+        campaignId: "c1",
+        brandId: "b1",
+        parentRunId: "r1",
+        keySource: "platform",
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.keySource).toBe("platform");
+      }
+    });
   });
 
   describe("ApolloPersonDataSchema", () => {

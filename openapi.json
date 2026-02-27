@@ -452,10 +452,11 @@
           "keySource": {
             "type": "string",
             "enum": [
-              "byok",
-              "app"
+              "platform",
+              "app",
+              "byok"
             ],
-            "description": "How downstream services resolve API keys: 'byok' = use the org's own keys via key-service, 'app' = use platform keys."
+            "description": "How downstream services resolve API keys: 'platform' = platform-owned keys (no appId needed), 'app' = client app keys (per appId), 'byok' = end user's own keys (per orgId/userId)."
           },
           "searchParams": {
             "type": "object",
