@@ -153,8 +153,8 @@ export const BufferNextRequestSchema = z
     campaignId: z.string().min(1),
     brandId: z.string().min(1),
     parentRunId: z.string().min(1),
-    keySource: z.enum(["byok", "app"]).openapi({
-      description: "How downstream services resolve API keys: 'byok' = use the org's own keys via key-service, 'app' = use platform keys.",
+    keySource: z.enum(["platform", "app", "byok"]).openapi({
+      description: "How downstream services resolve API keys: 'platform' = platform-owned keys (no appId needed), 'app' = client app keys (per appId), 'byok' = end user's own keys (per orgId/userId).",
     }),
     searchParams: z.record(z.string(), z.unknown()).optional(),
     userId: z.string().optional(),

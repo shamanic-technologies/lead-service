@@ -225,7 +225,7 @@ export interface ApolloSearchParamsResult {
 
 export async function apolloSearchParams(options: {
   context: string;
-  keySource: "byok" | "app";
+  keySource: "platform" | "app" | "byok";
   runId: string;
   appId: string;
   brandId: string;

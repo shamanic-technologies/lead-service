@@ -25,7 +25,7 @@ async function fillBufferFromSearch(params: {
   campaignId: string;
   brandId: string;
   searchParams: ApolloSearchParams;
-  keySource: "byok" | "app";
+  keySource: "platform" | "app" | "byok";
   pushRunId?: string | null;
   orgId?: string | null;
   userId?: string | null;
@@ -198,7 +198,7 @@ export async function pullNext(params: {
   brandId: string;
   parentRunId?: string | null;
   runId?: string | null;
-  keySource?: "byok" | "app";
+  keySource?: "platform" | "app" | "byok";
   searchParams?: ApolloSearchParams;
   orgId?: string | null;
   userId?: string | null;
