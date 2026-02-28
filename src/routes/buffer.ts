@@ -49,7 +49,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
     // Create child run for traceability
     const childRun = await createRun({
       orgId: req.externalOrgId!,
-      appId: req.appId || "mcpfactory",
+      appId: req.appId,
       serviceName: "lead-service",
       taskName: "lead-serve",
       parentRunId,
