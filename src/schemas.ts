@@ -27,7 +27,7 @@ const AuthHeaders = [
     name: "x-app-id",
     required: true,
     schema: { type: "string" as const },
-    description: "Identifies the calling application, e.g. mcpfactory",
+    description: "Identifies the calling application",
   },
   {
     in: "header" as const,

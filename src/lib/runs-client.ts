@@ -1,4 +1,4 @@
-const RUNS_SERVICE_URL = process.env.RUNS_SERVICE_URL || "https://runs.mcpfactory.org";
+const RUNS_SERVICE_URL = process.env.RUNS_SERVICE_URL || "https://runs.distribute.org";
 const RUNS_SERVICE_API_KEY = process.env.RUNS_SERVICE_API_KEY || "";
 
 async function callRunsService(path: string, options: {
