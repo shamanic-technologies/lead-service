@@ -35,6 +35,10 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
     const { campaignId, brandId, parentRunId, keySource, searchParams, userId, workflowName, idempotencyKey } = parsed.data;
     const orgId = req.externalOrgId ?? null;
 
+    if (!req.appId) {
+      return res.status(400).json({ error: "x-app-id header is required" });
+    }
+
     // Idempotency: return cached response if this key was already processed
     if (idempotencyKey) {
       const cached = await db.query.idempotencyCache.findFirst({
