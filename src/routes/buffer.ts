@@ -32,12 +32,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
   }
 
   try {
-    const { campaignId, brandId, parentRunId, keySource, searchParams, userId, workflowName, idempotencyKey } = parsed.data;
-    const orgId = req.externalOrgId ?? null;
-
-    if (!req.appId) {
-      return res.status(400).json({ error: "x-app-id header is required" });
-    }
+    const { campaignId, brandId, parentRunId, searchParams, userId, workflowName, idempotencyKey } = parsed.data;
 
     // Idempotency: return cached response if this key was already processed
     if (idempotencyKey) {
@@ -52,12 +47,11 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
 
     // Create child run for traceability
     const childRun = await createRun({
-      orgId: req.externalOrgId!,
-      appId: req.appId,
+      orgId: req.orgId!,
       serviceName: "lead-service",
       taskName: "lead-serve",
       parentRunId,
-      userId,
+      userId: userId ?? req.userId,
       brandId,
       campaignId,
       workflowName,
@@ -65,16 +59,13 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
     const serveRunId = childRun.id;
 
     const result = await pullNext({
-      organizationId: req.organizationId!,
+      orgId: req.orgId!,
       campaignId,
       brandId,
       parentRunId,
       runId: serveRunId,
-      keySource,
       searchParams: searchParams ?? undefined,
-      orgId,
-      userId: userId ?? null,
-      appId: req.appId,
+      userId: userId ?? req.userId ?? null,
       workflowName,
     });
 
@@ -84,7 +75,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       try {
         await db.insert(idempotencyCache).values({
           idempotencyKey,
-          organizationId: req.organizationId!,
+          orgId: req.orgId!,
           response: result,
         });
       } catch (err) {

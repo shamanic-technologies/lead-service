@@ -65,7 +65,7 @@ describe("buffer", () => {
       vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue(undefined);
 
       const result = await pullNext({
-        organizationId: "org-1",
+        orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
       });
@@ -76,7 +76,6 @@ describe("buffer", () => {
     it("returns a lead with leadId and marks it served", async () => {
       vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue({
         id: "buf-1",
-        organizationId: "org-1",
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "alice@acme.com",
@@ -85,7 +84,7 @@ describe("buffer", () => {
         status: "buffered",
         pushRunId: null,
         brandId: "brand-1",
-        orgId: null,
+        orgId: "org-1",
         userId: null,
         createdAt: new Date(),
       });
@@ -108,7 +107,7 @@ describe("buffer", () => {
       vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
 
       const result = await pullNext({
-        organizationId: "org-1",
+        orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
         parentRunId: "run-1",
@@ -132,7 +131,6 @@ describe("buffer", () => {
 
       vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue({
         id: "buf-1",
-        organizationId: "org-1",
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "svitlana@hashtagweb3.com",
@@ -141,7 +139,7 @@ describe("buffer", () => {
         status: "buffered",
         pushRunId: null,
         brandId: "brand-1",
-        orgId: null,
+        orgId: "org-1",
         userId: null,
         createdAt: new Date(),
       });
@@ -159,7 +157,7 @@ describe("buffer", () => {
       vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
 
       const result = await pullNext({
-        organizationId: "org-1",
+        orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
       });
@@ -173,7 +171,6 @@ describe("buffer", () => {
       vi.mocked(db.query.leadBuffer.findFirst)
         .mockResolvedValueOnce({
           id: "buf-1",
-          organizationId: "org-1",
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "alice@acme.com",
@@ -182,13 +179,12 @@ describe("buffer", () => {
           status: "buffered",
           pushRunId: null,
           brandId: "brand-1",
-          orgId: null,
+          orgId: "org-1",
           userId: null,
           createdAt: new Date(),
         })
         .mockResolvedValueOnce({
           id: "buf-2",
-          organizationId: "org-1",
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "bob@acme.com",
@@ -197,7 +193,7 @@ describe("buffer", () => {
           status: "buffered",
           pushRunId: null,
           brandId: "brand-1",
-          orgId: null,
+          orgId: "org-1",
           userId: null,
           createdAt: new Date(),
         });
@@ -238,7 +234,7 @@ describe("buffer", () => {
       vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
 
       const result = await pullNext({
-        organizationId: "org-1",
+        orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
       });
@@ -251,7 +247,6 @@ describe("buffer", () => {
     it("fills buffer from apolloSearchNext when buffer empty and searchParams provided", async () => {
       const newLeadRow = {
         id: "buf-new",
-        organizationId: "org-1",
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "new-lead@example.com",
@@ -260,7 +255,7 @@ describe("buffer", () => {
         status: "buffered",
         pushRunId: null,
         brandId: "brand-1",
-        orgId: null,
+        orgId: "org-1",
         userId: null,
         createdAt: new Date(),
       };
@@ -293,12 +288,12 @@ describe("buffer", () => {
       vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
 
       const result = await pullNext({
-        organizationId: "org-1",
+        orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
-        keySource: "byok",
+
         searchParams: { description: "tech CEOs" },
-        appId: "my-app",
+
       });
 
       expect(result.found).toBe(true);
@@ -313,7 +308,6 @@ describe("buffer", () => {
       // merge the enriched data so pullNext returns complete lead.data.
       const enrichedLeadRow = {
         id: "buf-enriched",
-        organizationId: "org-1",
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "briannah@example.com",
@@ -329,7 +323,7 @@ describe("buffer", () => {
         status: "buffered",
         pushRunId: null,
         brandId: "brand-1",
-        orgId: null,
+        orgId: "org-1",
         userId: null,
         createdAt: new Date(),
       };
@@ -379,12 +373,12 @@ describe("buffer", () => {
       vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
 
       const result = await pullNext({
-        organizationId: "org-1",
+        orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
-        keySource: "byok",
+
         searchParams: { description: "community directors" },
-        appId: "my-app",
+
       });
 
       expect(result.found).toBe(true);
@@ -411,12 +405,12 @@ describe("buffer", () => {
       });
 
       const result = await pullNext({
-        organizationId: "org-1",
+        orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
-        keySource: "byok",
+
         searchParams: { description: "impossible search" },
-        appId: "my-app",
+
       });
 
       expect(result.found).toBe(false);
@@ -426,7 +420,6 @@ describe("buffer", () => {
     it("uses cached enrichment instead of calling apolloEnrich", async () => {
       vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue({
         id: "buf-1",
-        organizationId: "org-1",
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "",
@@ -435,7 +428,7 @@ describe("buffer", () => {
         status: "buffered",
         pushRunId: null,
         brandId: "brand-1",
-        orgId: null,
+        orgId: "org-1",
         userId: null,
         createdAt: new Date(),
       });
@@ -469,7 +462,7 @@ describe("buffer", () => {
       vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
 
       const result = await pullNext({
-        organizationId: "org-1",
+        orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
         runId: "run-1",
@@ -485,7 +478,6 @@ describe("buffer", () => {
       vi.mocked(db.query.leadBuffer.findFirst)
         .mockResolvedValueOnce({
           id: "buf-1",
-          organizationId: "org-1",
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "",
@@ -494,13 +486,12 @@ describe("buffer", () => {
           status: "buffered",
           pushRunId: null,
           brandId: "brand-1",
-          orgId: null,
+          orgId: "org-1",
           userId: null,
           createdAt: new Date(),
         })
         .mockResolvedValueOnce({
           id: "buf-2",
-          organizationId: "org-1",
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "bob@acme.com",
@@ -509,7 +500,7 @@ describe("buffer", () => {
           status: "buffered",
           pushRunId: null,
           brandId: "brand-1",
-          orgId: null,
+          orgId: "org-1",
           userId: null,
           createdAt: new Date(),
         });
@@ -535,7 +526,7 @@ describe("buffer", () => {
       vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
 
       const result = await pullNext({
-        organizationId: "org-1",
+        orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
       });
@@ -548,7 +539,6 @@ describe("buffer", () => {
     it("passes workflowName to apolloSearchParams, apolloSearchNext, and apolloEnrich", async () => {
       const newLeadRow = {
         id: "buf-wf",
-        organizationId: "org-1",
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "",
@@ -557,7 +547,7 @@ describe("buffer", () => {
         status: "buffered",
         pushRunId: null,
         brandId: "brand-1",
-        orgId: null,
+        orgId: "org-1",
         userId: null,
         createdAt: new Date(),
       };
@@ -596,12 +586,12 @@ describe("buffer", () => {
       vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
 
       const result = await pullNext({
-        organizationId: "org-1",
+        orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
-        keySource: "byok",
+
         searchParams: { description: "tech CEOs" },
-        appId: "my-app",
+
         workflowName: "cold-email-outreach",
       });
 
@@ -623,7 +613,6 @@ describe("buffer", () => {
     it("always includes email in data even when data.email is null (DAG reads data.email)", async () => {
       vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue({
         id: "buf-1",
-        organizationId: "org-1",
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "torian@theorion.com",
@@ -632,7 +621,7 @@ describe("buffer", () => {
         status: "buffered",
         pushRunId: null,
         brandId: "brand-1",
-        orgId: null,
+        orgId: "org-1",
         userId: null,
         createdAt: new Date(),
       });
@@ -650,7 +639,7 @@ describe("buffer", () => {
       vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
 
       const result = await pullNext({
-        organizationId: "org-1",
+        orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
       });
@@ -668,7 +657,6 @@ describe("buffer", () => {
       vi.mocked(db.query.leadBuffer.findFirst)
         .mockResolvedValueOnce({
           id: "buf-no-email",
-          organizationId: "org-1",
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "",
@@ -677,7 +665,7 @@ describe("buffer", () => {
           status: "buffered",
           pushRunId: null,
           brandId: "brand-1",
-          orgId: null,
+          orgId: "org-1",
           userId: null,
           createdAt: new Date(),
         })
@@ -689,7 +677,7 @@ describe("buffer", () => {
       vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
 
       const result = await pullNext({
-        organizationId: "org-1",
+        orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
       });
@@ -703,7 +691,6 @@ describe("buffer", () => {
       vi.mocked(db.query.leadBuffer.findFirst)
         .mockResolvedValueOnce({
           id: "buf-no-email",
-          organizationId: "org-1",
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "",
@@ -712,13 +699,12 @@ describe("buffer", () => {
           status: "buffered",
           pushRunId: null,
           brandId: "brand-1",
-          orgId: null,
+          orgId: "org-1",
           userId: null,
           createdAt: new Date(),
         })
         .mockResolvedValueOnce({
           id: "buf-good",
-          organizationId: "org-1",
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "good@acme.com",
@@ -727,7 +713,7 @@ describe("buffer", () => {
           status: "buffered",
           pushRunId: null,
           brandId: "brand-1",
-          orgId: null,
+          orgId: "org-1",
           userId: null,
           createdAt: new Date(),
         });
@@ -751,7 +737,7 @@ describe("buffer", () => {
       vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
 
       const result = await pullNext({
-        organizationId: "org-1",
+        orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
       });
@@ -763,7 +749,6 @@ describe("buffer", () => {
     it("continues when email-gateway is unreachable (fallback)", async () => {
       vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue({
         id: "buf-1",
-        organizationId: "org-1",
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "alice@acme.com",
@@ -772,7 +757,7 @@ describe("buffer", () => {
         status: "buffered",
         pushRunId: null,
         brandId: "brand-1",
-        orgId: null,
+        orgId: "org-1",
         userId: null,
         createdAt: new Date(),
       });
@@ -791,7 +776,7 @@ describe("buffer", () => {
       vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
 
       const result = await pullNext({
-        organizationId: "org-1",
+        orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
       });

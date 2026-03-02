@@ -7,10 +7,10 @@ import { apolloSearchNext, apolloEnrich, apolloSearchParams, type ApolloSearchPa
 import { fetchCampaign } from "./campaign-client.js";
 import { fetchBrand } from "./brand-client.js";
 
-async function isInBuffer(organizationId: string, campaignId: string, externalId: string): Promise<boolean> {
+async function isInBuffer(orgId: string, campaignId: string, externalId: string): Promise<boolean> {
   const row = await db.query.leadBuffer.findFirst({
     where: and(
-      eq(leadBuffer.organizationId, organizationId),
+      eq(leadBuffer.orgId, orgId),
       eq(leadBuffer.namespace, campaignId),
       eq(leadBuffer.externalId, externalId)
     ),
@@ -21,15 +21,12 @@ async function isInBuffer(organizationId: string, campaignId: string, externalId
 const MAX_PAGES = 50;
 
 async function fillBufferFromSearch(params: {
-  organizationId: string;
+  orgId: string;
   campaignId: string;
   brandId: string;
   searchParams: ApolloSearchParams;
-  keySource: "platform" | "app" | "byok";
   pushRunId?: string | null;
-  orgId?: string | null;
   userId?: string | null;
-  appId?: string;
   workflowName?: string;
 }): Promise<{ filled: number }> {
   // Fetch campaign + brand details in parallel for rich LLM context
@@ -62,9 +59,7 @@ async function fillBufferFromSearch(params: {
 
   const { searchParams: validatedParams } = await apolloSearchParams({
     context,
-    keySource: params.keySource,
     runId: params.pushRunId ?? "",
-    appId: params.appId ?? "",
     brandId: params.brandId,
     campaignId: params.campaignId,
     orgId: params.orgId,
@@ -78,7 +73,6 @@ async function fillBufferFromSearch(params: {
     const result = await apolloSearchNext({
       campaignId: params.campaignId,
       brandId: params.brandId,
-      appId: params.appId ?? "",
       searchParams: validatedParams,
       runId: params.pushRunId,
       orgId: params.orgId,
@@ -105,7 +99,7 @@ async function fillBufferFromSearch(params: {
 
     for (const person of result.people) {
       // Skip if already in buffer
-      if (person.id && await isInBuffer(params.organizationId, params.campaignId, person.id)) {
+      if (person.id && await isInBuffer(params.orgId, params.campaignId, person.id)) {
         continue;
       }
 
@@ -157,7 +151,6 @@ async function fillBufferFromSearch(params: {
       if (email && deliveredMap.get(email)) continue;
 
       await db.insert(leadBuffer).values({
-        organizationId: params.organizationId,
         namespace: params.campaignId,
         campaignId: params.campaignId,
         email: email ?? "",
@@ -166,7 +159,7 @@ async function fillBufferFromSearch(params: {
         status: "buffered",
         pushRunId: params.pushRunId ?? null,
         brandId: params.brandId,
-        orgId: params.orgId ?? null,
+        orgId: params.orgId,
         userId: params.userId ?? null,
       });
       pageFilled++;
@@ -193,16 +186,13 @@ async function fillBufferFromSearch(params: {
 }
 
 export async function pullNext(params: {
-  organizationId: string;
+  orgId: string;
   campaignId: string;
   brandId: string;
   parentRunId?: string | null;
   runId?: string | null;
-  keySource?: "platform" | "app" | "byok";
   searchParams?: ApolloSearchParams;
-  orgId?: string | null;
   userId?: string | null;
-  appId?: string;
   workflowName?: string;
 }): Promise<{
   found: boolean;
@@ -227,7 +217,7 @@ export async function pullNext(params: {
     }
     const row = await db.query.leadBuffer.findFirst({
       where: and(
-        eq(leadBuffer.organizationId, params.organizationId),
+        eq(leadBuffer.orgId, params.orgId),
         eq(leadBuffer.namespace, params.campaignId),
         eq(leadBuffer.status, "buffered")
       ),
@@ -236,17 +226,14 @@ export async function pullNext(params: {
 
     if (!row) {
       // Buffer empty - try to fill from search if searchParams provided
-      if (params.searchParams && params.keySource) {
+      if (params.searchParams) {
         const { filled } = await fillBufferFromSearch({
-          organizationId: params.organizationId,
+          orgId: params.orgId,
           campaignId: params.campaignId,
           brandId: params.brandId,
           searchParams: params.searchParams,
-          keySource: params.keySource,
           pushRunId: params.runId,
-          orgId: params.orgId,
           userId: params.userId,
-          appId: params.appId,
           workflowName: params.workflowName,
         });
 
@@ -286,7 +273,6 @@ export async function pullNext(params: {
         const enrichResult = await apolloEnrich(row.externalId, {
           runId: params.runId,
           orgId: params.orgId,
-          appId: params.appId,
           brandId: params.brandId,
           campaignId: params.campaignId,
           workflowName: params.workflowName,
@@ -372,7 +358,7 @@ export async function pullNext(params: {
     }
 
     await markServed({
-      organizationId: params.organizationId,
+      orgId: params.orgId,
       namespace: params.campaignId,
       brandId: params.brandId,
       campaignId: params.campaignId,
@@ -382,7 +368,6 @@ export async function pullNext(params: {
       metadata: enrichedData,
       parentRunId: params.parentRunId ?? null,
       runId: params.runId ?? null,
-      orgId: row.orgId,
       userId: row.userId,
     });
 

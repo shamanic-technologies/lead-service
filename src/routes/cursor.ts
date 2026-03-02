@@ -13,7 +13,7 @@ router.get("/cursor/:namespace", authenticate, async (req: AuthenticatedRequest,
 
     const cursor = await db.query.cursors.findFirst({
       where: and(
-        eq(cursors.organizationId, req.organizationId!),
+        eq(cursors.orgId, req.orgId!),
         eq(cursors.namespace, namespace)
       ),
     });
@@ -41,7 +41,7 @@ router.put("/cursor/:namespace", authenticate, async (req: AuthenticatedRequest,
 
     const existing = await db.query.cursors.findFirst({
       where: and(
-        eq(cursors.organizationId, req.organizationId!),
+        eq(cursors.orgId, req.orgId!),
         eq(cursors.namespace, namespace)
       ),
     });
@@ -53,7 +53,7 @@ router.put("/cursor/:namespace", authenticate, async (req: AuthenticatedRequest,
         .where(eq(cursors.id, existing.id));
     } else {
       await db.insert(cursors).values({
-        organizationId: req.organizationId!,
+        orgId: req.orgId!,
         namespace,
         state,
       });

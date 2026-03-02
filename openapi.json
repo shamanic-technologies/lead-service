@@ -449,15 +449,6 @@
             "type": "string",
             "minLength": 1
           },
-          "keySource": {
-            "type": "string",
-            "enum": [
-              "platform",
-              "app",
-              "byok"
-            ],
-            "description": "How downstream services resolve API keys: 'platform' = platform-owned keys (no appId needed), 'app' = client app keys (per appId), 'byok' = end user's own keys (per orgId/userId)."
-          },
           "searchParams": {
             "type": "object",
             "additionalProperties": {
@@ -478,8 +469,7 @@
         "required": [
           "campaignId",
           "brandId",
-          "parentRunId",
-          "keySource"
+          "parentRunId"
         ]
       },
       "CursorGetResponse": {
@@ -535,10 +525,6 @@
             "nullable": true,
             "format": "uuid"
           },
-          "organizationId": {
-            "type": "string",
-            "format": "uuid"
-          },
           "namespace": {
             "type": "string"
           },
@@ -567,8 +553,7 @@
             "type": "string"
           },
           "orgId": {
-            "type": "string",
-            "nullable": true
+            "type": "string"
           },
           "userId": {
             "type": "string",
@@ -584,7 +569,6 @@
         "required": [
           "id",
           "leadId",
-          "organizationId",
           "namespace",
           "email",
           "externalId",
@@ -686,21 +670,21 @@
           },
           {
             "in": "header",
-            "name": "x-app-id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Identifies the calling application"
-          },
-          {
-            "in": "header",
             "name": "x-org-id",
             "required": true,
             "schema": {
               "type": "string"
             },
-            "description": "External organization ID"
+            "description": "Internal organization UUID from client-service"
+          },
+          {
+            "in": "header",
+            "name": "x-user-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Internal user UUID from client-service"
           }
         ],
         "requestBody": {
@@ -754,21 +738,21 @@
           },
           {
             "in": "header",
-            "name": "x-app-id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Identifies the calling application"
-          },
-          {
-            "in": "header",
             "name": "x-org-id",
             "required": true,
             "schema": {
               "type": "string"
             },
-            "description": "External organization ID"
+            "description": "Internal organization UUID from client-service"
+          },
+          {
+            "in": "header",
+            "name": "x-user-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Internal user UUID from client-service"
           },
           {
             "schema": {
@@ -809,21 +793,21 @@
           },
           {
             "in": "header",
-            "name": "x-app-id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Identifies the calling application"
-          },
-          {
-            "in": "header",
             "name": "x-org-id",
             "required": true,
             "schema": {
               "type": "string"
             },
-            "description": "External organization ID"
+            "description": "Internal organization UUID from client-service"
+          },
+          {
+            "in": "header",
+            "name": "x-user-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Internal user UUID from client-service"
           },
           {
             "schema": {
@@ -885,21 +869,21 @@
           },
           {
             "in": "header",
-            "name": "x-app-id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Identifies the calling application"
-          },
-          {
-            "in": "header",
             "name": "x-org-id",
             "required": true,
             "schema": {
               "type": "string"
             },
-            "description": "External organization ID"
+            "description": "Internal organization UUID from client-service"
+          },
+          {
+            "in": "header",
+            "name": "x-user-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Internal user UUID from client-service"
           },
           {
             "in": "query",
@@ -967,21 +951,21 @@
           },
           {
             "in": "header",
-            "name": "x-app-id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Identifies the calling application"
-          },
-          {
-            "in": "header",
             "name": "x-org-id",
             "required": true,
             "schema": {
               "type": "string"
             },
-            "description": "External organization ID"
+            "description": "Internal organization UUID from client-service"
+          },
+          {
+            "in": "header",
+            "name": "x-user-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Internal user UUID from client-service"
           },
           {
             "in": "query",
@@ -1010,14 +994,6 @@
           {
             "in": "query",
             "name": "userId",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "appId",
             "required": false,
             "schema": {
               "type": "string"

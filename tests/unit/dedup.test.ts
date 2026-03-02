@@ -100,7 +100,7 @@ describe("dedup", () => {
       vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
 
       const result = await markServed({
-        organizationId: "org-1",
+        orgId: "org-1",
         namespace: "campaign-1",
         brandId: "brand-1",
         campaignId: "campaign-1",
@@ -121,7 +121,7 @@ describe("dedup", () => {
       vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
 
       const result = await markServed({
-        organizationId: "org-1",
+        orgId: "org-1",
         namespace: "campaign-1",
         brandId: "brand-1",
         campaignId: "campaign-1",
@@ -138,7 +138,7 @@ describe("dedup", () => {
       vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
 
       await markServed({
-        organizationId: "org-1",
+        orgId: "org-1",
         namespace: "campaign-1",
         brandId: "brand-1",
         campaignId: "campaign-1",
