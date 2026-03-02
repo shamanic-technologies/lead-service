@@ -42,7 +42,7 @@ export async function checkDelivered(
  * Now includes leadId for the global identity link.
  */
 export async function markServed(params: {
-  organizationId: string;
+  orgId: string;
   namespace: string;
   brandId: string;
   campaignId: string;
@@ -52,13 +52,12 @@ export async function markServed(params: {
   metadata?: unknown;
   parentRunId?: string | null;
   runId?: string | null;
-  orgId?: string | null;
   userId?: string | null;
 }): Promise<{ inserted: boolean }> {
   const result = await db
     .insert(servedLeads)
     .values({
-      organizationId: params.organizationId,
+      orgId: params.orgId,
       namespace: params.namespace,
       email: params.email,
       leadId: params.leadId ?? null,
@@ -68,7 +67,6 @@ export async function markServed(params: {
       runId: params.runId ?? null,
       brandId: params.brandId,
       campaignId: params.campaignId,
-      orgId: params.orgId ?? null,
       userId: params.userId ?? null,
     })
     .onConflictDoNothing()

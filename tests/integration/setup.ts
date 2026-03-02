@@ -1,53 +1,19 @@
 import { db, sql } from "../../src/db/index.js";
-import { organizations, servedLeads, leadBuffer, cursors, idempotencyCache, leadEmails, leads } from "../../src/db/schema.js";
-import { eq, and } from "drizzle-orm";
+import { servedLeads, leadBuffer, cursors, idempotencyCache } from "../../src/db/schema.js";
+import { eq } from "drizzle-orm";
 
 export const TEST_API_KEY = "test-api-key-12345";
-export const TEST_APP_ID = "test-app";
-export const TEST_ORG_ID = "test-org-integration";
-
-let testOrgUuid: string | null = null;
-
-export async function setupTestOrg(): Promise<string> {
-  // Clean up stale test data from previous runs (by appId/externalId, not in-memory uuid)
-  const existing = await db
-    .select({ id: organizations.id })
-    .from(organizations)
-    .where(
-      and(
-        eq(organizations.appId, TEST_APP_ID),
-        eq(organizations.externalId, TEST_ORG_ID)
-      )
-    );
-
-  if (existing.length > 0) {
-    testOrgUuid = existing[0].id;
-    await cleanupTestData();
-  }
-
-  // Create test organization
-  const [org] = await db
-    .insert(organizations)
-    .values({ appId: TEST_APP_ID, externalId: TEST_ORG_ID })
-    .returning();
-
-  testOrgUuid = org.id;
-  return org.id;
-}
+export const TEST_ORG_ID = "test-org-uuid-integration";
+export const TEST_USER_ID = "test-user-uuid-integration";
 
 export async function cleanupTestData(): Promise<void> {
-  if (testOrgUuid) {
-    await db.delete(idempotencyCache).where(eq(idempotencyCache.organizationId, testOrgUuid));
-    await db.delete(cursors).where(eq(cursors.organizationId, testOrgUuid));
-    await db.delete(leadBuffer).where(eq(leadBuffer.organizationId, testOrgUuid));
-    await db.delete(servedLeads).where(eq(servedLeads.organizationId, testOrgUuid));
-    // Clean up global tables in FK-safe order: served_leads → lead_emails → leads
-    await sql`DELETE FROM served_leads WHERE lead_id IN (SELECT id FROM leads)`;
-    await sql`DELETE FROM lead_emails WHERE lead_id IN (SELECT id FROM leads)`;
-    await sql`DELETE FROM leads`;
-    await db.delete(organizations).where(eq(organizations.id, testOrgUuid));
-    testOrgUuid = null;
-  }
+  await db.delete(idempotencyCache).where(eq(idempotencyCache.orgId, TEST_ORG_ID));
+  await db.delete(cursors).where(eq(cursors.orgId, TEST_ORG_ID));
+  await db.delete(leadBuffer).where(eq(leadBuffer.orgId, TEST_ORG_ID));
+  await db.delete(servedLeads).where(eq(servedLeads.orgId, TEST_ORG_ID));
+  // Clean up global tables in FK-safe order: lead_emails → leads
+  await sql`DELETE FROM lead_emails WHERE lead_id IN (SELECT id FROM leads)`;
+  await sql`DELETE FROM leads`;
 }
 
 export async function closeDb(): Promise<void> {
@@ -57,8 +23,8 @@ export async function closeDb(): Promise<void> {
 export function getAuthHeaders() {
   return {
     "x-api-key": TEST_API_KEY,
-    "x-app-id": TEST_APP_ID,
     "x-org-id": TEST_ORG_ID,
+    "x-user-id": TEST_USER_ID,
   };
 }
 
@@ -68,10 +34,8 @@ export async function seedBuffer(params: {
   brandId: string;
   leads: Array<{ email: string; externalId?: string; data?: unknown }>;
 }): Promise<void> {
-  if (!testOrgUuid) throw new Error("setupTestOrg() must be called first");
   for (const lead of params.leads) {
     await db.insert(leadBuffer).values({
-      organizationId: testOrgUuid,
       namespace: params.campaignId,
       campaignId: params.campaignId,
       email: lead.email,

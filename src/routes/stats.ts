@@ -2,24 +2,23 @@ import { Router } from "express";
 import { eq, and, count, inArray, or, type SQL } from "drizzle-orm";
 import { type AuthenticatedRequest, authenticate } from "../middleware/auth.js";
 import { db } from "../db/index.js";
-import { servedLeads, leadBuffer, organizations } from "../db/schema.js";
+import { servedLeads, leadBuffer } from "../db/schema.js";
 import { fetchApolloStats } from "../lib/apollo-client.js";
 
 const router = Router();
 
 router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
   try {
-    const { brandId, campaignId, orgId, userId, appId, runIds } = req.query;
+    const { brandId, campaignId, orgId, userId, runIds } = req.query;
     const str = (v: unknown): string | undefined => typeof v === "string" ? v : undefined;
     const brandIdStr = str(brandId);
     const campaignIdStr = str(campaignId);
     const orgIdStr = str(orgId);
     const userIdStr = str(userId);
-    const appIdStr = str(appId);
     const runIdList = typeof runIds === "string" ? runIds.split(",").filter(Boolean) : [];
 
-    const servedConditions: SQL[] = [eq(servedLeads.organizationId, req.organizationId!)];
-    const bufferConditions: SQL[] = [eq(leadBuffer.organizationId, req.organizationId!)];
+    const servedConditions: SQL[] = [eq(servedLeads.orgId, req.orgId!)];
+    const bufferConditions: SQL[] = [eq(leadBuffer.orgId, req.orgId!)];
 
     if (brandIdStr) {
       servedConditions.push(eq(servedLeads.brandId, brandIdStr));
@@ -37,19 +36,6 @@ router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
       servedConditions.push(eq(servedLeads.userId, userIdStr));
       bufferConditions.push(eq(leadBuffer.userId, userIdStr));
     }
-    if (appIdStr) {
-      const orgs = await db.query.organizations.findMany({
-        where: eq(organizations.appId, appIdStr),
-      });
-      if (orgs.length > 0) {
-        const orgIds = orgs.map((o) => o.id);
-        servedConditions.push(inArray(servedLeads.organizationId, orgIds));
-        bufferConditions.push(inArray(leadBuffer.organizationId, orgIds));
-      } else {
-        const emptyApollo = { enrichedLeadsCount: 0, searchCount: 0, fetchedPeopleCount: 0, totalMatchingPeople: 0 };
-        return res.json({ served: 0, buffered: 0, skipped: 0, apollo: emptyApollo });
-      }
-    }
     if (runIdList.length > 0) {
       servedConditions.push(
         or(
@@ -63,13 +49,12 @@ router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
     const apolloFilters: Record<string, unknown> = {};
     if (brandIdStr) apolloFilters.brandId = brandIdStr;
     if (campaignIdStr) apolloFilters.campaignId = campaignIdStr;
-    if (appIdStr) apolloFilters.appId = appIdStr;
     if (runIdList.length > 0) apolloFilters.runIds = runIdList;
 
     const [servedResult, bufferRows, apollo] = await Promise.all([
       db.select({ count: count() }).from(servedLeads).where(and(...servedConditions)).then(([r]) => r),
       db.select({ status: leadBuffer.status, count: count() }).from(leadBuffer).where(and(...bufferConditions)).groupBy(leadBuffer.status),
-      fetchApolloStats(apolloFilters as Parameters<typeof fetchApolloStats>[0], orgIdStr ?? req.externalOrgId),
+      fetchApolloStats(apolloFilters as Parameters<typeof fetchApolloStats>[0], orgIdStr ?? req.orgId),
     ]);
 
     const bufferByStatus = Object.fromEntries(bufferRows.map((r) => [r.status, r.count]));

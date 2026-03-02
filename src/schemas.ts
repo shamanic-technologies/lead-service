@@ -24,17 +24,17 @@ const AuthHeaders = [
   },
   {
     in: "header" as const,
-    name: "x-app-id",
-    required: true,
-    schema: { type: "string" as const },
-    description: "Identifies the calling application",
-  },
-  {
-    in: "header" as const,
     name: "x-org-id",
     required: true,
     schema: { type: "string" as const },
-    description: "External organization ID",
+    description: "Internal organization UUID from client-service",
+  },
+  {
+    in: "header" as const,
+    name: "x-user-id",
+    required: true,
+    schema: { type: "string" as const },
+    description: "Internal user UUID from client-service",
   },
 ];
 
@@ -153,9 +153,6 @@ export const BufferNextRequestSchema = z
     campaignId: z.string().min(1),
     brandId: z.string().min(1),
     parentRunId: z.string().min(1),
-    keySource: z.enum(["platform", "app", "byok"]).openapi({
-      description: "How downstream services resolve API keys: 'platform' = platform-owned keys (no appId needed), 'app' = client app keys (per appId), 'byok' = end user's own keys (per orgId/userId).",
-    }),
     searchParams: z.record(z.string(), z.unknown()).optional(),
     userId: z.string().optional(),
     workflowName: z.string().optional(),
@@ -206,7 +203,6 @@ const LeadDetailSchema = z
   .object({
     id: z.string().uuid(),
     leadId: z.string().uuid().nullable(),
-    organizationId: z.string().uuid(),
     namespace: z.string(),
     email: z.string(),
     externalId: z.string().nullable(),
@@ -215,7 +211,7 @@ const LeadDetailSchema = z
     runId: z.string().nullable(),
     brandId: z.string(),
     campaignId: z.string(),
-    orgId: z.string().nullable(),
+    orgId: z.string(),
     userId: z.string().nullable(),
     servedAt: z.string(),
     enrichment: ApolloPersonDataSchema.nullable(),
@@ -394,12 +390,6 @@ registry.registerPath({
     {
       in: "query" as const,
       name: "userId",
-      required: false,
-      schema: { type: "string" as const },
-    },
-    {
-      in: "query" as const,
-      name: "appId",
       required: false,
       schema: { type: "string" as const },
     },

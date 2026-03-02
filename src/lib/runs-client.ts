@@ -26,7 +26,6 @@ async function callRunsService(path: string, options: {
 
 export async function createRun(params: {
   orgId: string;
-  appId: string;
   serviceName: string;
   taskName: string;
   parentRunId?: string;
@@ -39,7 +38,6 @@ export async function createRun(params: {
     method: "POST",
     body: {
       orgId: params.orgId,
-      appId: params.appId,
       serviceName: params.serviceName,
       taskName: params.taskName,
       parentRunId: params.parentRunId,
@@ -63,7 +61,7 @@ export async function updateRun(
 
 export async function addCosts(
   runId: string,
-  items: Array<{ costName: string; quantity: number }>
+  items: Array<{ costName: string; quantity: number; costSource: "platform" | "org" }>
 ): Promise<void> {
   if (items.length === 0) return;
   await callRunsService(`/runs/${runId}/costs`, {

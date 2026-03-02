@@ -100,7 +100,6 @@ describe("service client headers", () => {
       const { createRun } = await import("../../src/lib/runs-client.js");
       await createRun({
         orgId: "org-uuid-run",
-        appId: "test-app",
         serviceName: "lead-service",
         taskName: "test-task",
         userId: "user-uuid-run",
@@ -113,6 +112,7 @@ describe("service client headers", () => {
       expect(body.userId).toBe("user-uuid-run");
       expect(body).not.toHaveProperty("clerkOrgId");
       expect(body).not.toHaveProperty("clerkUserId");
+      expect(body).not.toHaveProperty("appId");
     });
   });
 });

@@ -2,7 +2,6 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vites
 import request from "supertest";
 import app from "../../src/index.js";
 import {
-  setupTestOrg,
   cleanupTestData,
   closeDb,
   getAuthHeaders,
@@ -13,7 +12,6 @@ import { createRun } from "../../src/lib/runs-client.js";
 import { checkDeliveryStatus, isDelivered } from "../../src/lib/email-gateway-client.js";
 
 vi.mock("../../src/lib/runs-client.js", () => ({
-  ensureOrganization: vi.fn().mockResolvedValue("mock-org-id"),
   createRun: vi.fn().mockResolvedValue({ id: "mock-run-id" }),
   updateRun: vi.fn().mockResolvedValue(undefined),
   addCosts: vi.fn().mockResolvedValue(undefined),
@@ -27,7 +25,6 @@ vi.mock("../../src/lib/email-gateway-client.js", () => ({
 describe("API Integration Tests", () => {
   beforeAll(async () => {
     process.env.LEAD_SERVICE_API_KEY = TEST_API_KEY;
-    await setupTestOrg();
   });
 
   afterAll(async () => {
@@ -53,7 +50,7 @@ describe("API Integration Tests", () => {
     it("rejects requests without API key", async () => {
       const res = await request(app)
         .post("/buffer/next")
-        .send({ campaignId: "c1", brandId: "b1", parentRunId: "r1", keySource: "app" });
+        .send({ campaignId: "c1", brandId: "b1", parentRunId: "r1" });
 
       expect(res.status).toBe(401);
     });
@@ -62,11 +59,21 @@ describe("API Integration Tests", () => {
       const res = await request(app)
         .post("/buffer/next")
         .set("x-api-key", "wrong-key")
-        .set("x-app-id", "test")
         .set("x-org-id", "test")
-        .send({ campaignId: "c1", brandId: "b1", parentRunId: "r1", keySource: "app" });
+        .set("x-user-id", "test")
+        .send({ campaignId: "c1", brandId: "b1", parentRunId: "r1" });
 
       expect(res.status).toBe(401);
+    });
+
+    it("rejects requests without x-user-id header", async () => {
+      const res = await request(app)
+        .post("/buffer/next")
+        .set("x-api-key", TEST_API_KEY)
+        .set("x-org-id", "test")
+        .send({ campaignId: "c1", brandId: "b1", parentRunId: "r1" });
+
+      expect(res.status).toBe(400);
     });
   });
 
@@ -81,7 +88,7 @@ describe("API Integration Tests", () => {
       const res = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ campaignId: "campaign-b", brandId: "brand-b", parentRunId: "test-run-next-b", keySource: "app" });
+        .send({ campaignId: "campaign-b", brandId: "brand-b", parentRunId: "test-run-next-b" });
 
       expect(res.status).toBe(200);
       expect(res.body.found).toBe(true);
@@ -93,7 +100,7 @@ describe("API Integration Tests", () => {
       const res = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ campaignId: "campaign-empty", brandId: "brand-empty", parentRunId: "test-run-next-empty", keySource: "app" });
+        .send({ campaignId: "campaign-empty", brandId: "brand-empty", parentRunId: "test-run-next-empty" });
 
       expect(res.status).toBe(200);
       expect(res.body.found).toBe(false);
@@ -103,7 +110,7 @@ describe("API Integration Tests", () => {
       const res = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ campaignId: "campaign-x", brandId: "", parentRunId: "test-run", keySource: "app" });
+        .send({ campaignId: "campaign-x", brandId: "", parentRunId: "test-run" });
 
       expect(res.status).toBe(400);
       expect(res.body.details.fieldErrors.brandId).toBeDefined();
@@ -125,7 +132,6 @@ describe("API Integration Tests", () => {
           campaignId: "campaign-wf-next",
           brandId: "brand-wf-next",
           parentRunId: "test-run-wf-next",
-          keySource: "app",
           workflowName: "cold-email-outreach",
         });
 
@@ -175,7 +181,7 @@ describe("API Integration Tests", () => {
       const res = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ campaignId: "campaign-c", brandId: "brand-c", parentRunId: "test-run-next-c", keySource: "app" });
+        .send({ campaignId: "campaign-c", brandId: "brand-c", parentRunId: "test-run-next-c" });
 
       expect(res.body.found).toBe(true);
       expect(res.body.lead.email).toBe("fresh@example.com");
@@ -202,7 +208,6 @@ describe("API Integration Tests", () => {
           campaignId: "campaign-idem-1",
           brandId: "brand-idem-1",
           parentRunId: "test-run-idem-1",
-          keySource: "app",
           idempotencyKey: "run-idem-1",
         });
 
@@ -219,7 +224,6 @@ describe("API Integration Tests", () => {
           campaignId: "campaign-idem-1",
           brandId: "brand-idem-1",
           parentRunId: "test-run-idem-1",
-          keySource: "app",
           idempotencyKey: "run-idem-1",
         });
 
@@ -246,7 +250,6 @@ describe("API Integration Tests", () => {
           campaignId: "campaign-idem-2",
           brandId: "brand-idem-2",
           parentRunId: "test-run-idem-2a",
-          keySource: "app",
           idempotencyKey: "run-idem-2",
         });
 
@@ -261,7 +264,6 @@ describe("API Integration Tests", () => {
           campaignId: "campaign-idem-2",
           brandId: "brand-idem-2",
           parentRunId: "test-run-idem-2a",
-          keySource: "app",
           idempotencyKey: "run-idem-2",
         });
 
@@ -273,7 +275,6 @@ describe("API Integration Tests", () => {
           campaignId: "campaign-idem-2",
           brandId: "brand-idem-2",
           parentRunId: "test-run-idem-2b",
-          keySource: "app",
           idempotencyKey: "run-idem-2b",
         });
 
@@ -290,7 +291,6 @@ describe("API Integration Tests", () => {
           campaignId: "campaign-idem-empty",
           brandId: "brand-idem-empty",
           parentRunId: "test-run-idem-empty",
-          keySource: "app",
           idempotencyKey: "run-idem-empty",
         });
 
@@ -311,7 +311,6 @@ describe("API Integration Tests", () => {
           campaignId: "campaign-idem-empty",
           brandId: "brand-idem-empty",
           parentRunId: "test-run-idem-empty",
-          keySource: "app",
           idempotencyKey: "run-idem-empty",
         });
 
@@ -332,7 +331,6 @@ describe("API Integration Tests", () => {
           campaignId: "campaign-idem-compat",
           brandId: "brand-idem-compat",
           parentRunId: "test-run-idem-compat",
-          keySource: "app",
         });
 
       expect(res.status).toBe(200);
@@ -375,7 +373,7 @@ describe("API Integration Tests", () => {
       await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ campaignId: "campaign-leads", brandId: "brand-leads", parentRunId: "test-run-next-leads", keySource: "app" });
+        .send({ campaignId: "campaign-leads", brandId: "brand-leads", parentRunId: "test-run-next-leads" });
 
       // Query GET /leads
       const res = await request(app)
@@ -415,7 +413,7 @@ describe("API Integration Tests", () => {
       await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ campaignId: "campaign-leads-empty", brandId: "brand-leads-empty", parentRunId: "test-run-next-leads-empty", keySource: "app" });
+        .send({ campaignId: "campaign-leads-empty", brandId: "brand-leads-empty", parentRunId: "test-run-next-leads-empty" });
 
       const res = await request(app)
         .get("/leads?brandId=brand-leads-empty&campaignId=campaign-leads-empty")
