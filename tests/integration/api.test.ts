@@ -50,7 +50,7 @@ describe("API Integration Tests", () => {
     it("rejects requests without API key", async () => {
       const res = await request(app)
         .post("/buffer/next")
-        .send({ campaignId: "c1", brandId: "b1", parentRunId: "r1" });
+        .send({ campaignId: "c1", brandId: "b1" });
 
       expect(res.status).toBe(401);
     });
@@ -61,7 +61,8 @@ describe("API Integration Tests", () => {
         .set("x-api-key", "wrong-key")
         .set("x-org-id", "test")
         .set("x-user-id", "test")
-        .send({ campaignId: "c1", brandId: "b1", parentRunId: "r1" });
+        .set("x-run-id", "test")
+        .send({ campaignId: "c1", brandId: "b1" });
 
       expect(res.status).toBe(401);
     });
@@ -71,7 +72,19 @@ describe("API Integration Tests", () => {
         .post("/buffer/next")
         .set("x-api-key", TEST_API_KEY)
         .set("x-org-id", "test")
-        .send({ campaignId: "c1", brandId: "b1", parentRunId: "r1" });
+        .set("x-run-id", "test")
+        .send({ campaignId: "c1", brandId: "b1" });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects requests without x-run-id header", async () => {
+      const res = await request(app)
+        .post("/buffer/next")
+        .set("x-api-key", TEST_API_KEY)
+        .set("x-org-id", "test")
+        .set("x-user-id", "test")
+        .send({ campaignId: "c1", brandId: "b1" });
 
       expect(res.status).toBe(400);
     });
@@ -88,7 +101,7 @@ describe("API Integration Tests", () => {
       const res = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ campaignId: "campaign-b", brandId: "brand-b", parentRunId: "test-run-next-b" });
+        .send({ campaignId: "campaign-b", brandId: "brand-b" });
 
       expect(res.status).toBe(200);
       expect(res.body.found).toBe(true);
@@ -100,7 +113,7 @@ describe("API Integration Tests", () => {
       const res = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ campaignId: "campaign-empty", brandId: "brand-empty", parentRunId: "test-run-next-empty" });
+        .send({ campaignId: "campaign-empty", brandId: "brand-empty" });
 
       expect(res.status).toBe(200);
       expect(res.body.found).toBe(false);
@@ -110,7 +123,7 @@ describe("API Integration Tests", () => {
       const res = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ campaignId: "campaign-x", brandId: "", parentRunId: "test-run" });
+        .send({ campaignId: "campaign-x", brandId: "" });
 
       expect(res.status).toBe(400);
       expect(res.body.details.fieldErrors.brandId).toBeDefined();
@@ -131,7 +144,6 @@ describe("API Integration Tests", () => {
         .send({
           campaignId: "campaign-wf-next",
           brandId: "brand-wf-next",
-          parentRunId: "test-run-wf-next",
           workflowName: "cold-email-outreach",
         });
 
@@ -181,7 +193,7 @@ describe("API Integration Tests", () => {
       const res = await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ campaignId: "campaign-c", brandId: "brand-c", parentRunId: "test-run-next-c" });
+        .send({ campaignId: "campaign-c", brandId: "brand-c" });
 
       expect(res.body.found).toBe(true);
       expect(res.body.lead.email).toBe("fresh@example.com");
@@ -207,7 +219,6 @@ describe("API Integration Tests", () => {
         .send({
           campaignId: "campaign-idem-1",
           brandId: "brand-idem-1",
-          parentRunId: "test-run-idem-1",
           idempotencyKey: "run-idem-1",
         });
 
@@ -223,7 +234,6 @@ describe("API Integration Tests", () => {
         .send({
           campaignId: "campaign-idem-1",
           brandId: "brand-idem-1",
-          parentRunId: "test-run-idem-1",
           idempotencyKey: "run-idem-1",
         });
 
@@ -249,7 +259,6 @@ describe("API Integration Tests", () => {
         .send({
           campaignId: "campaign-idem-2",
           brandId: "brand-idem-2",
-          parentRunId: "test-run-idem-2a",
           idempotencyKey: "run-idem-2",
         });
 
@@ -263,7 +272,6 @@ describe("API Integration Tests", () => {
         .send({
           campaignId: "campaign-idem-2",
           brandId: "brand-idem-2",
-          parentRunId: "test-run-idem-2a",
           idempotencyKey: "run-idem-2",
         });
 
@@ -274,7 +282,6 @@ describe("API Integration Tests", () => {
         .send({
           campaignId: "campaign-idem-2",
           brandId: "brand-idem-2",
-          parentRunId: "test-run-idem-2b",
           idempotencyKey: "run-idem-2b",
         });
 
@@ -290,7 +297,6 @@ describe("API Integration Tests", () => {
         .send({
           campaignId: "campaign-idem-empty",
           brandId: "brand-idem-empty",
-          parentRunId: "test-run-idem-empty",
           idempotencyKey: "run-idem-empty",
         });
 
@@ -310,7 +316,6 @@ describe("API Integration Tests", () => {
         .send({
           campaignId: "campaign-idem-empty",
           brandId: "brand-idem-empty",
-          parentRunId: "test-run-idem-empty",
           idempotencyKey: "run-idem-empty",
         });
 
@@ -330,7 +335,6 @@ describe("API Integration Tests", () => {
         .send({
           campaignId: "campaign-idem-compat",
           brandId: "brand-idem-compat",
-          parentRunId: "test-run-idem-compat",
         });
 
       expect(res.status).toBe(200);
@@ -373,7 +377,7 @@ describe("API Integration Tests", () => {
       await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ campaignId: "campaign-leads", brandId: "brand-leads", parentRunId: "test-run-next-leads" });
+        .send({ campaignId: "campaign-leads", brandId: "brand-leads" });
 
       // Query GET /leads
       const res = await request(app)
@@ -413,7 +417,7 @@ describe("API Integration Tests", () => {
       await request(app)
         .post("/buffer/next")
         .set(getAuthHeaders())
-        .send({ campaignId: "campaign-leads-empty", brandId: "brand-leads-empty", parentRunId: "test-run-next-leads-empty" });
+        .send({ campaignId: "campaign-leads-empty", brandId: "brand-leads-empty" });
 
       const res = await request(app)
         .get("/leads?brandId=brand-leads-empty&campaignId=campaign-leads-empty")

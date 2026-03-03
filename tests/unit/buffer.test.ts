@@ -110,7 +110,6 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
-        parentRunId: "run-1",
         runId: "child-run-1",
       });
 

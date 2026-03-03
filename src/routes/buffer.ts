@@ -32,7 +32,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
   }
 
   try {
-    const { campaignId, brandId, parentRunId, searchParams, userId, workflowName, idempotencyKey } = parsed.data;
+    const { campaignId, brandId, searchParams, userId, workflowName, idempotencyKey } = parsed.data;
 
     // Idempotency: return cached response if this key was already processed
     if (idempotencyKey) {
@@ -45,12 +45,12 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       }
     }
 
-    // Create child run for traceability
+    // Create child run for traceability (x-run-id from caller becomes our parentRunId)
     const childRun = await createRun({
       orgId: req.orgId!,
       serviceName: "lead-service",
       taskName: "lead-serve",
-      parentRunId,
+      parentRunId: req.runId!,
       userId: userId ?? req.userId,
       brandId,
       campaignId,
@@ -62,7 +62,6 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       orgId: req.orgId!,
       campaignId,
       brandId,
-      parentRunId,
       runId: serveRunId,
       searchParams: searchParams ?? undefined,
       userId: userId ?? req.userId ?? null,

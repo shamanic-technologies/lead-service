@@ -7,7 +7,6 @@ describe("schema validation", () => {
       const result = BufferNextRequestSchema.safeParse({
         campaignId: "c1",
         brandId: "",
-        parentRunId: "r1",
       });
       expect(result.success).toBe(false);
       if (!result.success) {
@@ -20,16 +19,6 @@ describe("schema validation", () => {
       const result = BufferNextRequestSchema.safeParse({
         campaignId: "",
         brandId: "b1",
-        parentRunId: "r1",
-      });
-      expect(result.success).toBe(false);
-    });
-
-    it("rejects empty parentRunId", () => {
-      const result = BufferNextRequestSchema.safeParse({
-        campaignId: "c1",
-        brandId: "b1",
-        parentRunId: "",
       });
       expect(result.success).toBe(false);
     });
@@ -38,7 +27,6 @@ describe("schema validation", () => {
       const result = BufferNextRequestSchema.safeParse({
         campaignId: "c1",
         brandId: "b1",
-        parentRunId: "r1",
       });
       expect(result.success).toBe(true);
     });
@@ -47,7 +35,6 @@ describe("schema validation", () => {
       const result = BufferNextRequestSchema.safeParse({
         campaignId: "c1",
         brandId: "b1",
-        parentRunId: "r1",
         idempotencyKey: "run-123",
       });
       expect(result.success).toBe(true);
@@ -57,7 +44,6 @@ describe("schema validation", () => {
       const result = BufferNextRequestSchema.safeParse({
         campaignId: "c1",
         brandId: "b1",
-        parentRunId: "r1",
         idempotencyKey: "",
       });
       expect(result.success).toBe(false);
@@ -67,7 +53,6 @@ describe("schema validation", () => {
       const result = BufferNextRequestSchema.safeParse({
         campaignId: "c1",
         brandId: "b1",
-        parentRunId: "r1",
         workflowName: "cold-email-outreach",
       });
       expect(result.success).toBe(true);
@@ -80,7 +65,6 @@ describe("schema validation", () => {
       const result = BufferNextRequestSchema.safeParse({
         campaignId: "c1",
         brandId: "b1",
-        parentRunId: "r1",
       });
       expect(result.success).toBe(true);
       if (result.success) {
