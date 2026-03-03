@@ -36,6 +36,13 @@ const AuthHeaders = [
     schema: { type: "string" as const },
     description: "Internal user UUID from client-service",
   },
+  {
+    in: "header" as const,
+    name: "x-run-id",
+    required: true,
+    schema: { type: "string" as const },
+    description: "The caller's run ID (used as parentRunId when creating this service's own run)",
+  },
 ];
 
 // --- Health ---
@@ -152,7 +159,6 @@ export const BufferNextRequestSchema = z
   .object({
     campaignId: z.string().min(1),
     brandId: z.string().min(1),
-    parentRunId: z.string().min(1),
     searchParams: z.record(z.string(), z.unknown()).optional(),
     userId: z.string().optional(),
     workflowName: z.string().optional(),

@@ -189,7 +189,6 @@ export async function pullNext(params: {
   orgId: string;
   campaignId: string;
   brandId: string;
-  parentRunId?: string | null;
   runId?: string | null;
   searchParams?: ApolloSearchParams;
   userId?: string | null;
@@ -366,7 +365,6 @@ export async function pullNext(params: {
       leadId,
       externalId: row.externalId,
       metadata: enrichedData,
-      parentRunId: params.parentRunId ?? null,
       runId: params.runId ?? null,
       userId: row.userId,
     });

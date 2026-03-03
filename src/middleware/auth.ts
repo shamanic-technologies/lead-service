@@ -3,6 +3,7 @@ import { Request, Response, NextFunction } from "express";
 export interface AuthenticatedRequest extends Request {
   orgId?: string;
   userId?: string;
+  runId?: string;
 }
 
 export async function authenticate(
@@ -18,13 +19,15 @@ export async function authenticate(
 
     const orgId = req.headers["x-org-id"] as string;
     const userId = req.headers["x-user-id"] as string;
+    const runId = req.headers["x-run-id"] as string;
 
-    if (!orgId || !userId) {
-      return res.status(400).json({ error: "x-org-id and x-user-id headers required" });
+    if (!orgId || !userId || !runId) {
+      return res.status(400).json({ error: "x-org-id, x-user-id, and x-run-id headers required" });
     }
 
     req.orgId = orgId;
     req.userId = userId;
+    req.runId = runId;
     next();
   } catch (error) {
     console.error("[auth] Error:", error);

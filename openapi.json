@@ -445,10 +445,6 @@
             "type": "string",
             "minLength": 1
           },
-          "parentRunId": {
-            "type": "string",
-            "minLength": 1
-          },
           "searchParams": {
             "type": "object",
             "additionalProperties": {
@@ -468,8 +464,7 @@
         },
         "required": [
           "campaignId",
-          "brandId",
-          "parentRunId"
+          "brandId"
         ]
       },
       "CursorGetResponse": {
@@ -685,6 +680,15 @@
               "type": "string"
             },
             "description": "Internal user UUID from client-service"
+          },
+          {
+            "in": "header",
+            "name": "x-run-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The caller's run ID (used as parentRunId when creating this service's own run)"
           }
         ],
         "requestBody": {
@@ -755,6 +759,15 @@
             "description": "Internal user UUID from client-service"
           },
           {
+            "in": "header",
+            "name": "x-run-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The caller's run ID (used as parentRunId when creating this service's own run)"
+          },
+          {
             "schema": {
               "type": "string"
             },
@@ -808,6 +821,15 @@
               "type": "string"
             },
             "description": "Internal user UUID from client-service"
+          },
+          {
+            "in": "header",
+            "name": "x-run-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The caller's run ID (used as parentRunId when creating this service's own run)"
           },
           {
             "schema": {
@@ -884,6 +906,15 @@
               "type": "string"
             },
             "description": "Internal user UUID from client-service"
+          },
+          {
+            "in": "header",
+            "name": "x-run-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The caller's run ID (used as parentRunId when creating this service's own run)"
           },
           {
             "in": "query",
@@ -966,6 +997,15 @@
               "type": "string"
             },
             "description": "Internal user UUID from client-service"
+          },
+          {
+            "in": "header",
+            "name": "x-run-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The caller's run ID (used as parentRunId when creating this service's own run)"
           },
           {
             "in": "query",

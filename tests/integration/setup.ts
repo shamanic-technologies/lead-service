@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 export const TEST_API_KEY = "test-api-key-12345";
 export const TEST_ORG_ID = "test-org-uuid-integration";
 export const TEST_USER_ID = "test-user-uuid-integration";
+export const TEST_RUN_ID = "test-run-uuid-integration";
 
 export async function cleanupTestData(): Promise<void> {
   await db.delete(idempotencyCache).where(eq(idempotencyCache.orgId, TEST_ORG_ID));
@@ -25,6 +26,7 @@ export function getAuthHeaders() {
     "x-api-key": TEST_API_KEY,
     "x-org-id": TEST_ORG_ID,
     "x-user-id": TEST_USER_ID,
+    "x-run-id": TEST_RUN_ID,
   };
 }
 

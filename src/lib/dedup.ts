@@ -50,7 +50,6 @@ export async function markServed(params: {
   leadId?: string | null;
   externalId?: string | null;
   metadata?: unknown;
-  parentRunId?: string | null;
   runId?: string | null;
   userId?: string | null;
 }): Promise<{ inserted: boolean }> {
@@ -63,7 +62,6 @@ export async function markServed(params: {
       leadId: params.leadId ?? null,
       externalId: params.externalId ?? null,
       metadata: params.metadata ?? null,
-      parentRunId: params.parentRunId ?? null,
       runId: params.runId ?? null,
       brandId: params.brandId,
       campaignId: params.campaignId,
