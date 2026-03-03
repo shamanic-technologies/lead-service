@@ -49,6 +49,26 @@ describe("service client headers", () => {
       expect(opts.headers).not.toHaveProperty("x-clerk-org-id");
     });
 
+    it("sends run context as headers (not body) for apolloSearch", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ people: [], pagination: { page: 1, totalPages: 1, totalEntries: 0 } }));
+
+      const { apolloSearch } = await import("../../src/lib/apollo-client.js");
+      await apolloSearch({ personTitles: ["CEO"] }, 1, {
+        orgId: "org-1", runId: "run-1", brandId: "brand-1", campaignId: "camp-1", workflowName: "wf-1",
+      });
+
+      const [, opts] = fetchSpy.mock.calls[0];
+      expect(opts.headers["x-run-id"]).toBe("run-1");
+      expect(opts.headers["x-brand-id"]).toBe("brand-1");
+      expect(opts.headers["x-campaign-id"]).toBe("camp-1");
+      expect(opts.headers["x-workflow-name"]).toBe("wf-1");
+      const body = JSON.parse(opts.body);
+      expect(body).not.toHaveProperty("runId");
+      expect(body).not.toHaveProperty("brandId");
+      expect(body).not.toHaveProperty("campaignId");
+      expect(body).not.toHaveProperty("workflowName");
+    });
+
     it("sends x-org-id header for apolloEnrich", async () => {
       fetchSpy.mockReturnValue(jsonResponse({ person: { id: "p1" } }));
 
@@ -59,6 +79,26 @@ describe("service client headers", () => {
       const [, opts] = fetchSpy.mock.calls[0];
       expect(opts.headers["x-org-id"]).toBe("org-uuid-789");
       expect(opts.headers).not.toHaveProperty("x-clerk-org-id");
+    });
+
+    it("sends run context as headers (not body) for apolloEnrich", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ person: { id: "p1" } }));
+
+      const { apolloEnrich } = await import("../../src/lib/apollo-client.js");
+      await apolloEnrich("person-123", {
+        orgId: "org-1", runId: "run-1", brandId: "brand-1", campaignId: "camp-1", workflowName: "wf-1",
+      });
+
+      const [, opts] = fetchSpy.mock.calls[0];
+      expect(opts.headers["x-run-id"]).toBe("run-1");
+      expect(opts.headers["x-brand-id"]).toBe("brand-1");
+      expect(opts.headers["x-campaign-id"]).toBe("camp-1");
+      expect(opts.headers["x-workflow-name"]).toBe("wf-1");
+      const body = JSON.parse(opts.body);
+      expect(body).not.toHaveProperty("runId");
+      expect(body).not.toHaveProperty("brandId");
+      expect(body).not.toHaveProperty("campaignId");
+      expect(body).not.toHaveProperty("workflowName");
     });
   });
 
