@@ -11,7 +11,8 @@ export interface CampaignDetails {
 
 export async function fetchCampaign(
   campaignId: string,
-  orgId?: string | null
+  orgId?: string | null,
+  context?: { userId?: string; runId?: string }
 ): Promise<CampaignDetails | null> {
   try {
     const headers: Record<string, string> = {
@@ -19,6 +20,8 @@ export async function fetchCampaign(
       "X-API-Key": CAMPAIGN_SERVICE_API_KEY,
     };
     if (orgId) headers["x-org-id"] = orgId;
+    if (context?.userId) headers["x-user-id"] = context.userId;
+    if (context?.runId) headers["x-run-id"] = context.runId;
 
     const response = await fetch(`${CAMPAIGN_SERVICE_URL}/campaigns/${campaignId}`, {
       headers,

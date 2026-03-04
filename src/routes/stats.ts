@@ -54,7 +54,7 @@ router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
     const [servedResult, bufferRows, apollo] = await Promise.all([
       db.select({ count: count() }).from(servedLeads).where(and(...servedConditions)).then(([r]) => r),
       db.select({ status: leadBuffer.status, count: count() }).from(leadBuffer).where(and(...bufferConditions)).groupBy(leadBuffer.status),
-      fetchApolloStats(apolloFilters as Parameters<typeof fetchApolloStats>[0], orgIdStr ?? req.orgId),
+      fetchApolloStats(apolloFilters as Parameters<typeof fetchApolloStats>[0], orgIdStr ?? req.orgId, { userId: req.userId, runId: req.runId }),
     ]);
 
     const bufferByStatus = Object.fromEntries(bufferRows.map((r) => [r.status, r.count]));

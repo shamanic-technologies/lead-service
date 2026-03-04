@@ -52,18 +52,24 @@ export interface DeliveryStatusResponse {
 export async function checkDeliveryStatus(
   brandId: string,
   campaignId: string | undefined,
-  items: DeliveryStatusItem[]
+  items: DeliveryStatusItem[],
+  context?: { orgId?: string; userId?: string; runId?: string }
 ): Promise<DeliveryStatusResponse | null> {
   try {
     const body: Record<string, unknown> = { brandId, items };
     if (campaignId) body.campaignId = campaignId;
 
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "X-API-Key": EMAIL_GATEWAY_SERVICE_API_KEY,
+    };
+    if (context?.orgId) headers["x-org-id"] = context.orgId;
+    if (context?.userId) headers["x-user-id"] = context.userId;
+    if (context?.runId) headers["x-run-id"] = context.runId;
+
     const response = await fetch(`${EMAIL_GATEWAY_SERVICE_URL}/status`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-API-Key": EMAIL_GATEWAY_SERVICE_API_KEY,
-      },
+      headers,
       body: JSON.stringify(body),
     });
 

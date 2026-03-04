@@ -4,14 +4,16 @@ const RUNS_SERVICE_API_KEY = process.env.RUNS_SERVICE_API_KEY || "";
 async function callRunsService(path: string, options: {
   method?: string;
   body?: unknown;
+  headers?: Record<string, string>;
 } = {}): Promise<unknown> {
-  const { method = "GET", body } = options;
+  const { method = "GET", body, headers: extraHeaders } = options;
 
   const response = await fetch(`${RUNS_SERVICE_URL}/v1${path}`, {
     method,
     headers: {
       "Content-Type": "application/json",
       "X-API-Key": RUNS_SERVICE_API_KEY,
+      ...extraHeaders,
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -34,38 +36,57 @@ export async function createRun(params: {
   campaignId?: string;
   workflowName?: string;
 }): Promise<{ id: string }> {
+  const headers: Record<string, string> = {
+    "x-org-id": params.orgId,
+  };
+  if (params.userId) headers["x-user-id"] = params.userId;
+  if (params.parentRunId) headers["x-run-id"] = params.parentRunId;
+
   return callRunsService("/runs", {
     method: "POST",
     body: {
-      orgId: params.orgId,
       serviceName: params.serviceName,
       taskName: params.taskName,
-      parentRunId: params.parentRunId,
-      userId: params.userId,
       brandId: params.brandId,
       campaignId: params.campaignId,
       workflowName: params.workflowName,
     },
+    headers,
   }) as Promise<{ id: string }>;
 }
 
 export async function updateRun(
   runId: string,
-  status: "completed" | "failed"
+  status: "completed" | "failed",
+  context?: { orgId?: string; userId?: string }
 ): Promise<void> {
+  const headers: Record<string, string> = {};
+  if (context?.orgId) headers["x-org-id"] = context.orgId;
+  if (context?.userId) headers["x-user-id"] = context.userId;
+  headers["x-run-id"] = runId;
+
   await callRunsService(`/runs/${runId}`, {
     method: "PATCH",
     body: { status },
+    headers,
   });
 }
 
 export async function addCosts(
   runId: string,
-  items: Array<{ costName: string; quantity: number; costSource: "platform" | "org" }>
+  items: Array<{ costName: string; quantity: number; costSource: "platform" | "org" }>,
+  context?: { orgId?: string; userId?: string }
 ): Promise<void> {
   if (items.length === 0) return;
+
+  const headers: Record<string, string> = {};
+  if (context?.orgId) headers["x-org-id"] = context.orgId;
+  if (context?.userId) headers["x-user-id"] = context.userId;
+  headers["x-run-id"] = runId;
+
   await callRunsService(`/runs/${runId}/costs`, {
     method: "POST",
     body: { items },
+    headers,
   });
 }

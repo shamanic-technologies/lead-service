@@ -41,7 +41,7 @@ describe("dedup", () => {
       expect(result.get("alice@acme.com")).toBe(true);
       expect(checkDeliveryStatus).toHaveBeenCalledWith("brand-1", "campaign-1", [
         { leadId: "lead-1", email: "alice@acme.com" },
-      ]);
+      ], undefined);
     });
 
     it("returns delivered=false for emails not yet delivered", async () => {

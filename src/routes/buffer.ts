@@ -84,7 +84,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
     }
 
     try {
-      await updateRun(serveRunId, "completed");
+      await updateRun(serveRunId, "completed", { orgId: req.orgId, userId: req.userId });
     } catch (err) {
       console.error("[buffer/next] Failed to update run:", err);
     }
