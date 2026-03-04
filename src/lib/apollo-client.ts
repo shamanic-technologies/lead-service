@@ -139,11 +139,12 @@ interface ApolloSearchRawResponse {
 export async function apolloSearch(
   params: ApolloSearchParams,
   page: number = 1,
-  options?: { runId?: string | null; orgId?: string | null; brandId?: string; campaignId?: string; workflowName?: string }
+  options?: { runId?: string | null; orgId?: string | null; userId?: string | null; brandId?: string; campaignId?: string; workflowName?: string }
 ): Promise<ApolloSearchResult | null> {
   try {
     const headers: Record<string, string> = {};
     if (options?.orgId) headers["x-org-id"] = options.orgId;
+    if (options?.userId) headers["x-user-id"] = options.userId;
     if (options?.runId) headers["x-run-id"] = options.runId;
     if (options?.brandId) headers["x-brand-id"] = options.brandId;
     if (options?.campaignId) headers["x-campaign-id"] = options.campaignId;
@@ -187,11 +188,13 @@ export async function apolloSearchNext(options: {
   searchParams?: ApolloSearchParams;
   runId?: string | null;
   orgId?: string | null;
+  userId?: string | null;
   workflowName?: string;
 }): Promise<ApolloSearchNextResult | null> {
   try {
     const headers: Record<string, string> = {};
     if (options.orgId) headers["x-org-id"] = options.orgId;
+    if (options.userId) headers["x-user-id"] = options.userId;
     if (options.runId) headers["x-run-id"] = options.runId;
     headers["x-brand-id"] = options.brandId;
     headers["x-campaign-id"] = options.campaignId;
@@ -225,10 +228,12 @@ export async function apolloSearchParams(options: {
   brandId: string;
   campaignId: string;
   orgId?: string | null;
+  userId?: string | null;
   workflowName?: string;
 }): Promise<ApolloSearchParamsResult> {
   const headers: Record<string, string> = {};
   if (options.orgId) headers["x-org-id"] = options.orgId;
+  if (options.userId) headers["x-user-id"] = options.userId;
   headers["x-run-id"] = options.runId;
   headers["x-brand-id"] = options.brandId;
   headers["x-campaign-id"] = options.campaignId;
@@ -254,11 +259,14 @@ export interface ApolloStats {
 
 export async function fetchApolloStats(
   filters: { runIds?: string[]; brandId?: string; campaignId?: string },
-  orgId?: string | null
+  orgId?: string | null,
+  context?: { userId?: string; runId?: string }
 ): Promise<ApolloStats> {
   try {
     const headers: Record<string, string> = {};
     if (orgId) headers["x-org-id"] = orgId;
+    if (context?.userId) headers["x-user-id"] = context.userId;
+    if (context?.runId) headers["x-run-id"] = context.runId;
 
     const result = await callApolloService<{ stats: ApolloStats }>("/stats", {
       method: "POST",
@@ -281,11 +289,12 @@ export interface ApolloEnrichResult {
 
 export async function apolloEnrich(
   personId: string,
-  options?: { runId?: string | null; orgId?: string | null; brandId?: string; campaignId?: string; workflowName?: string }
+  options?: { runId?: string | null; orgId?: string | null; userId?: string | null; brandId?: string; campaignId?: string; workflowName?: string }
 ): Promise<ApolloEnrichResult | null> {
   try {
     const headers: Record<string, string> = {};
     if (options?.orgId) headers["x-org-id"] = options.orgId;
+    if (options?.userId) headers["x-user-id"] = options.userId;
     if (options?.runId) headers["x-run-id"] = options.runId;
     if (options?.brandId) headers["x-brand-id"] = options.brandId;
     if (options?.campaignId) headers["x-campaign-id"] = options.campaignId;

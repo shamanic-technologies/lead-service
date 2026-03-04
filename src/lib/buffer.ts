@@ -29,10 +29,12 @@ async function fillBufferFromSearch(params: {
   userId?: string | null;
   workflowName?: string;
 }): Promise<{ filled: number }> {
+  const serviceContext = { userId: params.userId ?? undefined, runId: params.pushRunId ?? undefined };
+
   // Fetch campaign + brand details in parallel for rich LLM context
   const [campaign, brand] = await Promise.all([
-    fetchCampaign(params.campaignId, params.orgId),
-    fetchBrand(params.brandId, params.orgId),
+    fetchCampaign(params.campaignId, params.orgId, serviceContext),
+    fetchBrand(params.brandId, params.orgId, serviceContext),
   ]);
 
   // Build rich context string from campaign, brand, and raw searchParams
@@ -63,6 +65,7 @@ async function fillBufferFromSearch(params: {
     brandId: params.brandId,
     campaignId: params.campaignId,
     orgId: params.orgId,
+    userId: params.userId,
     workflowName: params.workflowName,
   });
 
@@ -76,6 +79,7 @@ async function fillBufferFromSearch(params: {
       searchParams: validatedParams,
       runId: params.pushRunId,
       orgId: params.orgId,
+      userId: params.userId,
       workflowName: params.workflowName,
     });
 
@@ -142,7 +146,11 @@ async function fillBufferFromSearch(params: {
 
     const deliveredMap =
       itemsWithEmails.length > 0
-        ? await checkDelivered(params.brandId, params.campaignId, itemsWithEmails)
+        ? await checkDelivered(params.brandId, params.campaignId, itemsWithEmails, {
+            orgId: params.orgId,
+            userId: params.userId ?? undefined,
+            runId: params.pushRunId ?? undefined,
+          })
         : new Map<string, boolean>();
 
     let pageFilled = 0;
@@ -272,6 +280,7 @@ export async function pullNext(params: {
         const enrichResult = await apolloEnrich(row.externalId, {
           runId: params.runId,
           orgId: params.orgId,
+          userId: params.userId,
           brandId: params.brandId,
           campaignId: params.campaignId,
           workflowName: params.workflowName,
@@ -346,7 +355,11 @@ export async function pullNext(params: {
     // Check delivery status via email-gateway
     const deliveredMap = await checkDelivered(params.brandId, params.campaignId, [
       { leadId, email },
-    ]);
+    ], {
+      orgId: params.orgId,
+      userId: params.userId ?? undefined,
+      runId: params.runId ?? undefined,
+    });
 
     if (deliveredMap.get(email)) {
       await db

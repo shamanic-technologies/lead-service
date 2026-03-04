@@ -23,29 +23,32 @@ function jsonResponse(body: unknown, status = 200) {
 
 describe("service client headers", () => {
   describe("apollo-client", () => {
-    it("sends x-org-id header (not x-clerk-org-id) for fetchApolloStats", async () => {
+    it("sends x-org-id and x-user-id headers for fetchApolloStats", async () => {
       fetchSpy.mockReturnValue(
         jsonResponse({ stats: { enrichedLeadsCount: 0, searchCount: 0, fetchedPeopleCount: 0, totalMatchingPeople: 0 } })
       );
 
       const { fetchApolloStats } = await import("../../src/lib/apollo-client.js");
-      await fetchApolloStats({}, "org-uuid-123");
+      await fetchApolloStats({}, "org-uuid-123", { userId: "user-1", runId: "run-1" });
 
       expect(fetchSpy).toHaveBeenCalledOnce();
       const [, opts] = fetchSpy.mock.calls[0];
       expect(opts.headers["x-org-id"]).toBe("org-uuid-123");
+      expect(opts.headers["x-user-id"]).toBe("user-1");
+      expect(opts.headers["x-run-id"]).toBe("run-1");
       expect(opts.headers).not.toHaveProperty("x-clerk-org-id");
     });
 
-    it("sends x-org-id header for apolloSearch", async () => {
+    it("sends x-org-id and x-user-id headers for apolloSearch", async () => {
       fetchSpy.mockReturnValue(jsonResponse({ people: [], pagination: { page: 1, totalPages: 1, totalEntries: 0 } }));
 
       const { apolloSearch } = await import("../../src/lib/apollo-client.js");
-      await apolloSearch({ personTitles: ["CEO"] }, 1, { orgId: "org-uuid-456" });
+      await apolloSearch({ personTitles: ["CEO"] }, 1, { orgId: "org-uuid-456", userId: "user-456" });
 
       expect(fetchSpy).toHaveBeenCalledOnce();
       const [, opts] = fetchSpy.mock.calls[0];
       expect(opts.headers["x-org-id"]).toBe("org-uuid-456");
+      expect(opts.headers["x-user-id"]).toBe("user-456");
       expect(opts.headers).not.toHaveProperty("x-clerk-org-id");
     });
 
@@ -102,39 +105,72 @@ describe("service client headers", () => {
     });
   });
 
+  describe("email-gateway-client", () => {
+    it("forwards x-org-id, x-user-id, x-run-id headers", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ results: [] }));
+
+      const { checkDeliveryStatus } = await import("../../src/lib/email-gateway-client.js");
+      await checkDeliveryStatus("brand-1", "camp-1", [{ leadId: "l1", email: "a@b.com" }], {
+        orgId: "org-1", userId: "user-1", runId: "run-1",
+      });
+
+      expect(fetchSpy).toHaveBeenCalledOnce();
+      const [, opts] = fetchSpy.mock.calls[0];
+      expect(opts.headers["x-org-id"]).toBe("org-1");
+      expect(opts.headers["x-user-id"]).toBe("user-1");
+      expect(opts.headers["x-run-id"]).toBe("run-1");
+    });
+  });
+
   describe("campaign-client", () => {
-    it("sends x-org-id header (not x-clerk-org-id) for fetchCampaign", async () => {
+    it("sends x-org-id, x-user-id, x-run-id headers for fetchCampaign", async () => {
       fetchSpy.mockReturnValue(jsonResponse({ campaign: { id: "c1", name: "Test", targetAudience: null, targetOutcome: null, valueForTarget: null } }));
 
       const { fetchCampaign } = await import("../../src/lib/campaign-client.js");
-      await fetchCampaign("campaign-123", "org-uuid-abc");
+      await fetchCampaign("campaign-123", "org-uuid-abc", { userId: "user-abc", runId: "run-abc" });
 
       expect(fetchSpy).toHaveBeenCalledOnce();
       const [, opts] = fetchSpy.mock.calls[0];
       expect(opts.headers["x-org-id"]).toBe("org-uuid-abc");
+      expect(opts.headers["x-user-id"]).toBe("user-abc");
+      expect(opts.headers["x-run-id"]).toBe("run-abc");
       expect(opts.headers).not.toHaveProperty("x-clerk-org-id");
     });
   });
 
   describe("brand-client", () => {
-    it("sends x-org-id header and orgId query param (not clerk variants)", async () => {
+    it("sends x-org-id, x-user-id, x-run-id headers and orgId query param", async () => {
       fetchSpy.mockReturnValue(jsonResponse({ brand: { id: "b1", name: "Test", domain: null, elevatorPitch: null, bio: null, mission: null, location: null, categories: null } }));
 
       const { fetchBrand } = await import("../../src/lib/brand-client.js");
-      await fetchBrand("brand-123", "org-uuid-def");
+      await fetchBrand("brand-123", "org-uuid-def", { userId: "user-def", runId: "run-def" });
 
       expect(fetchSpy).toHaveBeenCalledOnce();
       const [url, opts] = fetchSpy.mock.calls[0];
       expect(opts.headers["x-org-id"]).toBe("org-uuid-def");
+      expect(opts.headers["x-user-id"]).toBe("user-def");
+      expect(opts.headers["x-run-id"]).toBe("run-def");
       expect(opts.headers).not.toHaveProperty("x-clerk-org-id");
-      // Query param should be orgId, not clerkOrgId
       expect(url).toContain("orgId=org-uuid-def");
       expect(url).not.toContain("clerkOrgId");
     });
   });
 
   describe("runs-client", () => {
-    it("sends orgId and userId in body (not clerkOrgId/clerkUserId)", async () => {
+    it("sends x-org-id, x-user-id, x-run-id headers for updateRun", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ id: "run-1", status: "completed" }));
+
+      const { updateRun } = await import("../../src/lib/runs-client.js");
+      await updateRun("run-1", "completed", { orgId: "org-1", userId: "user-1" });
+
+      expect(fetchSpy).toHaveBeenCalledOnce();
+      const [, opts] = fetchSpy.mock.calls[0];
+      expect(opts.headers["x-org-id"]).toBe("org-1");
+      expect(opts.headers["x-user-id"]).toBe("user-1");
+      expect(opts.headers["x-run-id"]).toBe("run-1");
+    });
+
+    it("sends orgId, userId, parentRunId as headers (not body)", async () => {
       fetchSpy.mockReturnValue(jsonResponse({ id: "run-uuid-1" }, 201));
 
       const { createRun } = await import("../../src/lib/runs-client.js");
@@ -143,13 +179,19 @@ describe("service client headers", () => {
         serviceName: "lead-service",
         taskName: "test-task",
         userId: "user-uuid-run",
+        parentRunId: "parent-run-1",
       });
 
       expect(fetchSpy).toHaveBeenCalledOnce();
       const [, opts] = fetchSpy.mock.calls[0];
+      const headers = opts.headers;
+      expect(headers["x-org-id"]).toBe("org-uuid-run");
+      expect(headers["x-user-id"]).toBe("user-uuid-run");
+      expect(headers["x-run-id"]).toBe("parent-run-1");
       const body = JSON.parse(opts.body);
-      expect(body.orgId).toBe("org-uuid-run");
-      expect(body.userId).toBe("user-uuid-run");
+      expect(body).not.toHaveProperty("orgId");
+      expect(body).not.toHaveProperty("userId");
+      expect(body).not.toHaveProperty("parentRunId");
       expect(body).not.toHaveProperty("clerkOrgId");
       expect(body).not.toHaveProperty("clerkUserId");
       expect(body).not.toHaveProperty("appId");

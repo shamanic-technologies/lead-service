@@ -15,11 +15,12 @@ import {
 export async function checkDelivered(
   brandId: string,
   campaignId: string,
-  items: DeliveryStatusItem[]
+  items: DeliveryStatusItem[],
+  context?: { orgId?: string; userId?: string; runId?: string }
 ): Promise<Map<string, boolean>> {
   const result = new Map<string, boolean>();
 
-  const statusResponse = await checkDeliveryStatus(brandId, campaignId, items);
+  const statusResponse = await checkDeliveryStatus(brandId, campaignId, items, context);
 
   if (statusResponse) {
     for (const sr of statusResponse.results) {
