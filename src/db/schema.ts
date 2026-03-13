@@ -47,6 +47,7 @@ export const servedLeads = pgTable(
     campaignId: text("campaign_id").notNull(),
     orgId: text("org_id").notNull(),
     userId: text("user_id"),
+    workflowName: text("workflow_name"),
     servedAt: timestamp("served_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -73,6 +74,7 @@ export const leadBuffer = pgTable(
     brandId: text("brand_id"),
     orgId: text("org_id").notNull(),
     userId: text("user_id"),
+    workflowName: text("workflow_name"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

@@ -16,7 +16,7 @@ export async function checkContacted(
   brandId: string,
   campaignId: string,
   items: DeliveryStatusItem[],
-  context?: { orgId?: string; userId?: string; runId?: string }
+  context?: { orgId?: string; userId?: string; runId?: string; campaignId?: string; brandId?: string; workflowName?: string }
 ): Promise<Map<string, boolean>> {
   const result = new Map<string, boolean>();
 
@@ -57,6 +57,7 @@ export async function markServed(params: {
   metadata?: unknown;
   runId?: string | null;
   userId?: string | null;
+  workflowName?: string | null;
 }): Promise<{ inserted: boolean }> {
   const result = await db
     .insert(servedLeads)
@@ -71,6 +72,7 @@ export async function markServed(params: {
       brandId: params.brandId,
       campaignId: params.campaignId,
       userId: params.userId ?? null,
+      workflowName: params.workflowName ?? null,
     })
     .onConflictDoNothing()
     .returning();

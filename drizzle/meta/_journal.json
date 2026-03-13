@@ -64,6 +64,13 @@
       "when": 1772640000000,
       "tag": "0008_remove_appid_org_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1773619200000,
+      "tag": "0009_add_workflow_name",
+      "breakpoints": true
     }
   ]
 }

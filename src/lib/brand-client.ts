@@ -15,7 +15,7 @@ export interface BrandDetails {
 export async function fetchBrand(
   brandId: string,
   orgId?: string | null,
-  context?: { userId?: string; runId?: string }
+  context?: { userId?: string; runId?: string; campaignId?: string; brandId?: string; workflowName?: string }
 ): Promise<BrandDetails | null> {
   try {
     const headers: Record<string, string> = {
@@ -25,6 +25,9 @@ export async function fetchBrand(
     if (orgId) headers["x-org-id"] = orgId;
     if (context?.userId) headers["x-user-id"] = context.userId;
     if (context?.runId) headers["x-run-id"] = context.runId;
+    if (context?.campaignId) headers["x-campaign-id"] = context.campaignId;
+    if (context?.brandId) headers["x-brand-id"] = context.brandId;
+    if (context?.workflowName) headers["x-workflow-name"] = context.workflowName;
 
     const url = new URL(`${BRAND_SERVICE_URL}/brands/${brandId}`);
     if (orgId) url.searchParams.set("orgId", orgId);

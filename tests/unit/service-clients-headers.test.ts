@@ -120,6 +120,21 @@ describe("service client headers", () => {
       expect(opts.headers["x-user-id"]).toBe("user-1");
       expect(opts.headers["x-run-id"]).toBe("run-1");
     });
+
+    it("forwards x-campaign-id, x-brand-id, x-workflow-name headers when provided", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ results: [] }));
+
+      const { checkDeliveryStatus } = await import("../../src/lib/email-gateway-client.js");
+      await checkDeliveryStatus("brand-1", "camp-1", [{ leadId: "l1", email: "a@b.com" }], {
+        orgId: "org-1", userId: "user-1", runId: "run-1",
+        campaignId: "camp-1", brandId: "brand-1", workflowName: "wf-test",
+      });
+
+      const [, opts] = fetchSpy.mock.calls[0];
+      expect(opts.headers["x-campaign-id"]).toBe("camp-1");
+      expect(opts.headers["x-brand-id"]).toBe("brand-1");
+      expect(opts.headers["x-workflow-name"]).toBe("wf-test");
+    });
   });
 
   describe("campaign-client", () => {
@@ -135,6 +150,21 @@ describe("service client headers", () => {
       expect(opts.headers["x-user-id"]).toBe("user-abc");
       expect(opts.headers["x-run-id"]).toBe("run-abc");
       expect(opts.headers).not.toHaveProperty("x-clerk-org-id");
+    });
+
+    it("forwards workflow tracking headers when provided", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ campaign: { id: "c1", name: "Test", targetAudience: null, targetOutcome: null, valueForTarget: null } }));
+
+      const { fetchCampaign } = await import("../../src/lib/campaign-client.js");
+      await fetchCampaign("campaign-123", "org-1", {
+        userId: "user-1", runId: "run-1",
+        campaignId: "camp-1", brandId: "brand-1", workflowName: "wf-test",
+      });
+
+      const [, opts] = fetchSpy.mock.calls[0];
+      expect(opts.headers["x-campaign-id"]).toBe("camp-1");
+      expect(opts.headers["x-brand-id"]).toBe("brand-1");
+      expect(opts.headers["x-workflow-name"]).toBe("wf-test");
     });
   });
 
@@ -153,6 +183,21 @@ describe("service client headers", () => {
       expect(opts.headers).not.toHaveProperty("x-clerk-org-id");
       expect(url).toContain("orgId=org-uuid-def");
       expect(url).not.toContain("clerkOrgId");
+    });
+
+    it("forwards workflow tracking headers when provided", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ brand: { id: "b1", name: "Test", domain: null, elevatorPitch: null, bio: null, mission: null, location: null, categories: null } }));
+
+      const { fetchBrand } = await import("../../src/lib/brand-client.js");
+      await fetchBrand("brand-123", "org-1", {
+        userId: "user-1", runId: "run-1",
+        campaignId: "camp-1", brandId: "brand-1", workflowName: "wf-test",
+      });
+
+      const [, opts] = fetchSpy.mock.calls[0];
+      expect(opts.headers["x-campaign-id"]).toBe("camp-1");
+      expect(opts.headers["x-brand-id"]).toBe("brand-1");
+      expect(opts.headers["x-workflow-name"]).toBe("wf-test");
     });
   });
 
@@ -195,6 +240,40 @@ describe("service client headers", () => {
       expect(body).not.toHaveProperty("clerkOrgId");
       expect(body).not.toHaveProperty("clerkUserId");
       expect(body).not.toHaveProperty("appId");
+    });
+
+    it("forwards workflow tracking headers for createRun", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ id: "run-uuid-2" }, 201));
+
+      const { createRun } = await import("../../src/lib/runs-client.js");
+      await createRun({
+        orgId: "org-1",
+        serviceName: "lead-service",
+        taskName: "test-task",
+        campaignId: "camp-1",
+        brandId: "brand-1",
+        workflowName: "wf-test",
+      });
+
+      const [, opts] = fetchSpy.mock.calls[0];
+      expect(opts.headers["x-campaign-id"]).toBe("camp-1");
+      expect(opts.headers["x-brand-id"]).toBe("brand-1");
+      expect(opts.headers["x-workflow-name"]).toBe("wf-test");
+    });
+
+    it("forwards workflow tracking headers for updateRun", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ id: "run-1", status: "completed" }));
+
+      const { updateRun } = await import("../../src/lib/runs-client.js");
+      await updateRun("run-1", "completed", {
+        orgId: "org-1", userId: "user-1",
+        campaignId: "camp-1", brandId: "brand-1", workflowName: "wf-test",
+      });
+
+      const [, opts] = fetchSpy.mock.calls[0];
+      expect(opts.headers["x-campaign-id"]).toBe("camp-1");
+      expect(opts.headers["x-brand-id"]).toBe("brand-1");
+      expect(opts.headers["x-workflow-name"]).toBe("wf-test");
     });
   });
 });

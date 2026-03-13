@@ -43,6 +43,27 @@ const AuthHeaders = [
     schema: { type: "string" as const },
     description: "The caller's run ID (used as parentRunId when creating this service's own run)",
   },
+  {
+    in: "header" as const,
+    name: "x-campaign-id",
+    required: false,
+    schema: { type: "string" as const },
+    description: "Campaign identifier (auto-injected by workflow-service)",
+  },
+  {
+    in: "header" as const,
+    name: "x-brand-id",
+    required: false,
+    schema: { type: "string" as const },
+    description: "Brand identifier (auto-injected by workflow-service)",
+  },
+  {
+    in: "header" as const,
+    name: "x-workflow-name",
+    required: false,
+    schema: { type: "string" as const },
+    description: "Workflow name (auto-injected by workflow-service)",
+  },
 ];
 
 // --- Health ---

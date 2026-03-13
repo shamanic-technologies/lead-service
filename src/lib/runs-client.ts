@@ -41,6 +41,9 @@ export async function createRun(params: {
   };
   if (params.userId) headers["x-user-id"] = params.userId;
   if (params.parentRunId) headers["x-run-id"] = params.parentRunId;
+  if (params.campaignId) headers["x-campaign-id"] = params.campaignId;
+  if (params.brandId) headers["x-brand-id"] = params.brandId;
+  if (params.workflowName) headers["x-workflow-name"] = params.workflowName;
 
   return callRunsService("/runs", {
     method: "POST",
@@ -58,12 +61,15 @@ export async function createRun(params: {
 export async function updateRun(
   runId: string,
   status: "completed" | "failed",
-  context?: { orgId?: string; userId?: string }
+  context?: { orgId?: string; userId?: string; campaignId?: string; brandId?: string; workflowName?: string }
 ): Promise<void> {
   const headers: Record<string, string> = {};
   if (context?.orgId) headers["x-org-id"] = context.orgId;
   if (context?.userId) headers["x-user-id"] = context.userId;
   headers["x-run-id"] = runId;
+  if (context?.campaignId) headers["x-campaign-id"] = context.campaignId;
+  if (context?.brandId) headers["x-brand-id"] = context.brandId;
+  if (context?.workflowName) headers["x-workflow-name"] = context.workflowName;
 
   await callRunsService(`/runs/${runId}`, {
     method: "PATCH",
@@ -75,7 +81,7 @@ export async function updateRun(
 export async function addCosts(
   runId: string,
   items: Array<{ costName: string; quantity: number; costSource: "platform" | "org" }>,
-  context?: { orgId?: string; userId?: string }
+  context?: { orgId?: string; userId?: string; campaignId?: string; brandId?: string; workflowName?: string }
 ): Promise<void> {
   if (items.length === 0) return;
 
@@ -83,6 +89,9 @@ export async function addCosts(
   if (context?.orgId) headers["x-org-id"] = context.orgId;
   if (context?.userId) headers["x-user-id"] = context.userId;
   headers["x-run-id"] = runId;
+  if (context?.campaignId) headers["x-campaign-id"] = context.campaignId;
+  if (context?.brandId) headers["x-brand-id"] = context.brandId;
+  if (context?.workflowName) headers["x-workflow-name"] = context.workflowName;
 
   await callRunsService(`/runs/${runId}/costs`, {
     method: "POST",
