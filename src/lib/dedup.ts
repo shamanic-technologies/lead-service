@@ -24,7 +24,11 @@ export async function checkContacted(
 
   if (statusResponse) {
     for (const sr of statusResponse.results) {
-      result.set(sr.email, isContacted(sr));
+      const contacted = isContacted(sr);
+      console.log(
+        `[dedup] contacted check: email=${sr.email} contacted=${contacted} brandId=${brandId} campaignId=${campaignId}`
+      );
+      result.set(sr.email, contacted);
     }
   } else {
     console.warn(
