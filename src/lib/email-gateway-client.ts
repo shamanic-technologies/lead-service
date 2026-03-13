@@ -97,10 +97,10 @@ export async function checkDeliveryStatus(
 }
 
 /**
- * Check if a status result indicates the lead/email has been contacted
+ * Check if a status result indicates the lead/email has already been contacted
  * via any provider (broadcast or transactional) at any scope (campaign, brand, or global).
  */
-export function isDelivered(result: StatusResult): boolean {
+export function isContacted(result: StatusResult): boolean {
   const bc = result.broadcast;
   const tx = result.transactional;
   return !!(

@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// pgSql mock — must be hoisted since vi.mock factory runs before variable declarations
+const { pgSqlMock } = vi.hoisted(() => ({
+  pgSqlMock: vi.fn().mockResolvedValue([]),
+}));
+
 // Mock db
 vi.mock("../../src/db/index.js", () => ({
   db: {
@@ -14,6 +19,7 @@ vi.mock("../../src/db/index.js", () => ({
     insert: vi.fn(),
     update: vi.fn(),
   },
+  sql: pgSqlMock,
 }));
 
 // Mock apollo-client
@@ -36,7 +42,7 @@ vi.mock("../../src/lib/brand-client.js", () => ({
 // Mock email-gateway-client
 vi.mock("../../src/lib/email-gateway-client.js", () => ({
   checkDeliveryStatus: vi.fn().mockResolvedValue({ results: [] }),
-  isDelivered: vi.fn().mockReturnValue(false),
+  isContacted: vi.fn().mockReturnValue(false),
 }));
 
 // Mock leads-registry
@@ -52,17 +58,49 @@ import { apolloSearchNext, apolloSearchParams, apolloEnrich } from "../../src/li
 import { checkDeliveryStatus } from "../../src/lib/email-gateway-client.js";
 import { resolveOrCreateLead } from "../../src/lib/leads-registry.js";
 
+/** Helper: convert camelCase buffer row to snake_case raw SQL row (as returned by pgSql) */
+function toClaimedRow(row: {
+  id: string;
+  namespace: string;
+  campaignId: string;
+  email: string;
+  externalId: string | null;
+  data: unknown;
+  status?: string;
+  pushRunId?: string | null;
+  brandId: string;
+  orgId: string;
+  userId: string | null;
+  createdAt?: Date;
+}) {
+  return {
+    id: row.id,
+    namespace: row.namespace,
+    campaign_id: row.campaignId,
+    email: row.email,
+    external_id: row.externalId,
+    data: row.data,
+    status: "claimed",
+    push_run_id: row.pushRunId ?? null,
+    brand_id: row.brandId,
+    org_id: row.orgId,
+    user_id: row.userId,
+    created_at: row.createdAt ?? new Date(),
+  };
+}
+
 describe("buffer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Reset default mocks
+    pgSqlMock.mockResolvedValue([]);
     vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
     vi.mocked(resolveOrCreateLead).mockResolvedValue({ leadId: "lead-uuid-1", isNew: true });
   });
 
   describe("pullNext", () => {
     it("returns found: false when buffer is empty", async () => {
-      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue(undefined);
+      pgSqlMock.mockResolvedValue([]);
 
       const result = await pullNext({
         orgId: "org-1",
@@ -74,20 +112,17 @@ describe("buffer", () => {
     });
 
     it("returns a lead with leadId and marks it served", async () => {
-      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue({
+      pgSqlMock.mockResolvedValue([toClaimedRow({
         id: "buf-1",
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "alice@acme.com",
         externalId: "e-1",
         data: { name: "Alice" },
-        status: "buffered",
-        pushRunId: null,
         brandId: "brand-1",
         orgId: "org-1",
         userId: null,
-        createdAt: new Date(),
-      });
+      })]);
 
       // email-gateway: not delivered
       vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
@@ -128,20 +163,17 @@ describe("buffer", () => {
         organizationIndustry: "information technology & services",
       };
 
-      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue({
+      pgSqlMock.mockResolvedValue([toClaimedRow({
         id: "buf-1",
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "svitlana@hashtagweb3.com",
         externalId: "e-1",
         data: apolloData,
-        status: "buffered",
-        pushRunId: null,
         brandId: "brand-1",
         orgId: "org-1",
         userId: null,
-        createdAt: new Date(),
-      });
+      })]);
 
       vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
 
@@ -167,35 +199,29 @@ describe("buffer", () => {
     });
 
     it("skips already-delivered buffer rows and tries next", async () => {
-      vi.mocked(db.query.leadBuffer.findFirst)
-        .mockResolvedValueOnce({
+      pgSqlMock
+        .mockResolvedValueOnce([toClaimedRow({
           id: "buf-1",
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "alice@acme.com",
           externalId: "e-1",
           data: { name: "Alice" },
-          status: "buffered",
-          pushRunId: null,
           brandId: "brand-1",
           orgId: "org-1",
           userId: null,
-          createdAt: new Date(),
-        })
-        .mockResolvedValueOnce({
+        })])
+        .mockResolvedValueOnce([toClaimedRow({
           id: "buf-2",
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "bob@acme.com",
           externalId: "e-2",
           data: { name: "Bob" },
-          status: "buffered",
-          pushRunId: null,
           brandId: "brand-1",
           orgId: "org-1",
           userId: null,
-          createdAt: new Date(),
-        });
+        })]);
 
       // First lead: delivered, second lead: not delivered
       vi.mocked(checkDeliveryStatus)
@@ -213,8 +239,8 @@ describe("buffer", () => {
         })
         .mockResolvedValueOnce({ results: [] });
 
-      const { isDelivered } = await import("../../src/lib/email-gateway-client.js");
-      vi.mocked(isDelivered)
+      const { isContacted } = await import("../../src/lib/email-gateway-client.js");
+      vi.mocked(isContacted)
         .mockReturnValueOnce(true)   // alice: delivered
         .mockReturnValueOnce(false); // bob: not delivered (no results)
 
@@ -244,25 +270,24 @@ describe("buffer", () => {
     });
 
     it("fills buffer from apolloSearchNext when buffer empty and searchParams provided", async () => {
-      const newLeadRow = {
+      const newLeadRow = toClaimedRow({
         id: "buf-new",
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "new-lead@example.com",
         externalId: "apollo-1",
         data: { firstName: "New" },
-        status: "buffered",
-        pushRunId: null,
         brandId: "brand-1",
         orgId: "org-1",
         userId: null,
-        createdAt: new Date(),
-      };
+      });
+
+      pgSqlMock
+        .mockResolvedValueOnce([])          // pullNext: buffer empty (claim returns nothing)
+        .mockResolvedValueOnce([newLeadRow]); // pullNext retry: claimed new lead
 
       vi.mocked(db.query.leadBuffer.findFirst)
-        .mockResolvedValueOnce(undefined)   // pullNext buffer empty
-        .mockResolvedValueOnce(undefined)   // isInBuffer → not in buffer
-        .mockResolvedValueOnce(newLeadRow); // pullNext buffer → new lead
+        .mockResolvedValueOnce(undefined);   // isInBuffer → not in buffer
 
       vi.mocked(apolloSearchParams).mockResolvedValue({ searchParams: { personTitles: ["CEO"] }, totalResults: 100, attempts: 1 });
 
@@ -305,7 +330,7 @@ describe("buffer", () => {
       // Scenario: Apollo search returns sparse person data (no lastName).
       // Enrichment cache has full data (with lastName). fillBufferFromSearch should
       // merge the enriched data so pullNext returns complete lead.data.
-      const enrichedLeadRow = {
+      const enrichedLeadRow = toClaimedRow({
         id: "buf-enriched",
         namespace: "campaign-1",
         campaignId: "campaign-1",
@@ -319,18 +344,17 @@ describe("buffer", () => {
           organizationName: "Braven",
           title: "Managing Director",
         },
-        status: "buffered",
-        pushRunId: null,
         brandId: "brand-1",
         orgId: "org-1",
         userId: null,
-        createdAt: new Date(),
-      };
+      });
+
+      pgSqlMock
+        .mockResolvedValueOnce([])              // pullNext: buffer empty
+        .mockResolvedValueOnce([enrichedLeadRow]); // pullNext retry: merged lead
 
       vi.mocked(db.query.leadBuffer.findFirst)
-        .mockResolvedValueOnce(undefined)     // pullNext: buffer empty
-        .mockResolvedValueOnce(undefined)     // isInBuffer → not found
-        .mockResolvedValueOnce(enrichedLeadRow); // pullNext retry: merged lead
+        .mockResolvedValueOnce(undefined);     // isInBuffer → not found
 
       vi.mocked(apolloSearchParams).mockResolvedValue({ searchParams: { personTitles: ["Director"] }, totalResults: 50, attempts: 1 });
 
@@ -393,7 +417,7 @@ describe("buffer", () => {
     });
 
     it("returns found: false when Apollo returns done: true with 0 people", async () => {
-      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue(undefined);
+      pgSqlMock.mockResolvedValue([]);
 
       vi.mocked(apolloSearchParams).mockResolvedValue({ searchParams: { personTitles: ["CEO"] }, totalResults: 100, attempts: 1 });
 
@@ -417,20 +441,17 @@ describe("buffer", () => {
     });
 
     it("uses cached enrichment instead of calling apolloEnrich", async () => {
-      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue({
+      pgSqlMock.mockResolvedValue([toClaimedRow({
         id: "buf-1",
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "",
         externalId: "apollo-person-1",
         data: { firstName: "Ray" },
-        status: "buffered",
-        pushRunId: null,
         brandId: "brand-1",
         orgId: "org-1",
         userId: null,
-        createdAt: new Date(),
-      });
+      })]);
 
       vi.mocked(db.query.enrichments.findFirst).mockResolvedValue({
         id: "enrich-1",
@@ -474,35 +495,29 @@ describe("buffer", () => {
     });
 
     it("skips enrichment when cache has no-email entry for person", async () => {
-      vi.mocked(db.query.leadBuffer.findFirst)
-        .mockResolvedValueOnce({
+      pgSqlMock
+        .mockResolvedValueOnce([toClaimedRow({
           id: "buf-1",
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "",
           externalId: "known-no-email",
           data: { firstName: "Ghost" },
-          status: "buffered",
-          pushRunId: null,
           brandId: "brand-1",
           orgId: "org-1",
           userId: null,
-          createdAt: new Date(),
-        })
-        .mockResolvedValueOnce({
+        })])
+        .mockResolvedValueOnce([toClaimedRow({
           id: "buf-2",
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "bob@acme.com",
           externalId: "e-2",
           data: { name: "Bob" },
-          status: "buffered",
-          pushRunId: null,
           brandId: "brand-1",
           orgId: "org-1",
           userId: null,
-          createdAt: new Date(),
-        });
+        })]);
 
       vi.mocked(db.query.enrichments.findFirst).mockResolvedValueOnce({
         id: "e-1", email: null, apolloPersonId: "known-no-email",
@@ -536,25 +551,24 @@ describe("buffer", () => {
     });
 
     it("passes workflowName to apolloSearchParams, apolloSearchNext, and apolloEnrich", async () => {
-      const newLeadRow = {
+      const newLeadRow = toClaimedRow({
         id: "buf-wf",
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "",
         externalId: "apollo-wf-1",
         data: { firstName: "Workflow" },
-        status: "buffered",
-        pushRunId: null,
         brandId: "brand-1",
         orgId: "org-1",
         userId: null,
-        createdAt: new Date(),
-      };
+      });
+
+      pgSqlMock
+        .mockResolvedValueOnce([])          // pullNext: buffer empty
+        .mockResolvedValueOnce([newLeadRow]); // pullNext retry: claimed new lead
 
       vi.mocked(db.query.leadBuffer.findFirst)
-        .mockResolvedValueOnce(undefined)    // pullNext buffer empty
-        .mockResolvedValueOnce(undefined)    // isInBuffer → not in buffer
-        .mockResolvedValueOnce(newLeadRow);  // pullNext buffer → new lead
+        .mockResolvedValueOnce(undefined);    // isInBuffer → not in buffer
 
       vi.mocked(apolloSearchParams).mockResolvedValue({
         searchParams: { personTitles: ["CEO"] }, totalResults: 100, attempts: 1,
@@ -610,20 +624,17 @@ describe("buffer", () => {
     });
 
     it("always includes email in data even when data.email is null (DAG reads data.email)", async () => {
-      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue({
+      pgSqlMock.mockResolvedValue([toClaimedRow({
         id: "buf-1",
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "torian@theorion.com",
         externalId: "e-1",
         data: { firstName: "Torian", email: null, title: "Director" },
-        status: "buffered",
-        pushRunId: null,
         brandId: "brand-1",
         orgId: "org-1",
         userId: null,
-        createdAt: new Date(),
-      });
+      })]);
 
       vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
 
@@ -653,22 +664,19 @@ describe("buffer", () => {
     });
 
     it("skips buffer rows with no email and no externalId (never returns found: true with empty email)", async () => {
-      vi.mocked(db.query.leadBuffer.findFirst)
-        .mockResolvedValueOnce({
+      pgSqlMock
+        .mockResolvedValueOnce([toClaimedRow({
           id: "buf-no-email",
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "",
           externalId: null,
           data: { name: "Ghost" },
-          status: "buffered",
-          pushRunId: null,
           brandId: "brand-1",
           orgId: "org-1",
           userId: null,
-          createdAt: new Date(),
-        })
-        .mockResolvedValueOnce(undefined); // no more rows
+        })])
+        .mockResolvedValueOnce([]); // no more rows
 
       const setMock = vi.fn().mockReturnValue({
         where: vi.fn().mockResolvedValue(undefined),
@@ -687,35 +695,29 @@ describe("buffer", () => {
     });
 
     it("skips lead with no email after failed enrichment and serves next lead", async () => {
-      vi.mocked(db.query.leadBuffer.findFirst)
-        .mockResolvedValueOnce({
+      pgSqlMock
+        .mockResolvedValueOnce([toClaimedRow({
           id: "buf-no-email",
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "",
           externalId: "apollo-no-email",
           data: { name: "NoEmail" },
-          status: "buffered",
-          pushRunId: null,
           brandId: "brand-1",
           orgId: "org-1",
           userId: null,
-          createdAt: new Date(),
-        })
-        .mockResolvedValueOnce({
+        })])
+        .mockResolvedValueOnce([toClaimedRow({
           id: "buf-good",
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "good@acme.com",
           externalId: "e-good",
           data: { name: "Good" },
-          status: "buffered",
-          pushRunId: null,
           brandId: "brand-1",
           orgId: "org-1",
           userId: null,
-          createdAt: new Date(),
-        });
+        })]);
 
       // Enrichment returns no email
       vi.mocked(db.query.enrichments.findFirst).mockResolvedValueOnce(undefined);
@@ -746,20 +748,17 @@ describe("buffer", () => {
     });
 
     it("continues when email-gateway is unreachable (fallback)", async () => {
-      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue({
+      pgSqlMock.mockResolvedValue([toClaimedRow({
         id: "buf-1",
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "alice@acme.com",
         externalId: "e-1",
         data: { name: "Alice" },
-        status: "buffered",
-        pushRunId: null,
         brandId: "brand-1",
         orgId: "org-1",
         userId: null,
-        createdAt: new Date(),
-      });
+      })]);
 
       // email-gateway is unreachable
       vi.mocked(checkDeliveryStatus).mockResolvedValue(null);
@@ -783,6 +782,71 @@ describe("buffer", () => {
       // Should still serve the lead (fallback: not delivered)
       expect(result.found).toBe(true);
       expect(result.lead?.email).toBe("alice@acme.com");
+    });
+
+    it("skips lead when markServed returns inserted: false (race condition dedup)", async () => {
+      // Regression test: two concurrent pullNext calls claim different rows
+      // but both have the same email. The second call's markServed returns
+      // inserted: false due to the unique index — it should skip and serve the next lead.
+      pgSqlMock
+        .mockResolvedValueOnce([toClaimedRow({
+          id: "buf-dup",
+          namespace: "campaign-1",
+          campaignId: "campaign-1",
+          email: "jserra@elkisconstruction.com",
+          externalId: "e-dup",
+          data: { name: "J Serra" },
+          brandId: "brand-1",
+          orgId: "org-1",
+          userId: null,
+        })])
+        .mockResolvedValueOnce([toClaimedRow({
+          id: "buf-next",
+          namespace: "campaign-1",
+          campaignId: "campaign-1",
+          email: "unique@other.com",
+          externalId: "e-next",
+          data: { name: "Unique" },
+          brandId: "brand-1",
+          orgId: "org-1",
+          userId: null,
+        })]);
+
+      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
+
+      vi.mocked(resolveOrCreateLead)
+        .mockResolvedValueOnce({ leadId: "lead-dup", isNew: false })
+        .mockResolvedValueOnce({ leadId: "lead-next", isNew: true });
+
+      // First markServed: conflict (another request already served this email)
+      // Second markServed: success
+      const returningMockEmpty = vi.fn().mockResolvedValueOnce([]);
+      const onConflictMockEmpty = vi.fn().mockReturnValue({ returning: returningMockEmpty });
+
+      const returningMockSuccess = vi.fn().mockResolvedValueOnce([{ id: "served-next" }]);
+      const onConflictMockSuccess = vi.fn().mockReturnValue({ returning: returningMockSuccess });
+
+      const valuesMock = vi.fn()
+        .mockReturnValueOnce({ onConflictDoNothing: onConflictMockEmpty })     // markServed → conflict
+        .mockReturnValueOnce({ onConflictDoNothing: onConflictMockSuccess });  // markServed → success
+
+      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
+
+      const setMock = vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(undefined),
+      });
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
+
+      const result = await pullNext({
+        orgId: "org-1",
+        campaignId: "campaign-1",
+        brandId: "brand-1",
+      });
+
+      // Should skip the duplicate and serve the next lead
+      expect(result.found).toBe(true);
+      expect(result.lead?.email).toBe("unique@other.com");
+      expect(result.lead?.leadId).toBe("lead-next");
     });
   });
 });

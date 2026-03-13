@@ -9,7 +9,7 @@ import {
   TEST_API_KEY,
 } from "./setup.js";
 import { createRun } from "../../src/lib/runs-client.js";
-import { checkDeliveryStatus, isDelivered } from "../../src/lib/email-gateway-client.js";
+import { checkDeliveryStatus, isContacted } from "../../src/lib/email-gateway-client.js";
 
 vi.mock("../../src/lib/runs-client.js", () => ({
   createRun: vi.fn().mockResolvedValue({ id: "mock-run-id" }),
@@ -19,7 +19,7 @@ vi.mock("../../src/lib/runs-client.js", () => ({
 
 vi.mock("../../src/lib/email-gateway-client.js", () => ({
   checkDeliveryStatus: vi.fn().mockResolvedValue({ results: [] }),
-  isDelivered: vi.fn().mockReturnValue(false),
+  isContacted: vi.fn().mockReturnValue(false),
 }));
 
 describe("API Integration Tests", () => {
@@ -186,7 +186,7 @@ describe("API Integration Tests", () => {
         })
         .mockResolvedValue({ results: [] });
 
-      vi.mocked(isDelivered)
+      vi.mocked(isContacted)
         .mockReturnValueOnce(true)
         .mockReturnValue(false);
 
@@ -200,7 +200,7 @@ describe("API Integration Tests", () => {
 
       // Reset mocks for subsequent tests
       vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
-      vi.mocked(isDelivered).mockReturnValue(false);
+      vi.mocked(isContacted).mockReturnValue(false);
     }, 10000);
   });
 
