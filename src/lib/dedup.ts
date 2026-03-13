@@ -2,17 +2,17 @@ import { db } from "../db/index.js";
 import { servedLeads } from "../db/schema.js";
 import {
   checkDeliveryStatus,
-  isDelivered,
+  isContacted,
   type DeliveryStatusItem,
 } from "./email-gateway-client.js";
 
 /**
- * Check if items have been delivered via email-gateway.
- * Returns a Map of email -> boolean (delivered or not).
+ * Check if items have already been contacted via email-gateway.
+ * Returns a Map of email -> boolean (contacted or not).
  * Falls back to all-false if email-gateway is unreachable —
  * the downstream /send endpoint has its own idempotency.
  */
-export async function checkDelivered(
+export async function checkContacted(
   brandId: string,
   campaignId: string,
   items: DeliveryStatusItem[],
@@ -24,11 +24,11 @@ export async function checkDelivered(
 
   if (statusResponse) {
     for (const sr of statusResponse.results) {
-      result.set(sr.email, isDelivered(sr));
+      result.set(sr.email, isContacted(sr));
     }
   } else {
     console.warn(
-      "[dedup] email-gateway unreachable, proceeding without delivery check"
+      "[dedup] email-gateway unreachable, proceeding without contacted check"
     );
     for (const item of items) {
       result.set(item.email, false);

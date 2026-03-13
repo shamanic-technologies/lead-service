@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   checkDeliveryStatus,
-  isDelivered,
+  isContacted,
   type StatusResult,
   type ProviderStatus,
 } from "../../src/lib/email-gateway-client.js";
@@ -136,7 +136,7 @@ describe("email-gateway-client", () => {
     });
   });
 
-  describe("isDelivered", () => {
+  describe("isContacted", () => {
     const emptyScoped = {
       lead: { contacted: false, delivered: false, replied: false, lastDeliveredAt: null },
       email: { contacted: false, delivered: false, bounced: false, unsubscribed: false, lastDeliveredAt: null },
@@ -159,12 +159,12 @@ describe("email-gateway-client", () => {
         broadcast: emptyProvider,
         transactional: emptyProvider,
       };
-      expect(isDelivered(result)).toBe(false);
+      expect(isContacted(result)).toBe(false);
     });
 
     it("returns false when no providers present", () => {
       const result: StatusResult = { leadId: "lead-1", email: "alice@acme.com" };
-      expect(isDelivered(result)).toBe(false);
+      expect(isContacted(result)).toBe(false);
     });
 
     it("returns true when broadcast campaign lead is contacted", () => {
@@ -179,7 +179,7 @@ describe("email-gateway-client", () => {
           },
         },
       };
-      expect(isDelivered(result)).toBe(true);
+      expect(isContacted(result)).toBe(true);
     });
 
     it("returns true when broadcast brand lead is contacted", () => {
@@ -194,7 +194,7 @@ describe("email-gateway-client", () => {
           },
         },
       };
-      expect(isDelivered(result)).toBe(true);
+      expect(isContacted(result)).toBe(true);
     });
 
     it("returns true when transactional global email is contacted", () => {
@@ -208,7 +208,7 @@ describe("email-gateway-client", () => {
           },
         },
       };
-      expect(isDelivered(result)).toBe(true);
+      expect(isContacted(result)).toBe(true);
     });
 
     it("returns true when broadcast global email is contacted", () => {
@@ -222,7 +222,7 @@ describe("email-gateway-client", () => {
           },
         },
       };
-      expect(isDelivered(result)).toBe(true);
+      expect(isContacted(result)).toBe(true);
     });
   });
 });

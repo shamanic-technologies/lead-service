@@ -10,14 +10,14 @@ vi.mock("../../src/db/index.js", () => ({
 // Mock the email-gateway-client module
 vi.mock("../../src/lib/email-gateway-client.js", () => ({
   checkDeliveryStatus: vi.fn(),
-  isDelivered: vi.fn(),
+  isContacted: vi.fn(),
 }));
 
 import { db } from "../../src/db/index.js";
-import { checkDelivered, markServed } from "../../src/lib/dedup.js";
+import { checkContacted, markServed } from "../../src/lib/dedup.js";
 import {
   checkDeliveryStatus,
-  isDelivered,
+  isContacted,
 } from "../../src/lib/email-gateway-client.js";
 
 describe("dedup", () => {
@@ -25,16 +25,16 @@ describe("dedup", () => {
     vi.clearAllMocks();
   });
 
-  describe("checkDelivered", () => {
-    it("returns delivered=true for emails that email-gateway reports as delivered", async () => {
+  describe("checkContacted", () => {
+    it("returns contacted=true for emails that email-gateway reports as contacted", async () => {
       vi.mocked(checkDeliveryStatus).mockResolvedValue({
         results: [
           { leadId: "lead-1", email: "alice@acme.com" } as never,
         ],
       });
-      vi.mocked(isDelivered).mockReturnValue(true);
+      vi.mocked(isContacted).mockReturnValue(true);
 
-      const result = await checkDelivered("brand-1", "campaign-1", [
+      const result = await checkContacted("brand-1", "campaign-1", [
         { leadId: "lead-1", email: "alice@acme.com" },
       ]);
 
@@ -44,15 +44,15 @@ describe("dedup", () => {
       ], undefined);
     });
 
-    it("returns delivered=false for emails not yet delivered", async () => {
+    it("returns contacted=false for emails not yet contacted", async () => {
       vi.mocked(checkDeliveryStatus).mockResolvedValue({
         results: [
           { leadId: "lead-1", email: "bob@acme.com" } as never,
         ],
       });
-      vi.mocked(isDelivered).mockReturnValue(false);
+      vi.mocked(isContacted).mockReturnValue(false);
 
-      const result = await checkDelivered("brand-1", "campaign-1", [
+      const result = await checkContacted("brand-1", "campaign-1", [
         { leadId: "lead-1", email: "bob@acme.com" },
       ]);
 
@@ -62,7 +62,7 @@ describe("dedup", () => {
     it("returns all-false when email-gateway is unreachable (null response)", async () => {
       vi.mocked(checkDeliveryStatus).mockResolvedValue(null);
 
-      const result = await checkDelivered("brand-1", "campaign-1", [
+      const result = await checkContacted("brand-1", "campaign-1", [
         { leadId: "lead-1", email: "alice@acme.com" },
         { leadId: "lead-2", email: "bob@acme.com" },
       ]);
@@ -78,11 +78,11 @@ describe("dedup", () => {
           { leadId: "lead-2", email: "bob@acme.com" } as never,
         ],
       });
-      vi.mocked(isDelivered)
+      vi.mocked(isContacted)
         .mockReturnValueOnce(true)
         .mockReturnValueOnce(false);
 
-      const result = await checkDelivered("brand-1", "campaign-1", [
+      const result = await checkContacted("brand-1", "campaign-1", [
         { leadId: "lead-1", email: "alice@acme.com" },
         { leadId: "lead-2", email: "bob@acme.com" },
       ]);

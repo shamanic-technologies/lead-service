@@ -1,7 +1,7 @@
 import { eq, and, sql } from "drizzle-orm";
-import { db } from "../db/index.js";
+import { db, sql as pgSql } from "../db/index.js";
 import { leadBuffer, enrichments } from "../db/schema.js";
-import { checkDelivered, markServed } from "./dedup.js";
+import { checkContacted, markServed } from "./dedup.js";
 import { resolveOrCreateLead, findLeadByApolloPersonId } from "./leads-registry.js";
 import { apolloSearchNext, apolloEnrich, apolloSearchParams, type ApolloSearchParams } from "./apollo-client.js";
 import { fetchCampaign } from "./campaign-client.js";
@@ -139,14 +139,14 @@ async function fillBufferFromSearch(params: {
       candidates.push({ data, externalId: person.id, email, leadId });
     }
 
-    // Batch delivery check for candidates with emails and leadIds
+    // Batch contacted check for candidates with emails and leadIds
     const itemsWithEmails = candidates
       .filter((c): c is typeof c & { email: string; leadId: string } => !!c.email && !!c.leadId)
       .map((c) => ({ email: c.email, leadId: c.leadId }));
 
-    const deliveredMap =
+    const contactedMap =
       itemsWithEmails.length > 0
-        ? await checkDelivered(params.brandId, params.campaignId, itemsWithEmails, {
+        ? await checkContacted(params.brandId, params.campaignId, itemsWithEmails, {
             orgId: params.orgId,
             userId: params.userId ?? undefined,
             runId: params.pushRunId ?? undefined,
@@ -156,7 +156,7 @@ async function fillBufferFromSearch(params: {
     let pageFilled = 0;
 
     for (const { data, externalId, email } of candidates) {
-      if (email && deliveredMap.get(email)) continue;
+      if (email && contactedMap.get(email)) continue;
 
       await db.insert(leadBuffer).values({
         namespace: params.campaignId,
@@ -222,14 +222,37 @@ export async function pullNext(params: {
       console.warn(`[pullNext] Hit MAX_ITERATIONS (${MAX_ITERATIONS}), giving up`);
       return { found: false };
     }
-    const row = await db.query.leadBuffer.findFirst({
-      where: and(
-        eq(leadBuffer.orgId, params.orgId),
-        eq(leadBuffer.namespace, params.campaignId),
-        eq(leadBuffer.status, "buffered")
-      ),
-      orderBy: [sql`CASE WHEN ${leadBuffer.email} != '' THEN 0 ELSE 1 END`],
-    });
+    // Use FOR UPDATE SKIP LOCKED to atomically claim a buffer row,
+    // preventing concurrent pullNext calls from picking the same lead.
+    const claimedRows = await pgSql`
+      UPDATE lead_buffer
+      SET status = 'claimed'
+      WHERE id = (
+        SELECT id FROM lead_buffer
+        WHERE org_id = ${params.orgId}
+          AND namespace = ${params.campaignId}
+          AND status = 'buffered'
+        ORDER BY CASE WHEN email != '' THEN 0 ELSE 1 END
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      )
+      RETURNING *
+    `;
+
+    const row = claimedRows.length > 0 ? {
+      id: claimedRows[0].id as string,
+      namespace: claimedRows[0].namespace as string,
+      campaignId: claimedRows[0].campaign_id as string,
+      email: claimedRows[0].email as string,
+      externalId: claimedRows[0].external_id as string | null,
+      data: claimedRows[0].data as unknown,
+      status: claimedRows[0].status as string,
+      pushRunId: claimedRows[0].push_run_id as string | null,
+      brandId: claimedRows[0].brand_id as string | null,
+      orgId: claimedRows[0].org_id as string,
+      userId: claimedRows[0].user_id as string | null,
+      createdAt: claimedRows[0].created_at as Date,
+    } : null;
 
     if (!row) {
       // Buffer empty - try to fill from search if searchParams provided
@@ -352,8 +375,8 @@ export async function pullNext(params: {
       metadata: enrichedData,
     });
 
-    // Check delivery status via email-gateway
-    const deliveredMap = await checkDelivered(params.brandId, params.campaignId, [
+    // Check contacted status via email-gateway
+    const contactedMap = await checkContacted(params.brandId, params.campaignId, [
       { leadId, email },
     ], {
       orgId: params.orgId,
@@ -361,7 +384,7 @@ export async function pullNext(params: {
       runId: params.runId ?? undefined,
     });
 
-    if (deliveredMap.get(email)) {
+    if (contactedMap.get(email)) {
       await db
         .update(leadBuffer)
         .set({ status: "skipped" })
@@ -369,7 +392,7 @@ export async function pullNext(params: {
       continue;
     }
 
-    await markServed({
+    const { inserted } = await markServed({
       orgId: params.orgId,
       namespace: params.campaignId,
       brandId: params.brandId,
@@ -381,6 +404,16 @@ export async function pullNext(params: {
       runId: params.runId ?? null,
       userId: row.userId,
     });
+
+    if (!inserted) {
+      // Another request already served this email for this org+brand — skip
+      console.log(`[pullNext] markServed conflict for ${email}, already served — skipping`);
+      await db
+        .update(leadBuffer)
+        .set({ status: "skipped" })
+        .where(eq(leadBuffer.id, row.id));
+      continue;
+    }
 
     await db
       .update(leadBuffer)
