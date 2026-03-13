@@ -50,11 +50,9 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
 
 if (process.env.NODE_ENV !== "test") {
   migrate(db, { migrationsFolder: "./drizzle" })
-    .then(() => {
+    .then(async () => {
       console.log("Migrations complete");
-      registerProviders().catch((err) =>
-        console.warn("[startup] Provider registration failed (non-fatal):", err)
-      );
+      await registerProviders();
       const server = app.listen(Number(PORT), "::", () => {
         console.log(`lead-service running on port ${PORT}`);
       });
