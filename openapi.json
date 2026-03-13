@@ -689,6 +689,33 @@
               "type": "string"
             },
             "description": "The caller's run ID (used as parentRunId when creating this service's own run)"
+          },
+          {
+            "in": "header",
+            "name": "x-campaign-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Campaign identifier (auto-injected by workflow-service)"
+          },
+          {
+            "in": "header",
+            "name": "x-brand-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Brand identifier (auto-injected by workflow-service)"
+          },
+          {
+            "in": "header",
+            "name": "x-workflow-name",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Workflow name (auto-injected by workflow-service)"
           }
         ],
         "requestBody": {
@@ -768,6 +795,33 @@
             "description": "The caller's run ID (used as parentRunId when creating this service's own run)"
           },
           {
+            "in": "header",
+            "name": "x-campaign-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Campaign identifier (auto-injected by workflow-service)"
+          },
+          {
+            "in": "header",
+            "name": "x-brand-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Brand identifier (auto-injected by workflow-service)"
+          },
+          {
+            "in": "header",
+            "name": "x-workflow-name",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Workflow name (auto-injected by workflow-service)"
+          },
+          {
             "schema": {
               "type": "string"
             },
@@ -830,6 +884,33 @@
               "type": "string"
             },
             "description": "The caller's run ID (used as parentRunId when creating this service's own run)"
+          },
+          {
+            "in": "header",
+            "name": "x-campaign-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Campaign identifier (auto-injected by workflow-service)"
+          },
+          {
+            "in": "header",
+            "name": "x-brand-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Brand identifier (auto-injected by workflow-service)"
+          },
+          {
+            "in": "header",
+            "name": "x-workflow-name",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Workflow name (auto-injected by workflow-service)"
           },
           {
             "schema": {
@@ -915,6 +996,33 @@
               "type": "string"
             },
             "description": "The caller's run ID (used as parentRunId when creating this service's own run)"
+          },
+          {
+            "in": "header",
+            "name": "x-campaign-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Campaign identifier (auto-injected by workflow-service)"
+          },
+          {
+            "in": "header",
+            "name": "x-brand-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Brand identifier (auto-injected by workflow-service)"
+          },
+          {
+            "in": "header",
+            "name": "x-workflow-name",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Workflow name (auto-injected by workflow-service)"
           },
           {
             "in": "query",
@@ -1006,6 +1114,33 @@
               "type": "string"
             },
             "description": "The caller's run ID (used as parentRunId when creating this service's own run)"
+          },
+          {
+            "in": "header",
+            "name": "x-campaign-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Campaign identifier (auto-injected by workflow-service)"
+          },
+          {
+            "in": "header",
+            "name": "x-brand-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Brand identifier (auto-injected by workflow-service)"
+          },
+          {
+            "in": "header",
+            "name": "x-workflow-name",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Workflow name (auto-injected by workflow-service)"
           },
           {
             "in": "query",

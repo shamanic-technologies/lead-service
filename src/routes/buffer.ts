@@ -32,7 +32,10 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
   }
 
   try {
-    const { campaignId, brandId, searchParams, userId, workflowName, idempotencyKey } = parsed.data;
+    const { campaignId, brandId, searchParams, userId, idempotencyKey } = parsed.data;
+
+    // Body workflowName takes precedence; fall back to header injected by workflow-service
+    const workflowName = parsed.data.workflowName ?? req.workflowName;
 
     // Idempotency: return cached response if this key was already processed
     if (idempotencyKey) {
@@ -84,7 +87,13 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
     }
 
     try {
-      await updateRun(serveRunId, "completed", { orgId: req.orgId, userId: req.userId });
+      await updateRun(serveRunId, "completed", {
+        orgId: req.orgId,
+        userId: req.userId,
+        campaignId,
+        brandId,
+        workflowName,
+      });
     } catch (err) {
       console.error("[buffer/next] Failed to update run:", err);
     }

@@ -29,7 +29,13 @@ async function fillBufferFromSearch(params: {
   userId?: string | null;
   workflowName?: string;
 }): Promise<{ filled: number }> {
-  const serviceContext = { userId: params.userId ?? undefined, runId: params.pushRunId ?? undefined };
+  const serviceContext = {
+    userId: params.userId ?? undefined,
+    runId: params.pushRunId ?? undefined,
+    campaignId: params.campaignId,
+    brandId: params.brandId,
+    workflowName: params.workflowName,
+  };
 
   // Fetch campaign + brand details in parallel for rich LLM context
   const [campaign, brand] = await Promise.all([
@@ -150,6 +156,9 @@ async function fillBufferFromSearch(params: {
             orgId: params.orgId,
             userId: params.userId ?? undefined,
             runId: params.pushRunId ?? undefined,
+            campaignId: params.campaignId,
+            brandId: params.brandId,
+            workflowName: params.workflowName,
           })
         : new Map<string, boolean>();
 
@@ -169,6 +178,7 @@ async function fillBufferFromSearch(params: {
         brandId: params.brandId,
         orgId: params.orgId,
         userId: params.userId ?? null,
+        workflowName: params.workflowName ?? null,
       });
       pageFilled++;
     }
@@ -382,6 +392,9 @@ export async function pullNext(params: {
       orgId: params.orgId,
       userId: params.userId ?? undefined,
       runId: params.runId ?? undefined,
+      campaignId: params.campaignId,
+      brandId: params.brandId,
+      workflowName: params.workflowName,
     });
 
     if (contactedMap.get(email)) {
@@ -403,6 +416,7 @@ export async function pullNext(params: {
       metadata: enrichedData,
       runId: params.runId ?? null,
       userId: row.userId,
+      workflowName: params.workflowName ?? null,
     });
 
     if (!inserted) {

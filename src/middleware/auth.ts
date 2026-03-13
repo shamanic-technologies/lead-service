@@ -4,6 +4,9 @@ export interface AuthenticatedRequest extends Request {
   orgId?: string;
   userId?: string;
   runId?: string;
+  campaignId?: string;
+  brandId?: string;
+  workflowName?: string;
 }
 
 export async function authenticate(
@@ -28,6 +31,15 @@ export async function authenticate(
     req.orgId = orgId;
     req.userId = userId;
     req.runId = runId;
+
+    // Optional workflow tracking headers (injected by workflow-service)
+    const campaignId = req.headers["x-campaign-id"] as string | undefined;
+    const brandId = req.headers["x-brand-id"] as string | undefined;
+    const workflowName = req.headers["x-workflow-name"] as string | undefined;
+    if (campaignId) req.campaignId = campaignId;
+    if (brandId) req.brandId = brandId;
+    if (workflowName) req.workflowName = workflowName;
+
     next();
   } catch (error) {
     console.error("[auth] Error:", error);
