@@ -3,6 +3,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
+// Set env vars before importing modules that read them
+vi.stubEnv("KEY_SERVICE_URL", "http://key-service:3001");
+vi.stubEnv("KEY_SERVICE_API_KEY", "test-key-service-api-key");
+
 import { queryProviderRequirements, registerProviderRequirement } from "../../src/lib/key-service-client.js";
 import { registerProviders } from "../../src/lib/register-providers.js";
 
@@ -13,6 +17,28 @@ describe("key-service-client", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  describe("env var guard", () => {
+    it("throws when KEY_SERVICE_URL is missing", async () => {
+      vi.stubEnv("KEY_SERVICE_URL", "");
+
+      await expect(
+        queryProviderRequirements([{ service: "apollo", method: "POST", path: "/search" }])
+      ).rejects.toThrow("KEY_SERVICE_URL and KEY_SERVICE_API_KEY must be set");
+
+      vi.stubEnv("KEY_SERVICE_URL", "http://key-service:3001");
+    });
+
+    it("throws when KEY_SERVICE_API_KEY is missing", async () => {
+      vi.stubEnv("KEY_SERVICE_API_KEY", "");
+
+      await expect(
+        registerProviderRequirement("apollo", "lead", "POST", "/buffer/next")
+      ).rejects.toThrow("KEY_SERVICE_URL and KEY_SERVICE_API_KEY must be set");
+
+      vi.stubEnv("KEY_SERVICE_API_KEY", "test-key-service-api-key");
+    });
   });
 
   describe("queryProviderRequirements", () => {

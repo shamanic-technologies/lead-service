@@ -1,5 +1,11 @@
-const KEY_SERVICE_URL = process.env.KEY_SERVICE_URL || "http://localhost:3001";
-const KEY_SERVICE_API_KEY = process.env.KEY_SERVICE_API_KEY || "";
+function getKeyServiceConfig() {
+  const url = process.env.KEY_SERVICE_URL;
+  const apiKey = process.env.KEY_SERVICE_API_KEY;
+  if (!url || !apiKey) {
+    throw new Error("KEY_SERVICE_URL and KEY_SERVICE_API_KEY must be set");
+  }
+  return { url, apiKey };
+}
 
 export interface ProviderRequirement {
   service: string;
@@ -16,11 +22,12 @@ export interface ProviderRequirementsResponse {
 export async function queryProviderRequirements(
   endpoints: Array<{ service: string; method: string; path: string }>
 ): Promise<ProviderRequirementsResponse> {
-  const response = await fetch(`${KEY_SERVICE_URL}/provider-requirements`, {
+  const { url, apiKey } = getKeyServiceConfig();
+  const response = await fetch(`${url}/provider-requirements`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-API-Key": KEY_SERVICE_API_KEY,
+      "X-API-Key": apiKey,
     },
     body: JSON.stringify({ endpoints }),
   });
@@ -39,10 +46,11 @@ export async function registerProviderRequirement(
   callerMethod: string,
   callerPath: string
 ): Promise<void> {
-  const response = await fetch(`${KEY_SERVICE_URL}/keys/platform/${provider}/decrypt`, {
+  const { url, apiKey } = getKeyServiceConfig();
+  const response = await fetch(`${url}/keys/platform/${provider}/decrypt`, {
     method: "GET",
     headers: {
-      "X-API-Key": KEY_SERVICE_API_KEY,
+      "X-API-Key": apiKey,
       "x-caller-service": callerService,
       "x-caller-method": callerMethod,
       "x-caller-path": callerPath,
