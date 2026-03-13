@@ -11,6 +11,7 @@ import bufferRoutes from "./routes/buffer.js";
 import cursorRoutes from "./routes/cursor.js";
 import leadsRoutes from "./routes/leads.js";
 import statsRoutes from "./routes/stats.js";
+import { registerProviders } from "./lib/register-providers.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -51,6 +52,9 @@ if (process.env.NODE_ENV !== "test") {
   migrate(db, { migrationsFolder: "./drizzle" })
     .then(() => {
       console.log("Migrations complete");
+      registerProviders().catch((err) =>
+        console.warn("[startup] Provider registration failed (non-fatal):", err)
+      );
       const server = app.listen(Number(PORT), "::", () => {
         console.log(`lead-service running on port ${PORT}`);
       });
