@@ -269,6 +269,19 @@ const StatsResponseSchema = z
   })
   .openapi("StatsResponse");
 
+const StatsGroupSchema = z.object({
+  key: z.string(),
+  served: z.number(),
+  buffered: z.number(),
+  skipped: z.number(),
+});
+
+const StatsGroupedResponseSchema = z
+  .object({
+    groups: z.array(StatsGroupSchema),
+  })
+  .openapi("StatsGroupedResponse");
+
 // --- Register Paths ---
 
 registry.registerPath({
@@ -427,11 +440,28 @@ registry.registerPath({
       description: "Comma-separated list of run IDs",
       schema: { type: "string" as const },
     },
+    {
+      in: "query" as const,
+      name: "groupBy",
+      required: false,
+      description:
+        "Group stats by this dimension. When set, returns { groups: [...] } instead of flat stats. Allowed values: campaignId, brandId",
+      schema: { type: "string" as const, enum: ["campaignId", "brandId"] },
+    },
   ],
   responses: {
     200: {
-      description: "Lead stats by status with Apollo metrics",
-      content: { "application/json": { schema: StatsResponseSchema } },
+      description:
+        "Lead stats by status. Without groupBy: flat stats with Apollo metrics. With groupBy: grouped stats array.",
+      content: {
+        "application/json": {
+          schema: z.union([StatsResponseSchema, StatsGroupedResponseSchema]),
+        },
+      },
+    },
+    400: {
+      description: "Invalid groupBy value",
+      content: { "application/json": { schema: ErrorResponseSchema } },
     },
     401: { description: "Unauthorized" },
   },
