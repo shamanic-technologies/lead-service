@@ -263,6 +263,7 @@ const ApolloStatsSchema = z.object({
 const StatsResponseSchema = z
   .object({
     served: z.number(),
+    contacted: z.number(),
     buffered: z.number(),
     skipped: z.number(),
     apollo: ApolloStatsSchema,
@@ -272,6 +273,7 @@ const StatsResponseSchema = z
 const StatsGroupSchema = z.object({
   key: z.string(),
   served: z.number(),
+  contacted: z.number(),
   buffered: z.number(),
   skipped: z.number(),
 });
@@ -406,7 +408,7 @@ registry.registerPath({
   path: "/stats",
   summary: "Get lead stats by status",
   description:
-    "Returns counts of leads by status: served (delivered with verified email), buffered (awaiting enrichment), and skipped (no email found).",
+    "Returns counts of leads by status: served (delivered with verified email), contacted (unique leads with at least one successful email send), buffered (awaiting enrichment), and skipped (no email found).",
   parameters: [
     ...AuthHeaders,
     {

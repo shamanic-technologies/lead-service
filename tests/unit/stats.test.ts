@@ -106,6 +106,7 @@ describe("GET /stats", () => {
     const res = await request(app).get("/stats");
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty("served");
+    expect(res.body).toHaveProperty("contacted");
     expect(res.body).toHaveProperty("buffered");
     expect(res.body).toHaveProperty("skipped");
     expect(res.body).toHaveProperty("apollo");
