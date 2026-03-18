@@ -49,6 +49,7 @@ export const servedLeads = pgTable(
     userId: text("user_id"),
     workflowName: text("workflow_name"),
     servedAt: timestamp("served_at", { withTimezone: true }).notNull().defaultNow(),
+    contactedAt: timestamp("contacted_at", { withTimezone: true }),
   },
   (table) => [
     uniqueIndex("idx_served_org_brand_email").on(table.orgId, table.brandId, table.email),

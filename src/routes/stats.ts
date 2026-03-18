@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, count, inArray, or, sql, type SQL } from "drizzle-orm";
+import { eq, and, count, countDistinct, inArray, isNotNull, or, sql, type SQL } from "drizzle-orm";
 import { type AuthenticatedRequest, authenticate } from "../middleware/auth.js";
 import { db } from "../db/index.js";
 import { servedLeads, leadBuffer } from "../db/schema.js";
@@ -78,11 +78,16 @@ router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
       const servedCol = COLUMN_MAP[field].served;
       const bufferCol = COLUMN_MAP[field].buffer;
 
-      const [servedRows, bufferRows] = await Promise.all([
+      const [servedRows, contactedRows, bufferRows] = await Promise.all([
         db
           .select({ key: servedCol, count: count() })
           .from(servedLeads)
           .where(and(...served.conds))
+          .groupBy(servedCol),
+        db
+          .select({ key: servedCol, count: countDistinct(servedLeads.leadId) })
+          .from(servedLeads)
+          .where(and(...served.conds, isNotNull(servedLeads.contactedAt)))
           .groupBy(servedCol),
         db
           .select({ key: bufferCol, status: leadBuffer.status, count: count() })
@@ -94,18 +99,21 @@ router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
       // Merge into a map keyed by groupBy value
       const groups = new Map<
         string,
-        { served: number; buffered: number; skipped: number }
+        { served: number; contacted: number; buffered: number; skipped: number }
       >();
 
       const getGroup = (key: string | null) => {
         const k = key ?? "unknown";
         if (!groups.has(k))
-          groups.set(k, { served: 0, buffered: 0, skipped: 0 });
+          groups.set(k, { served: 0, contacted: 0, buffered: 0, skipped: 0 });
         return groups.get(k)!;
       };
 
       for (const row of servedRows) {
         getGroup(row.key).served = row.count;
+      }
+      for (const row of contactedRows) {
+        getGroup(row.key).contacted = row.count;
       }
       for (const row of bufferRows) {
         const g = getGroup(row.key);
@@ -128,11 +136,16 @@ router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
     if (served.campaignIdStr) apolloFilters.campaignId = served.campaignIdStr;
     if (served.runIdList.length > 0) apolloFilters.runIds = served.runIdList;
 
-    const [servedResult, bufferRows, apollo] = await Promise.all([
+    const [servedResult, contactedResult, bufferRows, apollo] = await Promise.all([
       db
         .select({ count: count() })
         .from(servedLeads)
         .where(and(...served.conds))
+        .then(([r]) => r),
+      db
+        .select({ count: countDistinct(servedLeads.leadId) })
+        .from(servedLeads)
+        .where(and(...served.conds, isNotNull(servedLeads.contactedAt)))
         .then(([r]) => r),
       db
         .select({ status: leadBuffer.status, count: count() })
@@ -152,6 +165,7 @@ router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
 
     res.json({
       served: servedResult?.count ?? 0,
+      contacted: contactedResult?.count ?? 0,
       buffered: bufferByStatus["buffered"] ?? 0,
       skipped: bufferByStatus["skipped"] ?? 0,
       apollo,

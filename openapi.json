@@ -584,6 +584,9 @@
           "served": {
             "type": "number"
           },
+          "contacted": {
+            "type": "number"
+          },
           "buffered": {
             "type": "number"
           },
@@ -616,6 +619,7 @@
         },
         "required": [
           "served",
+          "contacted",
           "buffered",
           "skipped",
           "apollo"
@@ -635,6 +639,9 @@
                 "served": {
                   "type": "number"
                 },
+                "contacted": {
+                  "type": "number"
+                },
                 "buffered": {
                   "type": "number"
                 },
@@ -645,6 +652,7 @@
               "required": [
                 "key",
                 "served",
+                "contacted",
                 "buffered",
                 "skipped"
               ]
@@ -1111,7 +1119,7 @@
     "/stats": {
       "get": {
         "summary": "Get lead stats by status",
-        "description": "Returns counts of leads by status: served (delivered with verified email), buffered (awaiting enrichment), and skipped (no email found).",
+        "description": "Returns counts of leads by status: served (delivered with verified email), contacted (unique leads with at least one successful email send), buffered (awaiting enrichment), and skipped (no email found).",
         "parameters": [
           {
             "in": "header",
