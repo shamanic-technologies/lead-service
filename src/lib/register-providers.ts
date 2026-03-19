@@ -57,7 +57,6 @@ export async function registerProviders(): Promise<void> {
   await Promise.all(
     registrations.map(({ provider, method, path }) =>
       registerProviderRequirement(provider, "lead", method, path)
-        .then(() => console.log(`[register-providers] Registered lead ${method} ${path} → ${provider}`))
         .catch((err) => console.warn(`[register-providers] Failed to register lead ${method} ${path} → ${provider}:`, err))
     )
   );

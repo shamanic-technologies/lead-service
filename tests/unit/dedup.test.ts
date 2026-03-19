@@ -71,25 +71,6 @@ describe("dedup", () => {
       expect(result.get("bob@acme.com")).toBe(false);
     });
 
-    it("logs contacted status for each email", async () => {
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-      vi.mocked(checkDeliveryStatus).mockResolvedValue({
-        results: [
-          { leadId: "lead-1", email: "alice@acme.com" } as never,
-        ],
-      });
-      vi.mocked(isContacted).mockReturnValue(true);
-
-      await checkContacted("brand-1", "campaign-1", [
-        { leadId: "lead-1", email: "alice@acme.com" },
-      ]);
-
-      expect(logSpy).toHaveBeenCalledWith(
-        "[dedup] contacted check: email=alice@acme.com contacted=true brandId=brand-1 campaignId=campaign-1"
-      );
-      logSpy.mockRestore();
-    });
-
     it("handles batch of multiple emails with mixed results", async () => {
       vi.mocked(checkDeliveryStatus).mockResolvedValue({
         results: [
