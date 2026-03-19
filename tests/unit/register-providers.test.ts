@@ -232,20 +232,17 @@ describe("registerProviders", () => {
       text: () => Promise.resolve("Server error"),
     });
 
-    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     await registerProviders();
 
     // 1 query + 2 registration attempts
     expect(mockFetch).toHaveBeenCalledTimes(3);
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Registered lead POST /buffer/next"));
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining("Failed to register lead POST /buffer/next"),
       expect.any(Error)
     );
 
-    logSpy.mockRestore();
     warnSpy.mockRestore();
   });
 });

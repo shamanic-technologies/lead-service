@@ -192,7 +192,6 @@ async function fillBufferFromSearch(params: {
     }
 
     // All people on this page were dupes — continue to next page
-    console.log(`[fillBuffer] Page ${page}: all ${result.people.length} people already seen, continuing`);
 
     if (result.done) {
       console.log(`[fillBuffer] Apollo exhausted all pages, no new leads found`);
@@ -299,10 +298,8 @@ export async function pullNext(params: {
           // Use cached enrichment — no apollo-service call needed
           email = cached.email;
           enrichedData = cached.responseRaw ?? row.data;
-          console.log(`[pullNext] Enrichment cache hit for personId=${row.externalId}`);
         } else {
           // Previously enriched but no email found — skip without calling Apollo
-          console.log(`[pullNext] Enrichment cache hit (no email) for personId=${row.externalId}, skipping`);
           await db
             .update(leadBuffer)
             .set({ status: "skipped" })
@@ -320,7 +317,6 @@ export async function pullNext(params: {
         });
 
         if (!enrichResult?.person?.email) {
-          console.log(`[pullNext] Enrichment returned no email for personId=${row.externalId}`);
           // Cache the no-email result to avoid re-enriching this person
           await db.insert(enrichments).values({
             email: null,
@@ -370,7 +366,6 @@ export async function pullNext(params: {
 
     // Skip leads with no email — found: true must always have a usable email
     if (!email) {
-      console.log(`[pullNext] No email after enrichment for buffer row ${row.id}, skipping`);
       await db
         .update(leadBuffer)
         .set({ status: "skipped" })
@@ -421,7 +416,7 @@ export async function pullNext(params: {
 
     if (!inserted) {
       // Another request already served this email for this org+brand — skip
-      console.log(`[pullNext] markServed conflict for ${email}, already served — skipping`);
+      // Another concurrent request already served this email — skip
       await db
         .update(leadBuffer)
         .set({ status: "skipped" })
@@ -440,7 +435,6 @@ export async function pullNext(params: {
         ? { ...(enrichedData as Record<string, unknown>), email }
         : { email };
 
-    console.log(`[pullNext] Served lead: ${email} (leadId=${leadId})`);
 
     return {
       found: true,
