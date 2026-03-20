@@ -24,7 +24,7 @@ vi.mock("../../src/lib/email-gateway-client.js", () => ({
 }));
 
 vi.mock("../../src/lib/billing-client.js", () => ({
-  authorizeCredits: vi.fn().mockResolvedValue({ sufficient: true, balance_cents: 1000 }),
+  authorizeCredits: vi.fn().mockResolvedValue({ sufficient: true, balance_cents: 1000, required_cents: 5 }),
 }));
 
 describe("API Integration Tests", () => {
@@ -138,6 +138,7 @@ describe("API Integration Tests", () => {
       vi.mocked(authorizeCredits).mockResolvedValueOnce({
         sufficient: false,
         balance_cents: 2,
+        required_cents: 5,
       });
 
       await seedBuffer({

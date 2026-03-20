@@ -8,8 +8,6 @@ import { BufferNextRequestSchema } from "../schemas.js";
 import { db } from "../db/index.js";
 import { idempotencyCache } from "../db/schema.js";
 
-const LEAD_SERVE_COST_CENTS = 5;
-
 const router = Router();
 
 const IDEMPOTENCY_TTL_DAYS = 60;
@@ -66,8 +64,8 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
 
     // Credit authorization — block if insufficient balance
     try {
-      const { sufficient, balance_cents } = await authorizeCredits({
-        requiredCents: LEAD_SERVE_COST_CENTS,
+      const { sufficient, balance_cents, required_cents } = await authorizeCredits({
+        items: [{ costName: "lead-serve", quantity: 1 }],
         description: "lead-serve — apollo-search+enrich",
         orgId: req.orgId!,
         userId: req.userId!,
@@ -88,7 +86,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
         return res.status(402).json({
           error: "Insufficient credits",
           balance_cents,
-          required_cents: LEAD_SERVE_COST_CENTS,
+          required_cents,
         });
       }
     } catch (err) {
