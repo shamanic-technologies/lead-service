@@ -319,6 +319,18 @@ registry.registerPath({
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     401: { description: "Unauthorized" },
+    402: {
+      description: "Insufficient credits",
+      content: {
+        "application/json": {
+          schema: z.object({
+            error: z.string(),
+            balance_cents: z.number(),
+            required_cents: z.number(),
+          }),
+        },
+      },
+    },
   },
 });
 
