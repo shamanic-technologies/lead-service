@@ -16,14 +16,14 @@ describe("billing-client", () => {
 
   it("returns sufficient: true when balance is enough", async () => {
     vi.spyOn(global, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ sufficient: true, balance_cents: 500 }), {
+      new Response(JSON.stringify({ sufficient: true, balance_cents: 500, required_cents: 5 }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       })
     );
 
     const result = await authorizeCredits({
-      requiredCents: 5,
+      items: [{ costName: "lead-serve", quantity: 1 }],
       description: "lead-serve — apollo-search+enrich",
       orgId: "org-1",
       userId: "user-1",
@@ -32,18 +32,19 @@ describe("billing-client", () => {
 
     expect(result.sufficient).toBe(true);
     expect(result.balance_cents).toBe(500);
+    expect(result.required_cents).toBe(5);
   });
 
   it("returns sufficient: false when balance is insufficient", async () => {
     vi.spyOn(global, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ sufficient: false, balance_cents: 2 }), {
+      new Response(JSON.stringify({ sufficient: false, balance_cents: 2, required_cents: 5 }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       })
     );
 
     const result = await authorizeCredits({
-      requiredCents: 5,
+      items: [{ costName: "lead-serve", quantity: 1 }],
       description: "lead-serve — apollo-search+enrich",
       orgId: "org-1",
       userId: "user-1",
@@ -52,18 +53,19 @@ describe("billing-client", () => {
 
     expect(result.sufficient).toBe(false);
     expect(result.balance_cents).toBe(2);
+    expect(result.required_cents).toBe(5);
   });
 
   it("forwards all headers including optional campaign/brand/workflow", async () => {
     const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ sufficient: true, balance_cents: 100 }), {
+      new Response(JSON.stringify({ sufficient: true, balance_cents: 100, required_cents: 5 }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       })
     );
 
     await authorizeCredits({
-      requiredCents: 5,
+      items: [{ costName: "lead-serve", quantity: 1 }],
       description: "test",
       orgId: "org-1",
       userId: "user-1",
@@ -84,16 +86,16 @@ describe("billing-client", () => {
     expect(headers["x-workflow-name"]).toBe("cold-email");
   });
 
-  it("sends required_cents and description in body", async () => {
+  it("sends items and description in body", async () => {
     const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ sufficient: true, balance_cents: 100 }), {
+      new Response(JSON.stringify({ sufficient: true, balance_cents: 100, required_cents: 5 }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       })
     );
 
     await authorizeCredits({
-      requiredCents: 5,
+      items: [{ costName: "lead-serve", quantity: 1 }],
       description: "lead-serve — apollo-search+enrich",
       orgId: "org-1",
       userId: "user-1",
@@ -101,7 +103,7 @@ describe("billing-client", () => {
     });
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1]!.body as string);
-    expect(body.required_cents).toBe(5);
+    expect(body.items).toEqual([{ costName: "lead-serve", quantity: 1 }]);
     expect(body.description).toBe("lead-serve — apollo-search+enrich");
   });
 
@@ -112,7 +114,7 @@ describe("billing-client", () => {
 
     await expect(
       authorizeCredits({
-        requiredCents: 5,
+        items: [{ costName: "lead-serve", quantity: 1 }],
         description: "test",
         orgId: "org-1",
         userId: "user-1",
@@ -126,7 +128,7 @@ describe("billing-client", () => {
 
     await expect(
       authorizeCredits({
-        requiredCents: 5,
+        items: [{ costName: "lead-serve", quantity: 1 }],
         description: "test",
         orgId: "org-1",
         userId: "user-1",

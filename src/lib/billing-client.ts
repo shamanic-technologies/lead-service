@@ -1,10 +1,16 @@
+export interface CostItem {
+  costName: string;
+  quantity: number;
+}
+
 export interface AuthorizeCreditsResult {
   sufficient: boolean;
   balance_cents: number;
+  required_cents: number;
 }
 
 export async function authorizeCredits(params: {
-  requiredCents: number;
+  items: CostItem[];
   description: string;
   orgId: string;
   userId: string;
@@ -35,7 +41,7 @@ export async function authorizeCredits(params: {
     method: "POST",
     headers,
     body: JSON.stringify({
-      required_cents: params.requiredCents,
+      items: params.items,
       description: params.description,
     }),
   });
