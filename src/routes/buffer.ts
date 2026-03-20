@@ -3,7 +3,6 @@ import { eq, lt } from "drizzle-orm";
 import { type AuthenticatedRequest, authenticate } from "../middleware/auth.js";
 import { pullNext } from "../lib/buffer.js";
 import { createRun, updateRun } from "../lib/runs-client.js";
-import { authorizeCredits } from "../lib/billing-client.js";
 import { BufferNextRequestSchema } from "../schemas.js";
 import { db } from "../db/index.js";
 import { idempotencyCache } from "../db/schema.js";
@@ -61,45 +60,6 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       workflowName,
     });
     const serveRunId = childRun.id;
-
-    // Credit authorization — block if insufficient balance
-    try {
-      const { sufficient, balance_cents, required_cents } = await authorizeCredits({
-        items: [{ costName: "lead-serve", quantity: 1 }],
-        description: "lead-serve — apollo-search+enrich",
-        orgId: req.orgId!,
-        userId: req.userId!,
-        runId: serveRunId,
-        campaignId,
-        brandId,
-        workflowName,
-      });
-
-      if (!sufficient) {
-        await updateRun(serveRunId, "failed", {
-          orgId: req.orgId,
-          userId: req.userId,
-          campaignId,
-          brandId,
-          workflowName,
-        });
-        return res.status(402).json({
-          error: "Insufficient credits",
-          balance_cents,
-          required_cents,
-        });
-      }
-    } catch (err) {
-      console.error("[buffer/next] Billing authorization failed:", err);
-      await updateRun(serveRunId, "failed", {
-        orgId: req.orgId,
-        userId: req.userId,
-        campaignId,
-        brandId,
-        workflowName,
-      });
-      return res.status(502).json({ error: "Billing service unavailable" });
-    }
 
     const result = await pullNext({
       orgId: req.orgId!,

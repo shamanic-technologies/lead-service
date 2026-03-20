@@ -10,7 +10,6 @@ import {
 } from "./setup.js";
 import { createRun } from "../../src/lib/runs-client.js";
 import { checkDeliveryStatus, isContacted } from "../../src/lib/email-gateway-client.js";
-import { authorizeCredits } from "../../src/lib/billing-client.js";
 
 vi.mock("../../src/lib/runs-client.js", () => ({
   createRun: vi.fn().mockResolvedValue({ id: "mock-run-id" }),
@@ -21,10 +20,6 @@ vi.mock("../../src/lib/runs-client.js", () => ({
 vi.mock("../../src/lib/email-gateway-client.js", () => ({
   checkDeliveryStatus: vi.fn().mockResolvedValue({ results: [] }),
   isContacted: vi.fn().mockReturnValue(false),
-}));
-
-vi.mock("../../src/lib/billing-client.js", () => ({
-  authorizeCredits: vi.fn().mockResolvedValue({ sufficient: true, balance_cents: 1000, required_cents: 5 }),
 }));
 
 describe("API Integration Tests", () => {
@@ -132,50 +127,6 @@ describe("API Integration Tests", () => {
 
       expect(res.status).toBe(400);
       expect(res.body.details.fieldErrors.brandId).toBeDefined();
-    });
-
-    it("returns 402 when credits are insufficient", async () => {
-      vi.mocked(authorizeCredits).mockResolvedValueOnce({
-        sufficient: false,
-        balance_cents: 2,
-        required_cents: 5,
-      });
-
-      await seedBuffer({
-        campaignId: "campaign-billing-402",
-        brandId: "brand-billing-402",
-        leads: [{ email: "billing@example.com" }],
-      });
-
-      const res = await request(app)
-        .post("/buffer/next")
-        .set(getAuthHeaders())
-        .send({ campaignId: "campaign-billing-402", brandId: "brand-billing-402" });
-
-      expect(res.status).toBe(402);
-      expect(res.body.error).toBe("Insufficient credits");
-      expect(res.body.balance_cents).toBe(2);
-      expect(res.body.required_cents).toBe(5);
-    });
-
-    it("returns 502 when billing service is unreachable", async () => {
-      vi.mocked(authorizeCredits).mockRejectedValueOnce(
-        new Error("Billing service call failed: 500")
-      );
-
-      await seedBuffer({
-        campaignId: "campaign-billing-502",
-        brandId: "brand-billing-502",
-        leads: [{ email: "billing502@example.com" }],
-      });
-
-      const res = await request(app)
-        .post("/buffer/next")
-        .set(getAuthHeaders())
-        .send({ campaignId: "campaign-billing-502", brandId: "brand-billing-502" });
-
-      expect(res.status).toBe(502);
-      expect(res.body.error).toBe("Billing service unavailable");
     });
 
     it("passes workflowName to createRun", async () => {
