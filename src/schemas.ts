@@ -64,6 +64,13 @@ const AuthHeaders = [
     schema: { type: "string" as const },
     description: "Workflow name (auto-injected by workflow-service)",
   },
+  {
+    in: "header" as const,
+    name: "x-feature-slug",
+    required: false,
+    schema: { type: "string" as const },
+    description: "Feature slug for tracking (propagated through the call chain)",
+  },
 ];
 
 // --- Health ---

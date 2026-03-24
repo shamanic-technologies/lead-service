@@ -53,7 +53,7 @@ export async function checkDeliveryStatus(
   brandId: string,
   campaignId: string | undefined,
   items: DeliveryStatusItem[],
-  context?: { orgId?: string; userId?: string; runId?: string; campaignId?: string; brandId?: string; workflowName?: string }
+  context?: { orgId?: string; userId?: string; runId?: string; campaignId?: string; brandId?: string; workflowName?: string; featureSlug?: string }
 ): Promise<DeliveryStatusResponse | null> {
   try {
     const body: Record<string, unknown> = { brandId, items };
@@ -69,6 +69,7 @@ export async function checkDeliveryStatus(
     if (context?.campaignId) headers["x-campaign-id"] = context.campaignId;
     if (context?.brandId) headers["x-brand-id"] = context.brandId;
     if (context?.workflowName) headers["x-workflow-name"] = context.workflowName;
+    if (context?.featureSlug) headers["x-feature-slug"] = context.featureSlug;
 
     const response = await fetch(`${EMAIL_GATEWAY_SERVICE_URL}/status`, {
       method: "POST",

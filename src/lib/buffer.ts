@@ -28,6 +28,7 @@ async function fillBufferFromSearch(params: {
   pushRunId?: string | null;
   userId?: string | null;
   workflowName?: string;
+  featureSlug?: string;
 }): Promise<{ filled: number }> {
   const serviceContext = {
     userId: params.userId ?? undefined,
@@ -35,6 +36,7 @@ async function fillBufferFromSearch(params: {
     campaignId: params.campaignId,
     brandId: params.brandId,
     workflowName: params.workflowName,
+    featureSlug: params.featureSlug,
   };
 
   // Fetch campaign + brand details in parallel for rich LLM context
@@ -73,6 +75,7 @@ async function fillBufferFromSearch(params: {
     orgId: params.orgId,
     userId: params.userId,
     workflowName: params.workflowName,
+    featureSlug: params.featureSlug,
   });
 
   let totalFilled = 0;
@@ -87,6 +90,7 @@ async function fillBufferFromSearch(params: {
       orgId: params.orgId,
       userId: params.userId,
       workflowName: params.workflowName,
+      featureSlug: params.featureSlug,
     });
 
     if (!result) {
@@ -159,6 +163,7 @@ async function fillBufferFromSearch(params: {
             campaignId: params.campaignId,
             brandId: params.brandId,
             workflowName: params.workflowName,
+            featureSlug: params.featureSlug,
           })
         : new Map<string, boolean>();
 
@@ -179,6 +184,7 @@ async function fillBufferFromSearch(params: {
         orgId: params.orgId,
         userId: params.userId ?? null,
         workflowName: params.workflowName ?? null,
+        featureSlug: params.featureSlug ?? null,
       });
       pageFilled++;
     }
@@ -210,6 +216,7 @@ export async function pullNext(params: {
   searchParams?: ApolloSearchParams;
   userId?: string | null;
   workflowName?: string;
+  featureSlug?: string;
 }): Promise<{
   found: boolean;
   lead?: {
@@ -274,6 +281,7 @@ export async function pullNext(params: {
           pushRunId: params.runId,
           userId: params.userId,
           workflowName: params.workflowName,
+          featureSlug: params.featureSlug,
         });
 
         if (filled > 0) {
@@ -314,6 +322,7 @@ export async function pullNext(params: {
           brandId: params.brandId,
           campaignId: params.campaignId,
           workflowName: params.workflowName,
+          featureSlug: params.featureSlug,
         });
 
         if (!enrichResult?.person?.email) {
@@ -390,6 +399,7 @@ export async function pullNext(params: {
       campaignId: params.campaignId,
       brandId: params.brandId,
       workflowName: params.workflowName,
+      featureSlug: params.featureSlug,
     });
 
     if (contactedMap.get(email)) {
@@ -412,6 +422,7 @@ export async function pullNext(params: {
       runId: params.runId ?? null,
       userId: row.userId,
       workflowName: params.workflowName ?? null,
+      featureSlug: params.featureSlug ?? null,
     });
 
     if (!inserted) {
