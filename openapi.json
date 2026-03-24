@@ -758,6 +758,15 @@
               "type": "string"
             },
             "description": "Workflow name (auto-injected by workflow-service)"
+          },
+          {
+            "in": "header",
+            "name": "x-feature-slug",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Feature slug for tracking (propagated through the call chain)"
           }
         ],
         "requestBody": {
@@ -864,6 +873,15 @@
             "description": "Workflow name (auto-injected by workflow-service)"
           },
           {
+            "in": "header",
+            "name": "x-feature-slug",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Feature slug for tracking (propagated through the call chain)"
+          },
+          {
             "schema": {
               "type": "string"
             },
@@ -953,6 +971,15 @@
               "type": "string"
             },
             "description": "Workflow name (auto-injected by workflow-service)"
+          },
+          {
+            "in": "header",
+            "name": "x-feature-slug",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Feature slug for tracking (propagated through the call chain)"
           },
           {
             "schema": {
@@ -1065,6 +1092,15 @@
               "type": "string"
             },
             "description": "Workflow name (auto-injected by workflow-service)"
+          },
+          {
+            "in": "header",
+            "name": "x-feature-slug",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Feature slug for tracking (propagated through the call chain)"
           },
           {
             "in": "query",
@@ -1183,6 +1219,15 @@
               "type": "string"
             },
             "description": "Workflow name (auto-injected by workflow-service)"
+          },
+          {
+            "in": "header",
+            "name": "x-feature-slug",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Feature slug for tracking (propagated through the call chain)"
           },
           {
             "in": "query",

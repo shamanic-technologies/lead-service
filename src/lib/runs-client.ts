@@ -35,6 +35,7 @@ export async function createRun(params: {
   brandId?: string;
   campaignId?: string;
   workflowName?: string;
+  featureSlug?: string;
 }): Promise<{ id: string }> {
   const headers: Record<string, string> = {
     "x-org-id": params.orgId,
@@ -44,6 +45,7 @@ export async function createRun(params: {
   if (params.campaignId) headers["x-campaign-id"] = params.campaignId;
   if (params.brandId) headers["x-brand-id"] = params.brandId;
   if (params.workflowName) headers["x-workflow-name"] = params.workflowName;
+  if (params.featureSlug) headers["x-feature-slug"] = params.featureSlug;
 
   return callRunsService("/runs", {
     method: "POST",
@@ -61,7 +63,7 @@ export async function createRun(params: {
 export async function updateRun(
   runId: string,
   status: "completed" | "failed",
-  context?: { orgId?: string; userId?: string; campaignId?: string; brandId?: string; workflowName?: string }
+  context?: { orgId?: string; userId?: string; campaignId?: string; brandId?: string; workflowName?: string; featureSlug?: string }
 ): Promise<void> {
   const headers: Record<string, string> = {};
   if (context?.orgId) headers["x-org-id"] = context.orgId;
@@ -70,6 +72,7 @@ export async function updateRun(
   if (context?.campaignId) headers["x-campaign-id"] = context.campaignId;
   if (context?.brandId) headers["x-brand-id"] = context.brandId;
   if (context?.workflowName) headers["x-workflow-name"] = context.workflowName;
+  if (context?.featureSlug) headers["x-feature-slug"] = context.featureSlug;
 
   await callRunsService(`/runs/${runId}`, {
     method: "PATCH",
@@ -81,7 +84,7 @@ export async function updateRun(
 export async function addCosts(
   runId: string,
   items: Array<{ costName: string; quantity: number; costSource: "platform" | "org" }>,
-  context?: { orgId?: string; userId?: string; campaignId?: string; brandId?: string; workflowName?: string }
+  context?: { orgId?: string; userId?: string; campaignId?: string; brandId?: string; workflowName?: string; featureSlug?: string }
 ): Promise<void> {
   if (items.length === 0) return;
 
@@ -92,6 +95,7 @@ export async function addCosts(
   if (context?.campaignId) headers["x-campaign-id"] = context.campaignId;
   if (context?.brandId) headers["x-brand-id"] = context.brandId;
   if (context?.workflowName) headers["x-workflow-name"] = context.workflowName;
+  if (context?.featureSlug) headers["x-feature-slug"] = context.featureSlug;
 
   await callRunsService(`/runs/${runId}/costs`, {
     method: "POST",

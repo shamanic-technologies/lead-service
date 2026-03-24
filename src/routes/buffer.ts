@@ -58,6 +58,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       brandId,
       campaignId,
       workflowName,
+      featureSlug: req.featureSlug,
     });
     const serveRunId = childRun.id;
 
@@ -69,6 +70,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       searchParams: searchParams ?? undefined,
       userId: userId ?? req.userId ?? null,
       workflowName,
+      featureSlug: req.featureSlug,
     });
 
     // Cache the response for idempotency + probabilistic TTL cleanup (~1% of requests)
@@ -93,6 +95,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
         campaignId,
         brandId,
         workflowName,
+        featureSlug: req.featureSlug,
       });
     } catch (err) {
       console.error("[buffer/next] Failed to update run:", err);

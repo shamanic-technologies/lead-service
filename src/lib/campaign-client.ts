@@ -12,7 +12,7 @@ export interface CampaignDetails {
 export async function fetchCampaign(
   campaignId: string,
   orgId?: string | null,
-  context?: { userId?: string; runId?: string; campaignId?: string; brandId?: string; workflowName?: string }
+  context?: { userId?: string; runId?: string; campaignId?: string; brandId?: string; workflowName?: string; featureSlug?: string }
 ): Promise<CampaignDetails | null> {
   try {
     const headers: Record<string, string> = {
@@ -25,6 +25,7 @@ export async function fetchCampaign(
     if (context?.campaignId) headers["x-campaign-id"] = context.campaignId;
     if (context?.brandId) headers["x-brand-id"] = context.brandId;
     if (context?.workflowName) headers["x-workflow-name"] = context.workflowName;
+    if (context?.featureSlug) headers["x-feature-slug"] = context.featureSlug;
 
     const response = await fetch(`${CAMPAIGN_SERVICE_URL}/campaigns/${campaignId}`, {
       headers,
