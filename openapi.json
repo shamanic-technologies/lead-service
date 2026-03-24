@@ -447,6 +447,7 @@
           },
           "searchParams": {
             "type": "object",
+            "nullable": true,
             "additionalProperties": {
               "nullable": true
             }
