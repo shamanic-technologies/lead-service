@@ -61,6 +61,18 @@ describe("schema validation", () => {
       }
     });
 
+    it("accepts null searchParams", () => {
+      const result = BufferNextRequestSchema.safeParse({
+        campaignId: "c1",
+        brandId: "b1",
+        searchParams: null,
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.searchParams).toBeNull();
+      }
+    });
+
     it("accepts request without workflowName", () => {
       const result = BufferNextRequestSchema.safeParse({
         campaignId: "c1",

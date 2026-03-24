@@ -187,7 +187,7 @@ export const BufferNextRequestSchema = z
   .object({
     campaignId: z.string().min(1),
     brandId: z.string().min(1),
-    searchParams: z.record(z.string(), z.unknown()).optional(),
+    searchParams: z.record(z.string(), z.unknown()).nullish(),
     userId: z.string().optional(),
     workflowName: z.string().optional(),
     idempotencyKey: z.string().min(1).optional(),
