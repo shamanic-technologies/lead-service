@@ -292,6 +292,45 @@ export interface ApolloEnrichResult {
   person: ApolloPersonResult;
 }
 
+// --- Person Match (by name + organization domain) ---
+
+export interface ApolloMatchResult {
+  enrichmentId: string | null;
+  person: ApolloPersonResult | null;
+  cached: boolean;
+}
+
+export async function apolloMatch(
+  params: { firstName: string; lastName: string; organizationDomain: string },
+  options?: { runId?: string | null; orgId?: string | null; userId?: string | null; brandId?: string; campaignId?: string; workflowName?: string; featureSlug?: string }
+): Promise<ApolloMatchResult | null> {
+  try {
+    const headers: Record<string, string> = {};
+    if (options?.orgId) headers["x-org-id"] = options.orgId;
+    if (options?.userId) headers["x-user-id"] = options.userId;
+    if (options?.runId) headers["x-run-id"] = options.runId;
+    if (options?.brandId) headers["x-brand-id"] = options.brandId;
+    if (options?.campaignId) headers["x-campaign-id"] = options.campaignId;
+    if (options?.workflowName) headers["x-workflow-name"] = options.workflowName;
+    if (options?.featureSlug) headers["x-feature-slug"] = options.featureSlug;
+
+    return await callApolloService<ApolloMatchResult>("/match", {
+      method: "POST",
+      body: {
+        firstName: params.firstName,
+        lastName: params.lastName,
+        organizationDomain: params.organizationDomain,
+      },
+      headers,
+    });
+  } catch (error) {
+    console.error(`[apollo-client] Match failed for ${params.firstName} ${params.lastName} @ ${params.organizationDomain}:`, error);
+    return null;
+  }
+}
+
+// --- Enrichment ---
+
 export async function apolloEnrich(
   personId: string,
   options?: { runId?: string | null; orgId?: string | null; userId?: string | null; brandId?: string; campaignId?: string; workflowName?: string; featureSlug?: string }

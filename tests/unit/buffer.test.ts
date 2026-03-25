@@ -15,6 +15,9 @@ vi.mock("../../src/db/index.js", () => ({
       enrichments: {
         findFirst: vi.fn(),
       },
+      cursors: {
+        findFirst: vi.fn(),
+      },
     },
     insert: vi.fn(),
     update: vi.fn(),
@@ -27,6 +30,17 @@ vi.mock("../../src/lib/apollo-client.js", () => ({
   apolloSearchNext: vi.fn(),
   apolloSearchParams: vi.fn(),
   apolloEnrich: vi.fn(),
+  apolloMatch: vi.fn(),
+}));
+
+// Mock outlet-client
+vi.mock("../../src/lib/outlet-client.js", () => ({
+  fetchOutletsByCampaign: vi.fn().mockResolvedValue(null),
+}));
+
+// Mock journalist-client
+vi.mock("../../src/lib/journalist-client.js", () => ({
+  fetchJournalistsByOutlet: vi.fn().mockResolvedValue(null),
 }));
 
 // Mock campaign-client
@@ -54,9 +68,11 @@ vi.mock("../../src/lib/leads-registry.js", () => ({
 
 import { db } from "../../src/db/index.js";
 import { pullNext } from "../../src/lib/buffer.js";
-import { apolloSearchNext, apolloSearchParams, apolloEnrich } from "../../src/lib/apollo-client.js";
+import { apolloSearchNext, apolloSearchParams, apolloEnrich, apolloMatch } from "../../src/lib/apollo-client.js";
 import { checkDeliveryStatus } from "../../src/lib/email-gateway-client.js";
 import { resolveOrCreateLead } from "../../src/lib/leads-registry.js";
+import { fetchOutletsByCampaign } from "../../src/lib/outlet-client.js";
+import { fetchJournalistsByOutlet } from "../../src/lib/journalist-client.js";
 
 /** Helper: convert camelCase buffer row to snake_case raw SQL row (as returned by pgSql) */
 function toClaimedRow(row: {
@@ -782,6 +798,202 @@ describe("buffer", () => {
       // Should still serve the lead (fallback: not delivered)
       expect(result.found).toBe(true);
       expect(result.lead?.email).toBe("alice@acme.com");
+    });
+
+    it("fills buffer from journalists when sourceType=journalist and buffer empty", async () => {
+      // First pullNext: buffer empty → fills from journalists
+      // Second pullNext: serves the buffered journalist lead
+      const journalistRow = toClaimedRow({
+        id: "buf-j1",
+        namespace: "campaign-1",
+        campaignId: "campaign-1",
+        email: "jane@techcrunch.com",
+        externalId: "journalist:j-uuid-1",
+        data: {
+          firstName: "Jane",
+          lastName: "Reporter",
+          organizationDomain: "techcrunch.com",
+          organizationName: "TechCrunch",
+          sourceType: "journalist",
+        },
+        brandId: "brand-1",
+        orgId: "org-1",
+        userId: null,
+      });
+
+      pgSqlMock
+        .mockResolvedValueOnce([])             // pullNext: buffer empty
+        .mockResolvedValueOnce([journalistRow]); // pullNext retry: claimed journalist lead
+
+      // Cursor: no existing cursor
+      vi.mocked(db.query.cursors.findFirst).mockResolvedValueOnce(undefined);
+
+      // isInBuffer → not in buffer
+      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValueOnce(undefined);
+
+      // Outlet service returns outlets
+      vi.mocked(fetchOutletsByCampaign).mockResolvedValueOnce([
+        { id: "outlet-1", name: "TechCrunch", outletUrl: "https://techcrunch.com" },
+      ]);
+
+      // Journalist service returns journalist with email
+      vi.mocked(fetchJournalistsByOutlet).mockResolvedValueOnce([
+        {
+          id: "j-uuid-1",
+          journalistName: "Jane Reporter",
+          firstName: "Jane",
+          lastName: "Reporter",
+          entityType: "individual" as const,
+          emails: [{ email: "jane@techcrunch.com", isValid: true, confidence: 0.95 }],
+        },
+      ]);
+
+      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
+
+      const returningMock = vi.fn().mockResolvedValue([{ id: "served-1" }]);
+      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
+      const valuesMock = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictMock });
+      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
+
+      const setMock = vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(undefined),
+      });
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
+
+      const result = await pullNext({
+        orgId: "org-1",
+        campaignId: "campaign-1",
+        brandId: "brand-1",
+        sourceType: "journalist",
+      });
+
+      expect(result.found).toBe(true);
+      expect(result.lead?.email).toBe("jane@techcrunch.com");
+      expect(vi.mocked(fetchOutletsByCampaign)).toHaveBeenCalledWith(
+        "campaign-1", "org-1", expect.objectContaining({ campaignId: "campaign-1" })
+      );
+      expect(vi.mocked(fetchJournalistsByOutlet)).toHaveBeenCalledWith(
+        "outlet-1", expect.objectContaining({ campaignId: "campaign-1" })
+      );
+    });
+
+    it("uses apolloMatch for journalist leads without email", async () => {
+      pgSqlMock.mockResolvedValue([toClaimedRow({
+        id: "buf-j-noemail",
+        namespace: "campaign-1",
+        campaignId: "campaign-1",
+        email: "",
+        externalId: "journalist:j-uuid-2",
+        data: {
+          firstName: "John",
+          lastName: "Writer",
+          organizationDomain: "theverge.com",
+          organizationName: "The Verge",
+          sourceType: "journalist",
+        },
+        brandId: "brand-1",
+        orgId: "org-1",
+        userId: null,
+      })]);
+
+      vi.mocked(apolloMatch).mockResolvedValueOnce({
+        enrichmentId: "enr-1",
+        person: {
+          id: "apollo-matched-1",
+          email: "john.writer@theverge.com",
+          firstName: "John",
+          lastName: "Writer",
+          organizationName: "The Verge",
+          organizationDomain: "theverge.com",
+        },
+        cached: false,
+      });
+
+      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
+
+      const returningMock = vi.fn().mockResolvedValue([{ id: "served-1" }]);
+      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
+      const valuesMock = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictMock });
+      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
+
+      const setMock = vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(undefined),
+      });
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
+
+      const result = await pullNext({
+        orgId: "org-1",
+        campaignId: "campaign-1",
+        brandId: "brand-1",
+      });
+
+      expect(result.found).toBe(true);
+      expect(result.lead?.email).toBe("john.writer@theverge.com");
+      expect(vi.mocked(apolloMatch)).toHaveBeenCalledWith(
+        { firstName: "John", lastName: "Writer", organizationDomain: "theverge.com" },
+        expect.objectContaining({ orgId: "org-1" })
+      );
+      // Should NOT call apolloEnrich (journalist path uses apolloMatch)
+      expect(vi.mocked(apolloEnrich)).not.toHaveBeenCalled();
+    });
+
+    it("skips journalist lead when apolloMatch returns no email", async () => {
+      pgSqlMock
+        .mockResolvedValueOnce([toClaimedRow({
+          id: "buf-j-fail",
+          namespace: "campaign-1",
+          campaignId: "campaign-1",
+          email: "",
+          externalId: "journalist:j-uuid-3",
+          data: {
+            firstName: "Ghost",
+            lastName: "Journalist",
+            organizationDomain: "unknown.com",
+            sourceType: "journalist",
+          },
+          brandId: "brand-1",
+          orgId: "org-1",
+          userId: null,
+        })])
+        .mockResolvedValueOnce([]); // no more rows
+
+      vi.mocked(apolloMatch).mockResolvedValueOnce({
+        enrichmentId: null,
+        person: null,
+        cached: false,
+      });
+
+      const setMock = vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(undefined),
+      });
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
+
+      const result = await pullNext({
+        orgId: "org-1",
+        campaignId: "campaign-1",
+        brandId: "brand-1",
+      });
+
+      expect(result.found).toBe(false);
+      expect(vi.mocked(apolloMatch)).toHaveBeenCalled();
+    });
+
+    it("returns found: false when no outlets exist for journalist sourceType", async () => {
+      pgSqlMock.mockResolvedValue([]);
+
+      // Cursor: no existing cursor
+      vi.mocked(db.query.cursors.findFirst).mockResolvedValueOnce(undefined);
+
+      vi.mocked(fetchOutletsByCampaign).mockResolvedValueOnce([]);
+
+      const result = await pullNext({
+        orgId: "org-1",
+        campaignId: "campaign-1",
+        brandId: "brand-1",
+        sourceType: "journalist",
+      });
+
+      expect(result.found).toBe(false);
     });
 
     it("skips lead when markServed returns inserted: false (race condition dedup)", async () => {

@@ -1,11 +1,13 @@
 import { eq, and, sql } from "drizzle-orm";
 import { db, sql as pgSql } from "../db/index.js";
-import { leadBuffer, enrichments } from "../db/schema.js";
+import { leadBuffer, enrichments, cursors } from "../db/schema.js";
 import { checkContacted, markServed } from "./dedup.js";
 import { resolveOrCreateLead, findLeadByApolloPersonId } from "./leads-registry.js";
-import { apolloSearchNext, apolloEnrich, apolloSearchParams, type ApolloSearchParams } from "./apollo-client.js";
+import { apolloSearchNext, apolloEnrich, apolloMatch, apolloSearchParams, type ApolloSearchParams } from "./apollo-client.js";
 import { fetchCampaign } from "./campaign-client.js";
 import { fetchBrand } from "./brand-client.js";
+import { fetchOutletsByCampaign } from "./outlet-client.js";
+import { fetchJournalistsByOutlet } from "./journalist-client.js";
 
 async function isInBuffer(orgId: string, campaignId: string, externalId: string): Promise<boolean> {
   const row = await db.query.leadBuffer.findFirst({
@@ -208,6 +210,142 @@ async function fillBufferFromSearch(params: {
   return { filled: totalFilled };
 }
 
+// --- Journalist source helpers ---
+
+function extractDomain(url: string): string {
+  try {
+    const parsed = new URL(url.startsWith("http") ? url : `https://${url}`);
+    return parsed.hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+async function saveCursor(orgId: string, namespace: string, state: unknown): Promise<void> {
+  const existing = await db.query.cursors.findFirst({
+    where: and(eq(cursors.orgId, orgId), eq(cursors.namespace, namespace)),
+  });
+  if (existing) {
+    await db.update(cursors).set({ state, updatedAt: new Date() }).where(eq(cursors.id, existing.id));
+  } else {
+    await db.insert(cursors).values({ orgId, namespace, state });
+  }
+}
+
+async function fillBufferFromJournalists(params: {
+  orgId: string;
+  campaignId: string;
+  brandId: string;
+  pushRunId?: string | null;
+  userId?: string | null;
+  workflowName?: string;
+  featureSlug?: string;
+}): Promise<{ filled: number }> {
+  const serviceContext = {
+    userId: params.userId ?? undefined,
+    runId: params.pushRunId ?? undefined,
+    campaignId: params.campaignId,
+    brandId: params.brandId,
+    workflowName: params.workflowName,
+    featureSlug: params.featureSlug,
+  };
+
+  // Load cursor state
+  const cursorNamespace = `journalist:${params.campaignId}`;
+  const existingCursor = await db.query.cursors.findFirst({
+    where: and(
+      eq(cursors.orgId, params.orgId),
+      eq(cursors.namespace, cursorNamespace)
+    ),
+  });
+  const cursorState = (existingCursor?.state as { outletIndex: number; journalistIndex: number } | null)
+    ?? { outletIndex: 0, journalistIndex: 0 };
+
+  // Fetch outlets for this campaign
+  const outlets = await fetchOutletsByCampaign(params.campaignId, params.orgId, serviceContext);
+  if (!outlets || outlets.length === 0) {
+    console.log(`[fillBufferFromJournalists] No outlets for campaign=${params.campaignId}`);
+    return { filled: 0 };
+  }
+
+  let totalFilled = 0;
+
+  for (let oi = cursorState.outletIndex; oi < outlets.length; oi++) {
+    const outlet = outlets[oi];
+
+    const journalists = await fetchJournalistsByOutlet(outlet.id, {
+      ...serviceContext,
+      campaignId: params.campaignId,
+      orgId: params.orgId,
+    });
+
+    if (!journalists || journalists.length === 0) {
+      // No journalists for this outlet — advance to next
+      continue;
+    }
+
+    const startJ = oi === cursorState.outletIndex ? cursorState.journalistIndex : 0;
+
+    for (let ji = startJ; ji < journalists.length; ji++) {
+      const journalist = journalists[ji];
+
+      // Skip organization-type entities (we need individual people)
+      if (journalist.entityType === "organization") continue;
+
+      const externalId = `journalist:${journalist.id}`;
+
+      if (await isInBuffer(params.orgId, params.campaignId, externalId)) continue;
+
+      // Pick the best valid email if available
+      const validEmail = journalist.emails
+        ?.filter(e => e.isValid)
+        ?.sort((a, b) => b.confidence - a.confidence)
+        ?.[0]?.email ?? null;
+
+      const organizationDomain = extractDomain(outlet.outletUrl);
+
+      const data: Record<string, unknown> = {
+        firstName: journalist.firstName,
+        lastName: journalist.lastName,
+        journalistName: journalist.journalistName,
+        organizationDomain,
+        organizationName: outlet.name,
+        outletUrl: outlet.outletUrl,
+        outletId: outlet.id,
+        journalistId: journalist.id,
+        sourceType: "journalist",
+      };
+
+      await db.insert(leadBuffer).values({
+        namespace: params.campaignId,
+        campaignId: params.campaignId,
+        email: validEmail ?? "",
+        externalId,
+        data,
+        status: "buffered",
+        pushRunId: params.pushRunId ?? null,
+        brandId: params.brandId,
+        orgId: params.orgId,
+        userId: params.userId ?? null,
+        workflowName: params.workflowName ?? null,
+        featureSlug: params.featureSlug ?? null,
+      });
+      totalFilled++;
+    }
+
+    // Save cursor after each outlet
+    if (totalFilled > 0) {
+      await saveCursor(params.orgId, cursorNamespace, { outletIndex: oi + 1, journalistIndex: 0 });
+      console.log(`[fillBufferFromJournalists] Buffered ${totalFilled} journalists from outlet ${outlet.name}`);
+      return { filled: totalFilled };
+    }
+  }
+
+  // All outlets exhausted
+  await saveCursor(params.orgId, cursorNamespace, { outletIndex: outlets.length, journalistIndex: 0 });
+  return { filled: totalFilled };
+}
+
 export async function pullNext(params: {
   orgId: string;
   campaignId: string;
@@ -217,6 +355,7 @@ export async function pullNext(params: {
   userId?: string | null;
   workflowName?: string;
   featureSlug?: string;
+  sourceType?: "apollo" | "journalist";
 }): Promise<{
   found: boolean;
   lead?: {
@@ -271,9 +410,23 @@ export async function pullNext(params: {
     } : null;
 
     if (!row) {
-      // Buffer empty - try to fill from search if searchParams provided
-      if (params.searchParams) {
-        const { filled } = await fillBufferFromSearch({
+      // Buffer empty — fill from the appropriate source
+      const st = params.sourceType ?? "apollo";
+      let filled = 0;
+
+      if (st === "journalist") {
+        const result = await fillBufferFromJournalists({
+          orgId: params.orgId,
+          campaignId: params.campaignId,
+          brandId: params.brandId,
+          pushRunId: params.runId,
+          userId: params.userId,
+          workflowName: params.workflowName,
+          featureSlug: params.featureSlug,
+        });
+        filled = result.filled;
+      } else if (params.searchParams) {
+        const result = await fillBufferFromSearch({
           orgId: params.orgId,
           campaignId: params.campaignId,
           brandId: params.brandId,
@@ -283,19 +436,73 @@ export async function pullNext(params: {
           workflowName: params.workflowName,
           featureSlug: params.featureSlug,
         });
+        filled = result.filled;
+      }
 
-        if (filled > 0) {
-          continue; // Retry pulling from buffer
-        }
+      if (filled > 0) {
+        continue; // Retry pulling from buffer
       }
 
       return { found: false };
     }
 
-    // Enrich if no email (search results don't include emails)
+    // Enrich if no email
     let email = row.email;
     let enrichedData = row.data;
-    if (!email && row.externalId) {
+    const rowData = row.data as Record<string, unknown> | null;
+    const isJournalistLead = rowData?.sourceType === "journalist";
+
+    if (!email && isJournalistLead && rowData?.firstName && rowData?.lastName && rowData?.organizationDomain) {
+      // Journalist without email — try Apollo match by name + domain
+      const matchResult = await apolloMatch(
+        {
+          firstName: rowData.firstName as string,
+          lastName: rowData.lastName as string,
+          organizationDomain: rowData.organizationDomain as string,
+        },
+        {
+          runId: params.runId,
+          orgId: params.orgId,
+          userId: params.userId,
+          brandId: params.brandId,
+          campaignId: params.campaignId,
+          workflowName: params.workflowName,
+          featureSlug: params.featureSlug,
+        }
+      );
+
+      if (!matchResult?.person?.email) {
+        await db
+          .update(leadBuffer)
+          .set({ status: "skipped" })
+          .where(eq(leadBuffer.id, row.id));
+        continue;
+      }
+
+      email = matchResult.person.email;
+      enrichedData = { ...(rowData ?? {}), ...matchResult.person };
+
+      // Cache the enrichment result
+      await db.insert(enrichments).values({
+        email,
+        apolloPersonId: matchResult.person.id ?? null,
+        firstName: matchResult.person.firstName ?? null,
+        lastName: matchResult.person.lastName ?? null,
+        title: matchResult.person.title ?? null,
+        linkedinUrl: matchResult.person.linkedinUrl ?? null,
+        organizationName: matchResult.person.organizationName ?? null,
+        organizationDomain: matchResult.person.organizationDomain ?? null,
+        organizationIndustry: matchResult.person.organizationIndustry ?? null,
+        organizationSize: matchResult.person.organizationSize ?? null,
+        responseRaw: matchResult.person,
+      }).onConflictDoNothing();
+
+      // Update buffer row with email
+      await db
+        .update(leadBuffer)
+        .set({ email, data: enrichedData })
+        .where(eq(leadBuffer.id, row.id));
+    } else if (!email && row.externalId) {
       // Check enrichment cache first to avoid duplicate Apollo API calls
       const cached = await db.query.enrichments.findFirst({
         where: eq(enrichments.apolloPersonId, row.externalId),

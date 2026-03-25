@@ -32,7 +32,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
   }
 
   try {
-    const { campaignId, brandId, searchParams, userId, idempotencyKey } = parsed.data;
+    const { campaignId, brandId, searchParams, userId, idempotencyKey, sourceType } = parsed.data;
 
     // Body workflowName takes precedence; fall back to header injected by workflow-service
     const workflowName = parsed.data.workflowName ?? req.workflowName;
@@ -71,6 +71,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       userId: userId ?? req.userId ?? null,
       workflowName,
       featureSlug: req.featureSlug,
+      sourceType,
     });
 
     // Cache the response for idempotency + probabilistic TTL cleanup (~1% of requests)

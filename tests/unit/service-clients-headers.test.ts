@@ -206,6 +206,96 @@ describe("service client headers", () => {
     });
   });
 
+  describe("apollo-client apolloMatch", () => {
+    it("sends correct headers and body for apolloMatch", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ enrichmentId: "e1", person: { id: "p1", email: "j@test.com" }, cached: false }));
+
+      const { apolloMatch } = await import("../../src/lib/apollo-client.js");
+      await apolloMatch(
+        { firstName: "Jane", lastName: "Doe", organizationDomain: "test.com" },
+        { orgId: "org-1", userId: "user-1", runId: "run-1", brandId: "brand-1", campaignId: "camp-1", workflowName: "wf-1", featureSlug: "feat-1" }
+      );
+
+      expect(fetchSpy).toHaveBeenCalledOnce();
+      const [url, opts] = fetchSpy.mock.calls[0];
+      expect(url).toContain("/match");
+      expect(opts.headers["x-org-id"]).toBe("org-1");
+      expect(opts.headers["x-user-id"]).toBe("user-1");
+      expect(opts.headers["x-run-id"]).toBe("run-1");
+      expect(opts.headers["x-brand-id"]).toBe("brand-1");
+      expect(opts.headers["x-campaign-id"]).toBe("camp-1");
+      expect(opts.headers["x-workflow-name"]).toBe("wf-1");
+      expect(opts.headers["x-feature-slug"]).toBe("feat-1");
+      const body = JSON.parse(opts.body);
+      expect(body.firstName).toBe("Jane");
+      expect(body.lastName).toBe("Doe");
+      expect(body.organizationDomain).toBe("test.com");
+    });
+  });
+
+  describe("outlet-client", () => {
+    it("sends correct URL and headers for fetchOutletsByCampaign", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ outlets: [{ id: "o1", name: "TechCrunch", outletUrl: "https://techcrunch.com" }] }));
+
+      const { fetchOutletsByCampaign } = await import("../../src/lib/outlet-client.js");
+      await fetchOutletsByCampaign("campaign-123", "org-uuid-1", {
+        userId: "user-1", runId: "run-1", campaignId: "camp-1", brandId: "brand-1", workflowName: "wf-1", featureSlug: "feat-1",
+      });
+
+      expect(fetchSpy).toHaveBeenCalledOnce();
+      const [url, opts] = fetchSpy.mock.calls[0];
+      expect(url).toContain("/internal/outlets/by-campaign/campaign-123");
+      expect(opts.headers["x-org-id"]).toBe("org-uuid-1");
+      expect(opts.headers["x-user-id"]).toBe("user-1");
+      expect(opts.headers["x-run-id"]).toBe("run-1");
+      expect(opts.headers["x-campaign-id"]).toBe("camp-1");
+      expect(opts.headers["x-brand-id"]).toBe("brand-1");
+      expect(opts.headers["x-workflow-name"]).toBe("wf-1");
+      expect(opts.headers["x-feature-slug"]).toBe("feat-1");
+    });
+
+    it("returns null on error", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ error: "not found" }, 404));
+
+      const { fetchOutletsByCampaign } = await import("../../src/lib/outlet-client.js");
+      const result = await fetchOutletsByCampaign("bad-campaign", "org-1");
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("journalist-client", () => {
+    it("sends correct URL with campaignId query param and headers", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ journalists: [{ id: "j1", journalistName: "Jane Doe" }] }));
+
+      const { fetchJournalistsByOutlet } = await import("../../src/lib/journalist-client.js");
+      await fetchJournalistsByOutlet("outlet-uuid-1", {
+        campaignId: "camp-1", orgId: "org-1", userId: "user-1", runId: "run-1", brandId: "brand-1", workflowName: "wf-1", featureSlug: "feat-1",
+      });
+
+      expect(fetchSpy).toHaveBeenCalledOnce();
+      const [url, opts] = fetchSpy.mock.calls[0];
+      expect(url).toContain("/internal/journalists/by-outlet-with-emails/outlet-uuid-1");
+      expect(url).toContain("campaignId=camp-1");
+      expect(opts.headers["x-org-id"]).toBe("org-1");
+      expect(opts.headers["x-user-id"]).toBe("user-1");
+      expect(opts.headers["x-run-id"]).toBe("run-1");
+      expect(opts.headers["x-campaign-id"]).toBe("camp-1");
+      expect(opts.headers["x-brand-id"]).toBe("brand-1");
+      expect(opts.headers["x-workflow-name"]).toBe("wf-1");
+      expect(opts.headers["x-feature-slug"]).toBe("feat-1");
+    });
+
+    it("returns null on error", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ error: "not found" }, 404));
+
+      const { fetchJournalistsByOutlet } = await import("../../src/lib/journalist-client.js");
+      const result = await fetchJournalistsByOutlet("bad-outlet");
+
+      expect(result).toBeNull();
+    });
+  });
+
   describe("runs-client", () => {
     it("sends x-org-id, x-user-id, x-run-id headers for updateRun", async () => {
       fetchSpy.mockReturnValue(jsonResponse({ id: "run-1", status: "completed" }));
