@@ -13,6 +13,9 @@ export interface JournalistWithEmails {
   firstName: string | null;
   lastName: string | null;
   entityType: "individual" | "organization";
+  relevanceScore: number;
+  whyRelevant: string;
+  whyNotRelevant: string;
   emails: JournalistEmail[];
 }
 
@@ -41,22 +44,24 @@ export async function fetchJournalistsByOutlet(
     if (options?.workflowName) headers["x-workflow-name"] = options.workflowName;
     if (options?.featureSlug) headers["x-feature-slug"] = options.featureSlug;
 
-    const url = new URL(
-      `${JOURNALISTS_SERVICE_URL}/internal/journalists/by-outlet-with-emails/${outletId}`
-    );
-    if (options?.campaignId) url.searchParams.set("campaignId", options.campaignId);
-
-    const response = await fetch(url.toString(), { headers });
+    const response = await fetch(`${JOURNALISTS_SERVICE_URL}/journalists/resolve`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ outletId }),
+    });
 
     if (!response.ok) {
-      console.warn(`[journalist-client] Failed to fetch journalists for outlet ${outletId}: ${response.status}`);
+      console.warn(`[journalist-client] Failed to resolve journalists for outlet ${outletId}: ${response.status}`);
       return null;
     }
 
-    const data = (await response.json()) as { journalists: JournalistWithEmails[] };
+    const data = (await response.json()) as { journalists: JournalistWithEmails[]; cached: boolean };
+    if (data.cached) {
+      console.log(`[journalist-client] Resolved journalists for outlet ${outletId} (cached)`);
+    }
     return data.journalists;
   } catch (error) {
-    console.error("[journalist-client] Error fetching journalists:", error);
+    console.error("[journalist-client] Error resolving journalists:", error);
     return null;
   }
 }

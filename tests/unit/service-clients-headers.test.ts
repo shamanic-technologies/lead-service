@@ -265,8 +265,8 @@ describe("service client headers", () => {
   });
 
   describe("journalist-client", () => {
-    it("sends correct URL with campaignId query param and headers", async () => {
-      fetchSpy.mockReturnValue(jsonResponse({ journalists: [{ id: "j1", journalistName: "Jane Doe" }] }));
+    it("sends POST to /journalists/resolve with outletId in body and headers", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ journalists: [{ id: "j1", journalistName: "Jane Doe" }], cached: false }));
 
       const { fetchJournalistsByOutlet } = await import("../../src/lib/journalist-client.js");
       await fetchJournalistsByOutlet("outlet-uuid-1", {
@@ -275,8 +275,10 @@ describe("service client headers", () => {
 
       expect(fetchSpy).toHaveBeenCalledOnce();
       const [url, opts] = fetchSpy.mock.calls[0];
-      expect(url).toContain("/internal/journalists/by-outlet-with-emails/outlet-uuid-1");
-      expect(url).toContain("campaignId=camp-1");
+      expect(url).toContain("/journalists/resolve");
+      expect(opts.method).toBe("POST");
+      const body = JSON.parse(opts.body);
+      expect(body.outletId).toBe("outlet-uuid-1");
       expect(opts.headers["x-org-id"]).toBe("org-1");
       expect(opts.headers["x-user-id"]).toBe("user-1");
       expect(opts.headers["x-run-id"]).toBe("run-1");
