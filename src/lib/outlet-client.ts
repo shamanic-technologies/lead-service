@@ -3,8 +3,12 @@ const OUTLETS_SERVICE_API_KEY = process.env.OUTLETS_SERVICE_API_KEY || "";
 
 export interface OutletDetails {
   id: string;
-  name: string;
+  outletName: string;
   outletUrl: string;
+  outletDomain: string;
+  relevanceScore: number;
+  outletStatus: string;
+  campaignId: string;
 }
 
 export async function fetchOutletsByCampaign(

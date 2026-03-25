@@ -833,7 +833,7 @@ describe("buffer", () => {
 
       // Outlet service returns outlets
       vi.mocked(fetchOutletsByCampaign).mockResolvedValueOnce([
-        { id: "outlet-1", name: "TechCrunch", outletUrl: "https://techcrunch.com" },
+        { id: "outlet-1", outletName: "TechCrunch", outletUrl: "https://techcrunch.com", outletDomain: "techcrunch.com", relevanceScore: 85, outletStatus: "open", campaignId: "campaign-1" },
       ]);
 
       // Journalist service returns journalist with email

@@ -235,7 +235,7 @@ describe("service client headers", () => {
 
   describe("outlet-client", () => {
     it("sends correct URL and headers for fetchOutletsByCampaign", async () => {
-      fetchSpy.mockReturnValue(jsonResponse({ outlets: [{ id: "o1", name: "TechCrunch", outletUrl: "https://techcrunch.com" }] }));
+      fetchSpy.mockReturnValue(jsonResponse({ outlets: [{ id: "o1", outletName: "TechCrunch", outletUrl: "https://techcrunch.com", outletDomain: "techcrunch.com" }] }));
 
       const { fetchOutletsByCampaign } = await import("../../src/lib/outlet-client.js");
       await fetchOutletsByCampaign("campaign-123", "org-uuid-1", {

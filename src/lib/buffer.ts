@@ -302,14 +302,14 @@ async function fillBufferFromJournalists(params: {
         ?.sort((a, b) => b.confidence - a.confidence)
         ?.[0]?.email ?? null;
 
-      const organizationDomain = extractDomain(outlet.outletUrl);
+      const organizationDomain = outlet.outletDomain || extractDomain(outlet.outletUrl);
 
       const data: Record<string, unknown> = {
         firstName: journalist.firstName,
         lastName: journalist.lastName,
         journalistName: journalist.journalistName,
         organizationDomain,
-        organizationName: outlet.name,
+        organizationName: outlet.outletName,
         outletUrl: outlet.outletUrl,
         outletId: outlet.id,
         journalistId: journalist.id,
@@ -336,7 +336,7 @@ async function fillBufferFromJournalists(params: {
     // Save cursor after each outlet
     if (totalFilled > 0) {
       await saveCursor(params.orgId, cursorNamespace, { outletIndex: oi + 1, journalistIndex: 0 });
-      console.log(`[fillBufferFromJournalists] Buffered ${totalFilled} journalists from outlet ${outlet.name}`);
+      console.log(`[fillBufferFromJournalists] Buffered ${totalFilled} journalists from outlet ${outlet.outletName}`);
       return { filled: totalFilled };
     }
   }
