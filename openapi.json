@@ -445,6 +445,14 @@
             "type": "string",
             "minLength": 1
           },
+          "sourceType": {
+            "type": "string",
+            "enum": [
+              "apollo",
+              "journalist"
+            ],
+            "default": "apollo"
+          },
           "searchParams": {
             "type": "object",
             "nullable": true,
