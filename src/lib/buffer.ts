@@ -27,6 +27,7 @@ async function fillBufferFromSearch(params: {
   campaignId: string;
   brandId: string;
   searchParams: ApolloSearchParams;
+  brandContext?: Record<string, unknown>;
   pushRunId?: string | null;
   userId?: string | null;
   workflowName?: string;
@@ -41,25 +42,44 @@ async function fillBufferFromSearch(params: {
     featureSlug: params.featureSlug,
   };
 
-  // Fetch campaign + brand details in parallel for rich LLM context
-  const [campaign, brand] = await Promise.all([
+  // Fetch campaign, brand, and extracted fields in parallel for rich LLM context
+  const [campaign, brand, extracted] = await Promise.all([
     fetchCampaign(params.campaignId, params.orgId, serviceContext),
     fetchBrand(params.brandId, params.orgId, serviceContext),
+    resolveBrandContext(params.brandId, params.orgId, serviceContext),
   ]);
 
-  // Build rich context string from campaign, brand, and raw searchParams
+  // Build rich context string from all sources: extract-fields, brandContext (DAG), campaign, brand
   const contextParts: string[] = [];
+  const ctx = params.brandContext ?? {};
 
   if (campaign?.targetAudience) contextParts.push(`Target audience: ${campaign.targetAudience}`);
   if (campaign?.targetOutcome) contextParts.push(`Expected outcome: ${campaign.targetOutcome}`);
   if (campaign?.valueForTarget) contextParts.push(`Value for the audience: ${campaign.valueForTarget}`);
 
-  if (brand?.name) contextParts.push(`Brand: ${brand.name}`);
-  if (brand?.elevatorPitch) contextParts.push(`Brand pitch: ${brand.elevatorPitch}`);
-  if (brand?.bio) contextParts.push(`Brand bio: ${brand.bio}`);
+  // Brand name: extract-fields → brandContext → legacy
+  const brandName = extracted.brandName ?? (ctx.brandName as string) ?? (ctx.companyName as string) ?? brand?.name;
+  if (brandName) contextParts.push(`Brand: ${brandName}`);
+
+  // Brand description: extract-fields → brandContext → legacy
+  const brandDescription = extracted.brandDescription ?? (ctx.companyContext as string) ?? (ctx.brandDescription as string) ?? brand?.elevatorPitch;
+  if (brandDescription) contextParts.push(`Brand pitch: ${brandDescription}`);
+
+  // Additional brand context from brandContext (DAG featureInputs)
+  if (ctx.prAngle) contextParts.push(`PR angle: ${ctx.prAngle}`);
+  if (ctx.targetOutlets) contextParts.push(`Target outlets: ${typeof ctx.targetOutlets === "string" ? ctx.targetOutlets : JSON.stringify(ctx.targetOutlets)}`);
+
+  // Bio/mission: legacy brand columns (if extract-fields didn't cover them)
+  if (brand?.bio && !brandDescription) contextParts.push(`Brand bio: ${brand.bio}`);
   if (brand?.mission) contextParts.push(`Brand mission: ${brand.mission}`);
-  if (brand?.categories) contextParts.push(`Brand categories: ${brand.categories}`);
-  if (brand?.location) contextParts.push(`Brand location: ${brand.location}`);
+
+  // Industry/categories: extract-fields → brandContext → legacy
+  const industry = extracted.industry ?? (ctx.industry as string) ?? (ctx.categories as string) ?? brand?.categories;
+  if (industry) contextParts.push(`Brand categories: ${industry}`);
+
+  // Location: extract-fields → brandContext → legacy
+  const location = extracted.targetGeo ?? (ctx.targetGeo as string) ?? brand?.location;
+  if (location) contextParts.push(`Brand location: ${location}`);
 
   // Include raw searchParams as additional context
   const rawSearch = typeof params.searchParams === "string"
@@ -587,6 +607,7 @@ export async function pullNext(params: {
           campaignId: params.campaignId,
           brandId: params.brandId,
           searchParams: params.searchParams,
+          brandContext: params.brandContext,
           pushRunId: params.runId,
           userId: params.userId,
           workflowName: params.workflowName,
