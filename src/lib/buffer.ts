@@ -337,12 +337,13 @@ async function fillBufferFromJournalists(params: {
 
     const brandName = extracted.brandName ?? (ctx.brandName as string) ?? (ctx.companyName as string) ?? brand?.name ?? null;
     const brandDescription = extracted.brandDescription ?? (ctx.companyContext as string) ?? (ctx.brandDescription as string) ?? brand?.elevatorPitch ?? brand?.bio ?? null;
-    const industry = extracted.industry ?? (ctx.industry as string) ?? (ctx.categories as string) ?? brand?.categories ?? null;
+    const industry = extracted.industry ?? (ctx.industry as string) ?? (ctx.categories as string) ?? brand?.categories ?? undefined;
     const targetGeo = extracted.targetGeo ?? (ctx.targetGeo as string) ?? brand?.location ?? undefined;
     const targetAudience = (ctx.targetAudience as string) ?? campaign?.targetAudience ?? undefined;
 
-    if (!brandName || !brandDescription || !industry) {
-      console.warn(`[fillBufferFromJournalists] Cannot discover outlets — insufficient context (need brandName, brandDescription, industry). extracted=${JSON.stringify(extracted)}, brandContext=${JSON.stringify(ctx)}, brand=${JSON.stringify(brand ? { name: brand.name, elevatorPitch: brand.elevatorPitch, categories: brand.categories } : null)}`);
+    if (!brandName || !brandDescription) {
+      console.warn(`[fillBufferFromJournalists] Cannot discover outlets — insufficient context (need brandName, brandDescription). extracted=${JSON.stringify(extracted)}, brandContext=${JSON.stringify(ctx)}, brand=${JSON.stringify(brand ? { name: brand.name, elevatorPitch: brand.elevatorPitch, categories: brand.categories } : null)}`);
+
       return { filled: 0 };
     }
 
@@ -352,7 +353,7 @@ async function fillBufferFromJournalists(params: {
         brandId: params.brandId,
         brandName,
         brandDescription,
-        industry,
+        industry: industry ?? undefined,
         targetGeo,
         targetAudience,
         workflowName: params.workflowName,
