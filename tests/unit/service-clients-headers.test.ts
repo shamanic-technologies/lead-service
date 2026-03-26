@@ -206,6 +206,47 @@ describe("service client headers", () => {
     });
   });
 
+  describe("brand-client extractBrandFields", () => {
+    it("sends correct headers and body for extractBrandFields", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ brandId: "brand-123", results: [] }));
+
+      const { extractBrandFields } = await import("../../src/lib/brand-client.js");
+      await extractBrandFields(
+        "brand-123",
+        [{ key: "elevator_pitch", description: "One-sentence pitch" }],
+        "org-1",
+        { userId: "user-1", runId: "run-1", campaignId: "camp-1", brandId: "brand-1", workflowName: "wf-1", featureSlug: "feat-1" },
+      );
+
+      expect(fetchSpy).toHaveBeenCalledOnce();
+      const [url, opts] = fetchSpy.mock.calls[0];
+      expect(url).toContain("/brands/brand-123/extract-fields");
+      expect(opts.method).toBe("POST");
+      expect(opts.headers["x-org-id"]).toBe("org-1");
+      expect(opts.headers["x-user-id"]).toBe("user-1");
+      expect(opts.headers["x-run-id"]).toBe("run-1");
+      const body = JSON.parse(opts.body);
+      expect(body.fields).toHaveLength(1);
+      expect(body.fields[0].key).toBe("elevator_pitch");
+    });
+  });
+
+  describe("brand-client fetchExtractedFields", () => {
+    it("sends correct headers for fetchExtractedFields", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ brandId: "brand-123", fields: [] }));
+
+      const { fetchExtractedFields } = await import("../../src/lib/brand-client.js");
+      await fetchExtractedFields("brand-123", "org-1", { userId: "user-1", runId: "run-1" });
+
+      expect(fetchSpy).toHaveBeenCalledOnce();
+      const [url, opts] = fetchSpy.mock.calls[0];
+      expect(url).toContain("/brands/brand-123/extracted-fields");
+      expect(opts.headers["x-org-id"]).toBe("org-1");
+      expect(opts.headers["x-user-id"]).toBe("user-1");
+      expect(opts.headers["x-run-id"]).toBe("run-1");
+    });
+  });
+
   describe("apollo-client apolloMatch", () => {
     it("sends correct headers and body for apolloMatch", async () => {
       fetchSpy.mockReturnValue(jsonResponse({ enrichmentId: "e1", person: { id: "p1", email: "j@test.com" }, cached: false }));

@@ -47,3 +47,78 @@ export async function fetchBrand(
     return null;
   }
 }
+
+export interface ExtractedField {
+  key: string;
+  value: string | string[] | Record<string, unknown> | null;
+  cached: boolean;
+  extractedAt: string;
+  expiresAt: string | null;
+  sourceUrls: string[] | null;
+}
+
+type ServiceContext = { userId?: string; runId?: string; campaignId?: string; brandId?: string; workflowName?: string; featureSlug?: string };
+
+function buildHeaders(orgId?: string | null, context?: ServiceContext): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-API-Key": BRAND_SERVICE_API_KEY,
+  };
+  if (orgId) headers["x-org-id"] = orgId;
+  if (context?.userId) headers["x-user-id"] = context.userId;
+  if (context?.runId) headers["x-run-id"] = context.runId;
+  if (context?.campaignId) headers["x-campaign-id"] = context.campaignId;
+  if (context?.brandId) headers["x-brand-id"] = context.brandId;
+  if (context?.workflowName) headers["x-workflow-name"] = context.workflowName;
+  if (context?.featureSlug) headers["x-feature-slug"] = context.featureSlug;
+  return headers;
+}
+
+export async function extractBrandFields(
+  brandId: string,
+  fields: Array<{ key: string; description: string }>,
+  orgId?: string | null,
+  context?: ServiceContext,
+): Promise<ExtractedField[] | null> {
+  try {
+    const response = await fetch(`${BRAND_SERVICE_URL}/brands/${brandId}/extract-fields`, {
+      method: "POST",
+      headers: buildHeaders(orgId, context),
+      body: JSON.stringify({ fields }),
+    });
+
+    if (!response.ok) {
+      console.warn(`[brand-client] extract-fields failed for brand ${brandId}: ${response.status}`);
+      return null;
+    }
+
+    const data = (await response.json()) as { brandId: string; results: ExtractedField[] };
+    return data.results;
+  } catch (error) {
+    console.error("[brand-client] Error extracting brand fields:", error);
+    return null;
+  }
+}
+
+export async function fetchExtractedFields(
+  brandId: string,
+  orgId?: string | null,
+  context?: ServiceContext,
+): Promise<ExtractedField[] | null> {
+  try {
+    const response = await fetch(`${BRAND_SERVICE_URL}/brands/${brandId}/extracted-fields`, {
+      headers: buildHeaders(orgId, context),
+    });
+
+    if (!response.ok) {
+      console.warn(`[brand-client] fetch extracted-fields failed for brand ${brandId}: ${response.status}`);
+      return null;
+    }
+
+    const data = (await response.json()) as { brandId: string; fields: ExtractedField[] };
+    return data.fields;
+  } catch (error) {
+    console.error("[brand-client] Error fetching extracted fields:", error);
+    return null;
+  }
+}
