@@ -32,7 +32,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
   }
 
   try {
-    const { campaignId, brandId, searchParams, userId, idempotencyKey, sourceType } = parsed.data;
+    const { campaignId, brandId, searchParams, brandContext, userId, idempotencyKey, sourceType } = parsed.data;
 
     // Body workflowName takes precedence; fall back to header injected by workflow-service
     const workflowName = parsed.data.workflowName ?? req.workflowName;
@@ -68,6 +68,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       brandId,
       runId: serveRunId,
       searchParams: searchParams ?? undefined,
+      brandContext: brandContext ?? undefined,
       userId: userId ?? req.userId ?? null,
       workflowName,
       featureSlug: req.featureSlug,

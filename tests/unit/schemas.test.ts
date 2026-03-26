@@ -73,6 +73,30 @@ describe("schema validation", () => {
       }
     });
 
+    it("accepts optional brandContext", () => {
+      const result = BufferNextRequestSchema.safeParse({
+        campaignId: "c1",
+        brandId: "b1",
+        brandContext: { companyContext: "AI startup", industry: "Technology" },
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.brandContext).toEqual({ companyContext: "AI startup", industry: "Technology" });
+      }
+    });
+
+    it("accepts null brandContext", () => {
+      const result = BufferNextRequestSchema.safeParse({
+        campaignId: "c1",
+        brandId: "b1",
+        brandContext: null,
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.brandContext).toBeNull();
+      }
+    });
+
     it("accepts request without workflowName", () => {
       const result = BufferNextRequestSchema.safeParse({
         campaignId: "c1",
