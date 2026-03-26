@@ -73,27 +73,27 @@ describe("schema validation", () => {
       }
     });
 
-    it("accepts optional brandContext", () => {
+    it("accepts optional featureInput", () => {
       const result = BufferNextRequestSchema.safeParse({
         campaignId: "c1",
         brandId: "b1",
-        brandContext: { companyContext: "AI startup", industry: "Technology" },
+        featureInput: { companyContext: "AI startup", industry: "Technology" },
       });
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.brandContext).toEqual({ companyContext: "AI startup", industry: "Technology" });
+        expect(result.data.featureInput).toEqual({ companyContext: "AI startup", industry: "Technology" });
       }
     });
 
-    it("accepts null brandContext", () => {
+    it("accepts null featureInput", () => {
       const result = BufferNextRequestSchema.safeParse({
         campaignId: "c1",
         brandId: "b1",
-        brandContext: null,
+        featureInput: null,
       });
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.brandContext).toBeNull();
+        expect(result.data.featureInput).toBeNull();
       }
     });
 

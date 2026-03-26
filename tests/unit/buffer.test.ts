@@ -345,7 +345,7 @@ describe("buffer", () => {
       expect(vi.mocked(apolloSearchParams)).toHaveBeenCalledOnce();
     });
 
-    it("passes brandContext and extracted fields as LLM context for Apollo search", async () => {
+    it("passes featureInput as LLM context for Apollo search", async () => {
       const newLeadRow = toClaimedRow({
         id: "buf-ctx-search",
         namespace: "campaign-1",
@@ -363,12 +363,6 @@ describe("buffer", () => {
         .mockResolvedValueOnce([newLeadRow]);
 
       vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValueOnce(undefined);
-
-      // extract-fields returns cached brand description
-      vi.mocked(fetchExtractedFields).mockResolvedValueOnce([
-        { key: "elevator_pitch", value: "AI-powered PR platform", cached: true, extractedAt: "2026-01-01", expiresAt: null, sourceUrls: null },
-        { key: "categories", value: "Technology, PR", cached: true, extractedAt: "2026-01-01", expiresAt: null, sourceUrls: null },
-      ]);
 
       vi.mocked(apolloSearchParams).mockResolvedValue({
         searchParams: { personTitles: ["Head of PR"] }, totalResults: 50, attempts: 1,
@@ -395,7 +389,7 @@ describe("buffer", () => {
         campaignId: "campaign-1",
         brandId: "brand-1",
         searchParams: { description: "PR contacts" },
-        brandContext: {
+        featureInput: {
           companyContext: "AI-powered PR distribution",
           prAngle: "Launch of new journalist outreach feature",
           targetOutlets: ["TechCrunch", "The Verge"],
@@ -404,12 +398,11 @@ describe("buffer", () => {
 
       expect(result.found).toBe(true);
 
-      // Verify the LLM context includes extracted fields and brandContext
+      // Verify the LLM context includes featureInput as JSON
       const contextArg = vi.mocked(apolloSearchParams).mock.calls[0][0].context;
-      expect(contextArg).toContain("AI-powered PR platform");       // from extract-fields
-      expect(contextArg).toContain("Technology, PR");                // from extract-fields
-      expect(contextArg).toContain("PR angle:");                     // from brandContext.prAngle
-      expect(contextArg).toContain("Target outlets:");               // from brandContext.targetOutlets
+      expect(contextArg).toContain("AI-powered PR distribution");
+      expect(contextArg).toContain("Launch of new journalist outreach feature");
+      expect(contextArg).toContain("TechCrunch");
     });
 
     it("merges enrichment cache data into buffer when filling from search", async () => {
@@ -1062,23 +1055,23 @@ describe("buffer", () => {
         campaignId: "campaign-1",
         brandId: "brand-1",
         sourceType: "journalist",
-        brandContext: { companyContext: "A test brand" },
+        featureInput: { companyContext: "A test brand" },
       });
 
       expect(result.found).toBe(false);
       expect(vi.mocked(discoverOutlets)).toHaveBeenCalledOnce();
-      // brandContext is passed through as-is
+      // featureInput is passed through as-is
       expect(vi.mocked(discoverOutlets)).toHaveBeenCalledWith(
         expect.objectContaining({
           campaignId: "campaign-1",
           brandId: "brand-1",
-          brandContext: { companyContext: "A test brand" },
+          featureInput: { companyContext: "A test brand" },
         }),
         expect.any(Object),
       );
     });
 
-    it("discovers outlets and fills buffer — passes brandContext through as-is", async () => {
+    it("discovers outlets and fills buffer — passes featureInput through as-is", async () => {
       const journalistRow = toClaimedRow({
         id: "buf-j-discover",
         namespace: "campaign-1",
@@ -1152,7 +1145,7 @@ describe("buffer", () => {
 
       vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
 
-      const brandContext = {
+      const featureInput = {
         companyContext: "AI-powered PR distribution platform",
         prAngle: "Launch of the Stripe for Distribution",
         targetOutlets: "Top-tier tech blogs, SaaS publications",
@@ -1163,16 +1156,16 @@ describe("buffer", () => {
         campaignId: "campaign-1",
         brandId: "brand-1",
         sourceType: "journalist",
-        brandContext,
+        featureInput,
       });
 
-      // brandContext is forwarded as-is — no field extraction or validation by lead-service
+      // featureInput is forwarded as-is — no field extraction or validation by lead-service
       expect(vi.mocked(discoverOutlets)).toHaveBeenCalledOnce();
       expect(vi.mocked(discoverOutlets)).toHaveBeenCalledWith(
         expect.objectContaining({
           campaignId: "campaign-1",
           brandId: "brand-1",
-          brandContext,
+          featureInput,
         }),
         expect.any(Object),
       );
@@ -1180,7 +1173,7 @@ describe("buffer", () => {
       expect(result.lead?.email).toBe("discovered@outlet.com");
     });
 
-    it("calls discoverOutlets even without brandContext", async () => {
+    it("calls discoverOutlets even without featureInput", async () => {
       pgSqlMock.mockResolvedValue([]);
 
       vi.mocked(db.query.cursors.findFirst).mockResolvedValueOnce(undefined);
