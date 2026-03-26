@@ -460,7 +460,7 @@
               "nullable": true
             }
           },
-          "brandContext": {
+          "featureInput": {
             "type": "object",
             "nullable": true,
             "additionalProperties": {
