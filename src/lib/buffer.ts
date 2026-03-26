@@ -6,7 +6,7 @@ import { resolveOrCreateLead, findLeadByApolloPersonId } from "./leads-registry.
 import { apolloSearchNext, apolloEnrich, apolloMatch, apolloSearchParams, type ApolloSearchParams } from "./apollo-client.js";
 import { fetchCampaign } from "./campaign-client.js";
 import { fetchBrand } from "./brand-client.js";
-import { fetchOutletsByCampaign } from "./outlet-client.js";
+import { fetchOutletsByCampaign, discoverOutlets } from "./outlet-client.js";
 import { fetchJournalistsByOutlet } from "./journalist-client.js";
 
 async function isInBuffer(orgId: string, campaignId: string, externalId: string): Promise<boolean> {
@@ -262,10 +262,51 @@ async function fillBufferFromJournalists(params: {
     ?? { outletIndex: 0, journalistIndex: 0 };
 
   // Fetch outlets for this campaign
-  const outlets = await fetchOutletsByCampaign(params.campaignId, params.orgId, serviceContext);
+  let outlets = await fetchOutletsByCampaign(params.campaignId, params.orgId, serviceContext);
   if (!outlets || outlets.length === 0) {
-    console.log(`[fillBufferFromJournalists] No outlets for campaign=${params.campaignId}`);
-    return { filled: 0 };
+    // No outlets yet — discover them via outlets-service
+    console.log(`[fillBufferFromJournalists] No outlets for campaign=${params.campaignId}, discovering...`);
+
+    const [campaign, brand] = await Promise.all([
+      fetchCampaign(params.campaignId, params.orgId, serviceContext),
+      fetchBrand(params.brandId, params.orgId, serviceContext),
+    ]);
+
+    if (!brand?.name || !brand?.elevatorPitch || !brand?.categories) {
+      console.warn(`[fillBufferFromJournalists] Cannot discover outlets — missing brand data (name/description/categories)`);
+      return { filled: 0 };
+    }
+
+    const discovered = await discoverOutlets(
+      {
+        campaignId: params.campaignId,
+        brandId: params.brandId,
+        brandName: brand.name,
+        brandDescription: brand.elevatorPitch,
+        industry: brand.categories,
+        targetGeo: brand.location ?? undefined,
+        targetAudience: campaign?.targetAudience ?? undefined,
+        workflowName: params.workflowName,
+      },
+      {
+        orgId: params.orgId,
+        userId: params.userId ?? undefined,
+        runId: params.pushRunId ?? undefined,
+        featureSlug: params.featureSlug,
+      }
+    );
+
+    if (!discovered || discovered.length === 0) {
+      console.log(`[fillBufferFromJournalists] Outlet discovery returned 0 results for campaign=${params.campaignId}`);
+      return { filled: 0 };
+    }
+
+    // Re-fetch outlets now that discovery has saved them
+    outlets = await fetchOutletsByCampaign(params.campaignId, params.orgId, serviceContext);
+    if (!outlets || outlets.length === 0) {
+      console.warn(`[fillBufferFromJournalists] Outlets still empty after discovery for campaign=${params.campaignId}`);
+      return { filled: 0 };
+    }
   }
 
   let totalFilled = 0;
