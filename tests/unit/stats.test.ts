@@ -41,6 +41,15 @@ vi.mock("../../src/lib/email-gateway-client.js", () => ({
 
 vi.mock("../../src/middleware/auth.js", () => ({
   authenticate: (_req: unknown, _res: unknown, next: () => void) => next(),
+  getServiceContext: (req: any) => ({
+    orgId: req.orgId,
+    userId: req.userId,
+    runId: req.runId,
+    campaignId: req.campaignId,
+    brandId: req.brandId,
+    workflowName: req.workflowName,
+    featureSlug: req.featureSlug,
+  }),
 }));
 
 import request from "supertest";

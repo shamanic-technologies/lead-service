@@ -1,5 +1,15 @@
 import { Request, Response, NextFunction } from "express";
 
+export interface ServiceContext {
+  orgId?: string;
+  userId?: string;
+  runId?: string;
+  campaignId?: string;
+  brandId?: string;
+  workflowName?: string;
+  featureSlug?: string;
+}
+
 export interface AuthenticatedRequest extends Request {
   orgId?: string;
   userId?: string;
@@ -8,6 +18,18 @@ export interface AuthenticatedRequest extends Request {
   brandId?: string;
   workflowName?: string;
   featureSlug?: string;
+}
+
+export function getServiceContext(req: AuthenticatedRequest): ServiceContext {
+  return {
+    orgId: req.orgId,
+    userId: req.userId,
+    runId: req.runId,
+    campaignId: req.campaignId,
+    brandId: req.brandId,
+    workflowName: req.workflowName,
+    featureSlug: req.featureSlug,
+  };
 }
 
 export async function authenticate(

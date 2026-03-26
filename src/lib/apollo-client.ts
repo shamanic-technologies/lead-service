@@ -265,13 +265,17 @@ export interface ApolloStats {
 export async function fetchApolloStats(
   filters: { runIds?: string[]; brandId?: string; campaignId?: string },
   orgId?: string | null,
-  context?: { userId?: string; runId?: string }
+  context?: { userId?: string; runId?: string; campaignId?: string; brandId?: string; workflowName?: string; featureSlug?: string }
 ): Promise<ApolloStats> {
   try {
     const headers: Record<string, string> = {};
     if (orgId) headers["x-org-id"] = orgId;
     if (context?.userId) headers["x-user-id"] = context.userId;
     if (context?.runId) headers["x-run-id"] = context.runId;
+    if (context?.campaignId) headers["x-campaign-id"] = context.campaignId;
+    if (context?.brandId) headers["x-brand-id"] = context.brandId;
+    if (context?.workflowName) headers["x-workflow-name"] = context.workflowName;
+    if (context?.featureSlug) headers["x-feature-slug"] = context.featureSlug;
 
     const result = await callApolloService<{ stats: ApolloStats }>("/stats", {
       method: "POST",

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, and, count, inArray, or, sql, type SQL } from "drizzle-orm";
-import { type AuthenticatedRequest, authenticate } from "../middleware/auth.js";
+import { type AuthenticatedRequest, type ServiceContext, authenticate, getServiceContext } from "../middleware/auth.js";
 import { db } from "../db/index.js";
 import { servedLeads, leadBuffer } from "../db/schema.js";
 import { fetchApolloStats } from "../lib/apollo-client.js";
@@ -69,7 +69,7 @@ function buildConditions(
  */
 async function countContacted(
   servedConds: SQL[],
-  context: { orgId?: string; userId?: string; runId?: string },
+  context: ServiceContext,
 ): Promise<number> {
   const rows = await db
     .select({
@@ -124,7 +124,7 @@ async function countContacted(
 async function countContactedGrouped(
   servedConds: SQL[],
   groupByField: GroupByField,
-  context: { orgId?: string; userId?: string; runId?: string },
+  context: ServiceContext,
 ): Promise<Map<string, number>> {
   const groupCol = COLUMN_MAP[groupByField].served;
 
@@ -203,7 +203,7 @@ router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
 
     const served = buildConditions(req, "served");
     const buffer = buildConditions(req, "buffer");
-    const egContext = { orgId: req.orgId, userId: req.userId, runId: req.runId };
+    const egContext = getServiceContext(req);
 
     // --- Grouped response ---
     if (groupByParam) {
@@ -280,7 +280,7 @@ router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
       fetchApolloStats(
         apolloFilters as Parameters<typeof fetchApolloStats>[0],
         served.orgIdStr ?? req.orgId,
-        { userId: req.userId, runId: req.runId },
+        egContext,
       ),
     ]);
 
