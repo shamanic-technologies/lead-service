@@ -52,6 +52,8 @@ vi.mock("../../src/lib/campaign-client.js", () => ({
 // Mock brand-client
 vi.mock("../../src/lib/brand-client.js", () => ({
   fetchBrand: vi.fn().mockResolvedValue(null),
+  fetchExtractedFields: vi.fn().mockResolvedValue(null),
+  extractBrandFields: vi.fn().mockResolvedValue(null),
 }));
 
 // Mock email-gateway-client
@@ -74,7 +76,7 @@ import { checkDeliveryStatus } from "../../src/lib/email-gateway-client.js";
 import { resolveOrCreateLead } from "../../src/lib/leads-registry.js";
 import { fetchOutletsByCampaign, discoverOutlets } from "../../src/lib/outlet-client.js";
 import { fetchCampaign } from "../../src/lib/campaign-client.js";
-import { fetchBrand } from "../../src/lib/brand-client.js";
+import { fetchBrand, fetchExtractedFields, extractBrandFields } from "../../src/lib/brand-client.js";
 import { fetchJournalistsByOutlet } from "../../src/lib/journalist-client.js";
 
 /** Helper: convert camelCase buffer row to snake_case raw SQL row (as returned by pgSql) */
@@ -989,16 +991,22 @@ describe("buffer", () => {
 
       vi.mocked(fetchOutletsByCampaign).mockResolvedValueOnce([]);
 
-      // Brand data available for discovery
+      // extract-fields returns cached data
+      vi.mocked(fetchExtractedFields).mockResolvedValueOnce([
+        { key: "elevator_pitch", value: "A test brand", cached: true, extractedAt: "2026-01-01", expiresAt: null, sourceUrls: null },
+        { key: "categories", value: "Technology", cached: true, extractedAt: "2026-01-01", expiresAt: null, sourceUrls: null },
+      ]);
+
+      // Brand basic info (name) for discovery
       vi.mocked(fetchBrand).mockResolvedValueOnce({
         id: "brand-1",
         name: "TestBrand",
         domain: "testbrand.com",
-        elevatorPitch: "A test brand",
+        elevatorPitch: null,
         bio: null,
         mission: null,
         location: null,
-        categories: "Technology",
+        categories: null,
       });
       vi.mocked(fetchCampaign).mockResolvedValueOnce({
         id: "campaign-1",
@@ -1061,16 +1069,23 @@ describe("buffer", () => {
           campaignId: "campaign-1",
         }]);
 
+      // extract-fields: trigger AI extraction (no cache)
+      vi.mocked(fetchExtractedFields).mockResolvedValueOnce(null);
+      vi.mocked(extractBrandFields).mockResolvedValueOnce([
+        { key: "elevator_pitch", value: "A test brand", cached: false, extractedAt: "2026-01-01", expiresAt: null, sourceUrls: null },
+        { key: "categories", value: "Technology", cached: false, extractedAt: "2026-01-01", expiresAt: null, sourceUrls: null },
+      ]);
+
       // Brand + campaign for discovery
       vi.mocked(fetchBrand).mockResolvedValueOnce({
         id: "brand-1",
         name: "TestBrand",
         domain: "testbrand.com",
-        elevatorPitch: "A test brand",
+        elevatorPitch: null,
         bio: null,
         mission: null,
         location: null,
-        categories: "Technology",
+        categories: null,
       });
       vi.mocked(fetchCampaign).mockResolvedValueOnce({
         id: "campaign-1",
@@ -1168,6 +1183,10 @@ describe("buffer", () => {
         .mockResolvedValueOnce([journalistRow]); // retry: claimed
 
       vi.mocked(db.query.cursors.findFirst).mockResolvedValueOnce(undefined);
+
+      // extract-fields also fails (brand has no URL or scraping failed)
+      vi.mocked(fetchExtractedFields).mockResolvedValueOnce(null);
+      vi.mocked(extractBrandFields).mockResolvedValueOnce(null);
 
       vi.mocked(fetchOutletsByCampaign)
         .mockResolvedValueOnce([])   // no outlets → triggers discovery
@@ -1271,6 +1290,10 @@ describe("buffer", () => {
 
       vi.mocked(db.query.cursors.findFirst).mockResolvedValueOnce(undefined);
       vi.mocked(fetchOutletsByCampaign).mockResolvedValueOnce([]);
+
+      // extract-fields also fails
+      vi.mocked(fetchExtractedFields).mockResolvedValueOnce(null);
+      vi.mocked(extractBrandFields).mockResolvedValueOnce(null);
 
       // Brand-service returns minimal data
       vi.mocked(fetchBrand).mockResolvedValueOnce({
