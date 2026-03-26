@@ -236,6 +236,7 @@ async function fillBufferFromJournalists(params: {
   orgId: string;
   campaignId: string;
   brandId: string;
+  brandContext?: Record<string, unknown>;
   pushRunId?: string | null;
   userId?: string | null;
   workflowName?: string;
@@ -272,8 +273,16 @@ async function fillBufferFromJournalists(params: {
       fetchBrand(params.brandId, params.orgId, serviceContext),
     ]);
 
-    if (!brand?.name || !brand?.elevatorPitch || !brand?.categories) {
-      console.warn(`[fillBufferFromJournalists] Cannot discover outlets — missing brand data (name/description/categories)`);
+    // Build discovery params from brandContext (DAG-provided) with brand-service as fallback
+    const ctx = params.brandContext ?? {};
+    const brandName = (ctx.brandName as string) ?? (ctx.companyName as string) ?? brand?.name ?? null;
+    const brandDescription = (ctx.companyContext as string) ?? (ctx.brandDescription as string) ?? brand?.elevatorPitch ?? brand?.bio ?? null;
+    const industry = (ctx.industry as string) ?? (ctx.categories as string) ?? brand?.categories ?? null;
+    const targetGeo = (ctx.targetGeo as string) ?? brand?.location ?? undefined;
+    const targetAudience = (ctx.targetAudience as string) ?? campaign?.targetAudience ?? undefined;
+
+    if (!brandName || !brandDescription || !industry) {
+      console.warn(`[fillBufferFromJournalists] Cannot discover outlets — insufficient context (need brandName, brandDescription, industry). brandContext=${JSON.stringify(ctx)}, brand=${JSON.stringify(brand ? { name: brand.name, elevatorPitch: brand.elevatorPitch, categories: brand.categories } : null)}`);
       return { filled: 0 };
     }
 
@@ -281,11 +290,11 @@ async function fillBufferFromJournalists(params: {
       {
         campaignId: params.campaignId,
         brandId: params.brandId,
-        brandName: brand.name,
-        brandDescription: brand.elevatorPitch,
-        industry: brand.categories,
-        targetGeo: brand.location ?? undefined,
-        targetAudience: campaign?.targetAudience ?? undefined,
+        brandName,
+        brandDescription,
+        industry,
+        targetGeo,
+        targetAudience,
         workflowName: params.workflowName,
       },
       {
@@ -436,6 +445,7 @@ export async function pullNext(params: {
   brandId: string;
   runId?: string | null;
   searchParams?: ApolloSearchParams;
+  brandContext?: Record<string, unknown>;
   userId?: string | null;
   workflowName?: string;
   featureSlug?: string;
@@ -503,6 +513,7 @@ export async function pullNext(params: {
           orgId: params.orgId,
           campaignId: params.campaignId,
           brandId: params.brandId,
+          brandContext: params.brandContext,
           pushRunId: params.runId,
           userId: params.userId,
           workflowName: params.workflowName,

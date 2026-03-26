@@ -460,6 +460,13 @@
               "nullable": true
             }
           },
+          "brandContext": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": {
+              "nullable": true
+            }
+          },
           "userId": {
             "type": "string"
           },

@@ -189,6 +189,7 @@ export const BufferNextRequestSchema = z
     brandId: z.string().min(1),
     sourceType: z.enum(["apollo", "journalist"]).default("apollo").optional(),
     searchParams: z.record(z.string(), z.unknown()).nullish(),
+    brandContext: z.record(z.string(), z.unknown()).nullish(),
     userId: z.string().optional(),
     workflowName: z.string().optional(),
     idempotencyKey: z.string().min(1).optional(),
