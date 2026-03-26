@@ -5,7 +5,7 @@ import { checkContacted, markServed } from "./dedup.js";
 import { resolveOrCreateLead, findLeadByApolloPersonId } from "./leads-registry.js";
 import { apolloSearchNext, apolloEnrich, apolloMatch, apolloSearchParams, type ApolloSearchParams } from "./apollo-client.js";
 import { fetchCampaign } from "./campaign-client.js";
-import { fetchBrand, fetchExtractedFields, extractBrandFields } from "./brand-client.js";
+import { fetchBrand } from "./brand-client.js";
 import { fetchOutletsByCampaign, discoverOutlets } from "./outlet-client.js";
 import { fetchJournalistsByOutlet } from "./journalist-client.js";
 
@@ -232,64 +232,6 @@ async function saveCursor(orgId: string, namespace: string, state: unknown): Pro
   }
 }
 
-const DISCOVERY_FIELDS = [
-  { key: "elevator_pitch", description: "A one-sentence pitch describing what the brand does" },
-  { key: "categories", description: "Comma-separated industry categories the brand operates in" },
-  { key: "target_geo", description: "Primary geographic market the brand targets" },
-];
-
-interface BrandContext {
-  brandName: string | null;
-  brandDescription: string | null;
-  industry: string | null;
-  targetGeo: string | null;
-}
-
-async function resolveBrandContext(
-  brandId: string,
-  orgId: string,
-  serviceContext: { userId?: string; runId?: string; campaignId?: string; brandId?: string; workflowName?: string; featureSlug?: string },
-): Promise<BrandContext> {
-  const empty: BrandContext = { brandName: null, brandDescription: null, industry: null, targetGeo: null };
-
-  // 1. Check cached extracted fields first (fast, no AI cost)
-  const cached = await fetchExtractedFields(brandId, orgId, serviceContext);
-  if (cached && cached.length > 0) {
-    const fieldMap = new Map(cached.map(f => [f.key, f.value]));
-    const pitch = fieldMap.get("elevator_pitch");
-    const cats = fieldMap.get("categories");
-    const geo = fieldMap.get("target_geo");
-
-    // If we have the key fields cached, return them directly
-    if (pitch && cats) {
-      console.log(`[resolveBrandContext] Using cached extracted fields for brand=${brandId}`);
-      return {
-        brandName: null, // will be filled from brand.name by caller
-        brandDescription: typeof pitch === "string" ? pitch : JSON.stringify(pitch),
-        industry: typeof cats === "string" ? cats : Array.isArray(cats) ? cats.join(", ") : JSON.stringify(cats),
-        targetGeo: geo ? (typeof geo === "string" ? geo : JSON.stringify(geo)) : null,
-      };
-    }
-  }
-
-  // 2. Extract fields via AI (slow, but results get cached for 30 days)
-  console.log(`[resolveBrandContext] Extracting fields via AI for brand=${brandId}`);
-  const results = await extractBrandFields(brandId, DISCOVERY_FIELDS, orgId, serviceContext);
-  if (!results) return empty;
-
-  const fieldMap = new Map(results.map(f => [f.key, f.value]));
-  const pitch = fieldMap.get("elevator_pitch");
-  const cats = fieldMap.get("categories");
-  const geo = fieldMap.get("target_geo");
-
-  return {
-    brandName: null,
-    brandDescription: pitch ? (typeof pitch === "string" ? pitch : JSON.stringify(pitch)) : null,
-    industry: cats ? (typeof cats === "string" ? cats : Array.isArray(cats) ? cats.join(", ") : JSON.stringify(cats)) : null,
-    targetGeo: geo ? (typeof geo === "string" ? geo : JSON.stringify(geo)) : null,
-  };
-}
-
 async function fillBufferFromJournalists(params: {
   orgId: string;
   campaignId: string;
@@ -326,36 +268,11 @@ async function fillBufferFromJournalists(params: {
     // No outlets yet — discover them via outlets-service
     console.log(`[fillBufferFromJournalists] No outlets for campaign=${params.campaignId}, discovering...`);
 
-    const [campaign, brand] = await Promise.all([
-      fetchCampaign(params.campaignId, params.orgId, serviceContext),
-      fetchBrand(params.brandId, params.orgId, serviceContext),
-    ]);
-
-    // Resolve brand context: extract-fields (primary) → brandContext (DAG) → legacy brand columns (fallback)
-    const extracted = await resolveBrandContext(params.brandId, params.orgId, serviceContext);
-    const ctx = params.brandContext ?? {};
-
-    const brandName = extracted.brandName ?? (ctx.brandName as string) ?? (ctx.companyName as string) ?? brand?.name ?? null;
-    const brandDescription = extracted.brandDescription ?? (ctx.companyContext as string) ?? (ctx.brandDescription as string) ?? brand?.elevatorPitch ?? brand?.bio ?? null;
-    const industry = extracted.industry ?? (ctx.industry as string) ?? (ctx.categories as string) ?? brand?.categories ?? undefined;
-    const targetGeo = extracted.targetGeo ?? (ctx.targetGeo as string) ?? brand?.location ?? undefined;
-    const targetAudience = (ctx.targetAudience as string) ?? campaign?.targetAudience ?? undefined;
-
-    if (!brandName || !brandDescription) {
-      console.warn(`[fillBufferFromJournalists] Cannot discover outlets — insufficient context (need brandName, brandDescription). extracted=${JSON.stringify(extracted)}, brandContext=${JSON.stringify(ctx)}, brand=${JSON.stringify(brand ? { name: brand.name, elevatorPitch: brand.elevatorPitch, categories: brand.categories } : null)}`);
-
-      return { filled: 0 };
-    }
-
     const discovered = await discoverOutlets(
       {
         campaignId: params.campaignId,
         brandId: params.brandId,
-        brandName,
-        brandDescription,
-        industry: industry ?? undefined,
-        targetGeo,
-        targetAudience,
+        brandContext: params.brandContext,
         workflowName: params.workflowName,
       },
       {

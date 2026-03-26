@@ -52,8 +52,6 @@ vi.mock("../../src/lib/campaign-client.js", () => ({
 // Mock brand-client
 vi.mock("../../src/lib/brand-client.js", () => ({
   fetchBrand: vi.fn().mockResolvedValue(null),
-  fetchExtractedFields: vi.fn().mockResolvedValue(null),
-  extractBrandFields: vi.fn().mockResolvedValue(null),
 }));
 
 // Mock email-gateway-client
@@ -76,7 +74,7 @@ import { checkDeliveryStatus } from "../../src/lib/email-gateway-client.js";
 import { resolveOrCreateLead } from "../../src/lib/leads-registry.js";
 import { fetchOutletsByCampaign, discoverOutlets } from "../../src/lib/outlet-client.js";
 import { fetchCampaign } from "../../src/lib/campaign-client.js";
-import { fetchBrand, fetchExtractedFields, extractBrandFields } from "../../src/lib/brand-client.js";
+import { fetchBrand } from "../../src/lib/brand-client.js";
 import { fetchJournalistsByOutlet } from "../../src/lib/journalist-client.js";
 
 /** Helper: convert camelCase buffer row to snake_case raw SQL row (as returned by pgSql) */
@@ -986,35 +984,8 @@ describe("buffer", () => {
     it("returns found: false when no outlets exist and discovery finds none", async () => {
       pgSqlMock.mockResolvedValue([]);
 
-      // Cursor: no existing cursor
       vi.mocked(db.query.cursors.findFirst).mockResolvedValueOnce(undefined);
-
       vi.mocked(fetchOutletsByCampaign).mockResolvedValueOnce([]);
-
-      // extract-fields returns cached data
-      vi.mocked(fetchExtractedFields).mockResolvedValueOnce([
-        { key: "elevator_pitch", value: "A test brand", cached: true, extractedAt: "2026-01-01", expiresAt: null, sourceUrls: null },
-        { key: "categories", value: "Technology", cached: true, extractedAt: "2026-01-01", expiresAt: null, sourceUrls: null },
-      ]);
-
-      // Brand basic info (name) for discovery
-      vi.mocked(fetchBrand).mockResolvedValueOnce({
-        id: "brand-1",
-        name: "TestBrand",
-        domain: "testbrand.com",
-        elevatorPitch: null,
-        bio: null,
-        mission: null,
-        location: null,
-        categories: null,
-      });
-      vi.mocked(fetchCampaign).mockResolvedValueOnce({
-        id: "campaign-1",
-        name: "Test Campaign",
-        targetAudience: "Tech journalists",
-        targetOutcome: null,
-        valueForTarget: null,
-      });
 
       // Discovery returns empty
       vi.mocked(discoverOutlets).mockResolvedValueOnce([]);
@@ -1024,13 +995,23 @@ describe("buffer", () => {
         campaignId: "campaign-1",
         brandId: "brand-1",
         sourceType: "journalist",
+        brandContext: { companyContext: "A test brand" },
       });
 
       expect(result.found).toBe(false);
       expect(vi.mocked(discoverOutlets)).toHaveBeenCalledOnce();
+      // brandContext is passed through as-is
+      expect(vi.mocked(discoverOutlets)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          campaignId: "campaign-1",
+          brandId: "brand-1",
+          brandContext: { companyContext: "A test brand" },
+        }),
+        expect.any(Object),
+      );
     });
 
-    it("discovers outlets and fills buffer when no outlets exist initially", async () => {
+    it("discovers outlets and fills buffer — passes brandContext through as-is", async () => {
       const journalistRow = toClaimedRow({
         id: "buf-j-discover",
         namespace: "campaign-1",
@@ -1052,11 +1033,8 @@ describe("buffer", () => {
         .mockResolvedValueOnce([])              // pullNext: buffer empty
         .mockResolvedValueOnce([journalistRow]); // pullNext retry: claimed journalist lead
 
-      // Cursor: no existing cursor
       vi.mocked(db.query.cursors.findFirst).mockResolvedValueOnce(undefined);
 
-      // First fetch: no outlets → triggers discovery
-      // Second fetch (after discovery): outlets found
       vi.mocked(fetchOutletsByCampaign)
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([{
@@ -1069,33 +1047,6 @@ describe("buffer", () => {
           campaignId: "campaign-1",
         }]);
 
-      // extract-fields: trigger AI extraction (no cache)
-      vi.mocked(fetchExtractedFields).mockResolvedValueOnce(null);
-      vi.mocked(extractBrandFields).mockResolvedValueOnce([
-        { key: "elevator_pitch", value: "A test brand", cached: false, extractedAt: "2026-01-01", expiresAt: null, sourceUrls: null },
-        { key: "categories", value: "Technology", cached: false, extractedAt: "2026-01-01", expiresAt: null, sourceUrls: null },
-      ]);
-
-      // Brand + campaign for discovery
-      vi.mocked(fetchBrand).mockResolvedValueOnce({
-        id: "brand-1",
-        name: "TestBrand",
-        domain: "testbrand.com",
-        elevatorPitch: null,
-        bio: null,
-        mission: null,
-        location: null,
-        categories: null,
-      });
-      vi.mocked(fetchCampaign).mockResolvedValueOnce({
-        id: "campaign-1",
-        name: "Test Campaign",
-        targetAudience: "Tech journalists",
-        targetOutcome: null,
-        valueForTarget: null,
-      });
-
-      // Discovery succeeds
       vi.mocked(discoverOutlets).mockResolvedValueOnce([{
         id: "outlet-discovered",
         outletName: "Discovered Outlet",
@@ -1106,7 +1057,6 @@ describe("buffer", () => {
         campaignId: "campaign-1",
       }]);
 
-      // Journalist service returns journalist with email
       vi.mocked(fetchJournalistsByOutlet).mockResolvedValueOnce([{
         id: "j-discovered",
         journalistName: "Jane Reporter",
@@ -1119,10 +1069,8 @@ describe("buffer", () => {
         emails: [{ email: "discovered@outlet.com", isValid: true, confidence: 0.95 }],
       }]);
 
-      // isInBuffer → not in buffer
       vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValueOnce(undefined);
 
-      // db.insert for buffer + served_leads
       const returningMock = vi.fn().mockResolvedValue([{ id: "served-1" }]);
       const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
       const valuesMock = vi.fn().mockReturnValue({
@@ -1130,7 +1078,6 @@ describe("buffer", () => {
       });
       vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
 
-      // db.update for cursor + buffer status
       const setMock = vi.fn().mockReturnValue({
         where: vi.fn().mockResolvedValue(undefined),
       });
@@ -1138,21 +1085,27 @@ describe("buffer", () => {
 
       vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
 
+      const brandContext = {
+        companyContext: "AI-powered PR distribution platform",
+        prAngle: "Launch of the Stripe for Distribution",
+        targetOutlets: "Top-tier tech blogs, SaaS publications",
+      };
+
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
         sourceType: "journalist",
+        brandContext,
       });
 
+      // brandContext is forwarded as-is — no field extraction or validation by lead-service
       expect(vi.mocked(discoverOutlets)).toHaveBeenCalledOnce();
       expect(vi.mocked(discoverOutlets)).toHaveBeenCalledWith(
         expect.objectContaining({
           campaignId: "campaign-1",
           brandId: "brand-1",
-          brandName: "TestBrand",
-          brandDescription: "A test brand",
-          industry: "Technology",
+          brandContext,
         }),
         expect.any(Object),
       );
@@ -1160,270 +1113,15 @@ describe("buffer", () => {
       expect(result.lead?.email).toBe("discovered@outlet.com");
     });
 
-    it("uses brandContext for outlet discovery when brand-service returns incomplete data", async () => {
-      const journalistRow = toClaimedRow({
-        id: "buf-j-ctx",
-        namespace: "campaign-1",
-        campaignId: "campaign-1",
-        email: "ctx@outlet.com",
-        externalId: "journalist:j-ctx",
-        data: {
-          firstName: "Alice",
-          lastName: "Ctx",
-          organizationName: "Context Outlet",
-          sourceType: "journalist",
-        },
-        brandId: "brand-1",
-        orgId: "org-1",
-        userId: null,
-      });
-
-      pgSqlMock
-        .mockResolvedValueOnce([])              // buffer empty
-        .mockResolvedValueOnce([journalistRow]); // retry: claimed
-
-      vi.mocked(db.query.cursors.findFirst).mockResolvedValueOnce(undefined);
-
-      // extract-fields also fails (brand has no URL or scraping failed)
-      vi.mocked(fetchExtractedFields).mockResolvedValueOnce(null);
-      vi.mocked(extractBrandFields).mockResolvedValueOnce(null);
-
-      vi.mocked(fetchOutletsByCampaign)
-        .mockResolvedValueOnce([])   // no outlets → triggers discovery
-        .mockResolvedValueOnce([{
-          id: "outlet-ctx",
-          outletName: "Context Outlet",
-          outletUrl: "https://context-outlet.com",
-          outletDomain: "context-outlet.com",
-          relevanceScore: 0.9,
-          outletStatus: "active",
-          campaignId: "campaign-1",
-        }]);
-
-      // Brand-service returns incomplete data (no elevatorPitch, no categories)
-      vi.mocked(fetchBrand).mockResolvedValueOnce({
-        id: "brand-1",
-        name: "Distribute",
-        domain: "distribute.so",
-        elevatorPitch: null,
-        bio: null,
-        mission: null,
-        location: null,
-        categories: null,
-      });
-      vi.mocked(fetchCampaign).mockResolvedValueOnce({
-        id: "campaign-1",
-        name: "Test Campaign",
-        targetAudience: null,
-        targetOutcome: null,
-        valueForTarget: null,
-      });
-
-      vi.mocked(discoverOutlets).mockResolvedValueOnce([{
-        id: "outlet-ctx",
-        outletName: "Context Outlet",
-        outletUrl: "https://context-outlet.com",
-        outletDomain: "context-outlet.com",
-        relevanceScore: 0.9,
-        outletStatus: "active",
-        campaignId: "campaign-1",
-      }]);
-
-      vi.mocked(fetchJournalistsByOutlet).mockResolvedValueOnce([{
-        id: "j-ctx",
-        journalistName: "Alice Ctx",
-        firstName: "Alice",
-        lastName: "Ctx",
-        entityType: "individual",
-        relevanceScore: 0.8,
-        whyRelevant: "Covers AI",
-        whyNotRelevant: "",
-        emails: [{ email: "ctx@outlet.com", isValid: true, confidence: 0.95 }],
-      }]);
-
-      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValueOnce(undefined);
-
-      const returningMock = vi.fn().mockResolvedValue([{ id: "served-ctx" }]);
-      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
-      const valuesMock = vi.fn().mockReturnValue({
-        onConflictDoNothing: onConflictMock,
-      });
-      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
-
-      const setMock = vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue(undefined),
-      });
-      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
-
-      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
-
-      // brandContext provides the missing data
-      const result = await pullNext({
-        orgId: "org-1",
-        campaignId: "campaign-1",
-        brandId: "brand-1",
-        sourceType: "journalist",
-        brandContext: {
-          companyContext: "AI-powered PR distribution platform",
-          industry: "Technology",
-          targetGeo: "US",
-        },
-      });
-
-      // Should use brandContext fields for discovery (not fail due to missing brand-service data)
-      expect(vi.mocked(discoverOutlets)).toHaveBeenCalledOnce();
-      expect(vi.mocked(discoverOutlets)).toHaveBeenCalledWith(
-        expect.objectContaining({
-          brandName: "Distribute",                              // from brand-service (name was available)
-          brandDescription: "AI-powered PR distribution platform", // from brandContext.companyContext
-          industry: "Technology",                                // from brandContext.industry
-          targetGeo: "US",                                       // from brandContext.targetGeo
-        }),
-        expect.any(Object),
-      );
-      expect(result.found).toBe(true);
-      expect(result.lead?.email).toBe("ctx@outlet.com");
-    });
-
-    it("discovers outlets when brandContext has companyContext but no industry", async () => {
-      const journalistRow = toClaimedRow({
-        id: "buf-j-noind",
-        namespace: "campaign-1",
-        campaignId: "campaign-1",
-        email: "noind@outlet.com",
-        externalId: "journalist:j-noind",
-        data: {
-          firstName: "Sam",
-          lastName: "NoIndustry",
-          organizationName: "NoIndustry Outlet",
-          sourceType: "journalist",
-        },
-        brandId: "brand-1",
-        orgId: "org-1",
-        userId: null,
-      });
-
-      pgSqlMock
-        .mockResolvedValueOnce([])              // buffer empty
-        .mockResolvedValueOnce([journalistRow]); // retry: claimed
-
-      vi.mocked(db.query.cursors.findFirst).mockResolvedValueOnce(undefined);
-
-      vi.mocked(fetchOutletsByCampaign)
-        .mockResolvedValueOnce([])   // no outlets → triggers discovery
-        .mockResolvedValueOnce([{
-          id: "outlet-noind",
-          outletName: "NoIndustry Outlet",
-          outletUrl: "https://noindustry-outlet.com",
-          outletDomain: "noindustry-outlet.com",
-          relevanceScore: 0.9,
-          outletStatus: "active",
-          campaignId: "campaign-1",
-        }]);
-
-      // Brand-service returns no categories
-      vi.mocked(fetchBrand).mockResolvedValueOnce({
-        id: "brand-1",
-        name: "Distribute",
-        domain: "distribute.so",
-        elevatorPitch: null,
-        bio: null,
-        mission: null,
-        location: null,
-        categories: null,
-      });
-      vi.mocked(fetchCampaign).mockResolvedValueOnce(null);
-
-      vi.mocked(discoverOutlets).mockResolvedValueOnce([{
-        id: "outlet-noind",
-        outletName: "NoIndustry Outlet",
-        outletUrl: "https://noindustry-outlet.com",
-        outletDomain: "noindustry-outlet.com",
-        relevanceScore: 0.9,
-        outletStatus: "active",
-        campaignId: "campaign-1",
-      }]);
-
-      vi.mocked(fetchJournalistsByOutlet).mockResolvedValueOnce([{
-        id: "j-noind",
-        journalistName: "Sam NoIndustry",
-        firstName: "Sam",
-        lastName: "NoIndustry",
-        entityType: "individual",
-        relevanceScore: 0.8,
-        whyRelevant: "Covers SaaS",
-        whyNotRelevant: "",
-        emails: [{ email: "noind@outlet.com", isValid: true, confidence: 0.95 }],
-      }]);
-
-      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValueOnce(undefined);
-
-      const returningMock = vi.fn().mockResolvedValue([{ id: "served-noind" }]);
-      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
-      const valuesMock = vi.fn().mockReturnValue({
-        onConflictDoNothing: onConflictMock,
-      });
-      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
-
-      const setMock = vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue(undefined),
-      });
-      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
-
-      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
-
-      // brandContext with companyContext but NO industry
-      const result = await pullNext({
-        orgId: "org-1",
-        campaignId: "campaign-1",
-        brandId: "brand-1",
-        sourceType: "journalist",
-        brandContext: {
-          companyContext: "AI-powered marketing automation platform for SaaS founders",
-          targetOutlets: "Top-tier tech blogs, SaaS publications",
-        },
-      });
-
-      // Should proceed with discovery even without industry
-      expect(vi.mocked(discoverOutlets)).toHaveBeenCalledOnce();
-      expect(vi.mocked(discoverOutlets)).toHaveBeenCalledWith(
-        expect.objectContaining({
-          brandName: "Distribute",
-          brandDescription: "AI-powered marketing automation platform for SaaS founders",
-        }),
-        expect.any(Object),
-      );
-      // industry should be undefined, not blocking discovery
-      const callArgs = vi.mocked(discoverOutlets).mock.calls[0][0];
-      expect(callArgs.industry).toBeUndefined();
-      expect(result.found).toBe(true);
-      expect(result.lead?.email).toBe("noind@outlet.com");
-    });
-
-    it("fails gracefully when neither brandContext nor brand-service provide sufficient data", async () => {
+    it("calls discoverOutlets even without brandContext", async () => {
       pgSqlMock.mockResolvedValue([]);
 
       vi.mocked(db.query.cursors.findFirst).mockResolvedValueOnce(undefined);
       vi.mocked(fetchOutletsByCampaign).mockResolvedValueOnce([]);
 
-      // extract-fields also fails
-      vi.mocked(fetchExtractedFields).mockResolvedValueOnce(null);
-      vi.mocked(extractBrandFields).mockResolvedValueOnce(null);
+      // Discovery returns empty — but it should still be called
+      vi.mocked(discoverOutlets).mockResolvedValueOnce([]);
 
-      // Brand-service returns minimal data
-      vi.mocked(fetchBrand).mockResolvedValueOnce({
-        id: "brand-1",
-        name: "Distribute",
-        domain: "distribute.so",
-        elevatorPitch: null,
-        bio: null,
-        mission: null,
-        location: null,
-        categories: null,
-      });
-      vi.mocked(fetchCampaign).mockResolvedValueOnce(null);
-
-      // No brandContext provided either
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
@@ -1432,7 +1130,15 @@ describe("buffer", () => {
       });
 
       expect(result.found).toBe(false);
-      expect(vi.mocked(discoverOutlets)).not.toHaveBeenCalled();
+      // discoverOutlets is always called — outlets-service decides what to do
+      expect(vi.mocked(discoverOutlets)).toHaveBeenCalledOnce();
+      expect(vi.mocked(discoverOutlets)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          campaignId: "campaign-1",
+          brandId: "brand-1",
+        }),
+        expect.any(Object),
+      );
     });
 
     it("uses apolloMatch proactively when resolve returns journalists without emails", async () => {

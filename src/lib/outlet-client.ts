@@ -14,11 +14,7 @@ export interface OutletDetails {
 export async function discoverOutlets(params: {
   campaignId: string;
   brandId: string;
-  brandName: string;
-  brandDescription: string;
-  industry?: string;
-  targetGeo?: string;
-  targetAudience?: string;
+  brandContext?: Record<string, unknown>;
   workflowName?: string;
 }, context?: {
   orgId?: string | null;
@@ -45,11 +41,7 @@ export async function discoverOutlets(params: {
       body: JSON.stringify({
         campaignId: params.campaignId,
         brandId: params.brandId,
-        brandName: params.brandName,
-        brandDescription: params.brandDescription,
-        industry: params.industry,
-        targetGeo: params.targetGeo,
-        targetAudience: params.targetAudience,
+        brandContext: params.brandContext,
         workflowName: params.workflowName,
       }),
     });
