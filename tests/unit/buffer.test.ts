@@ -347,6 +347,73 @@ describe("buffer", () => {
       expect(vi.mocked(apolloSearchParams)).toHaveBeenCalledOnce();
     });
 
+    it("passes brandContext and extracted fields as LLM context for Apollo search", async () => {
+      const newLeadRow = toClaimedRow({
+        id: "buf-ctx-search",
+        namespace: "campaign-1",
+        campaignId: "campaign-1",
+        email: "ctx-lead@example.com",
+        externalId: "apollo-ctx",
+        data: { firstName: "Ctx" },
+        brandId: "brand-1",
+        orgId: "org-1",
+        userId: null,
+      });
+
+      pgSqlMock
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([newLeadRow]);
+
+      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValueOnce(undefined);
+
+      // extract-fields returns cached brand description
+      vi.mocked(fetchExtractedFields).mockResolvedValueOnce([
+        { key: "elevator_pitch", value: "AI-powered PR platform", cached: true, extractedAt: "2026-01-01", expiresAt: null, sourceUrls: null },
+        { key: "categories", value: "Technology, PR", cached: true, extractedAt: "2026-01-01", expiresAt: null, sourceUrls: null },
+      ]);
+
+      vi.mocked(apolloSearchParams).mockResolvedValue({
+        searchParams: { personTitles: ["Head of PR"] }, totalResults: 50, attempts: 1,
+      });
+
+      vi.mocked(apolloSearchNext).mockResolvedValue({
+        people: [{ id: "apollo-ctx", email: "ctx-lead@example.com", firstName: "Ctx" }],
+        done: true,
+        totalEntries: 1,
+      });
+
+      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
+
+      const returningMock = vi.fn().mockResolvedValue([{ id: "served-ctx" }]);
+      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
+      const valuesMock = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictMock });
+      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
+
+      const setMock = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
+
+      const result = await pullNext({
+        orgId: "org-1",
+        campaignId: "campaign-1",
+        brandId: "brand-1",
+        searchParams: { description: "PR contacts" },
+        brandContext: {
+          companyContext: "AI-powered PR distribution",
+          prAngle: "Launch of new journalist outreach feature",
+          targetOutlets: ["TechCrunch", "The Verge"],
+        },
+      });
+
+      expect(result.found).toBe(true);
+
+      // Verify the LLM context includes extracted fields and brandContext
+      const contextArg = vi.mocked(apolloSearchParams).mock.calls[0][0].context;
+      expect(contextArg).toContain("AI-powered PR platform");       // from extract-fields
+      expect(contextArg).toContain("Technology, PR");                // from extract-fields
+      expect(contextArg).toContain("PR angle:");                     // from brandContext.prAngle
+      expect(contextArg).toContain("Target outlets:");               // from brandContext.targetOutlets
+    });
+
     it("merges enrichment cache data into buffer when filling from search", async () => {
       // Scenario: Apollo search returns sparse person data (no lastName).
       // Enrichment cache has full data (with lastName). fillBufferFromSearch should
