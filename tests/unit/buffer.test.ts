@@ -42,7 +42,6 @@ vi.mock("../../src/lib/outlet-client.js", () => ({
 // Mock journalist-client
 vi.mock("../../src/lib/journalist-client.js", () => ({
   fetchJournalistsByOutlet: vi.fn().mockResolvedValue(null),
-  discoverJournalistEmails: vi.fn().mockResolvedValue(null),
 }));
 
 // Mock campaign-client
@@ -76,7 +75,7 @@ import { resolveOrCreateLead } from "../../src/lib/leads-registry.js";
 import { fetchOutletsByCampaign, discoverOutlets } from "../../src/lib/outlet-client.js";
 import { fetchCampaign } from "../../src/lib/campaign-client.js";
 import { fetchBrand } from "../../src/lib/brand-client.js";
-import { fetchJournalistsByOutlet, discoverJournalistEmails } from "../../src/lib/journalist-client.js";
+import { fetchJournalistsByOutlet } from "../../src/lib/journalist-client.js";
 
 /** Helper: convert camelCase buffer row to snake_case raw SQL row (as returned by pgSql) */
 function toClaimedRow(row: {
@@ -1146,7 +1145,7 @@ describe("buffer", () => {
       expect(result.lead?.email).toBe("discovered@outlet.com");
     });
 
-    it("uses discover-emails when resolve returns journalists without emails", async () => {
+    it("uses apolloMatch proactively when resolve returns journalists without emails", async () => {
       const journalistRow = toClaimedRow({
         id: "buf-j-noemail",
         namespace: "campaign-1",
@@ -1192,10 +1191,17 @@ describe("buffer", () => {
         },
       ]);
 
-      // discover-emails finds the email
-      vi.mocked(discoverJournalistEmails).mockResolvedValueOnce([
-        { journalistId: "j-noemail", email: "found@techcrunch.com", emailStatus: "valid", cached: false, enrichmentId: "enr-1" },
-      ]);
+      // apolloMatch finds the email
+      vi.mocked(apolloMatch).mockResolvedValueOnce({
+        person: {
+          id: "apollo-bob",
+          email: "found@techcrunch.com",
+          firstName: "Bob",
+          lastName: "Writer",
+          organizationName: "TechCrunch",
+          organizationDomain: "techcrunch.com",
+        },
+      });
 
       vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
 
@@ -1216,14 +1222,10 @@ describe("buffer", () => {
         sourceType: "journalist",
       });
 
-      expect(vi.mocked(discoverJournalistEmails)).toHaveBeenCalledWith(
-        expect.objectContaining({
-          outletId: "outlet-1",
-          organizationDomain: "techcrunch.com",
-          brandId: "brand-1",
-          campaignId: "campaign-1",
-        }),
-        expect.any(Object),
+      // apolloMatch should have been called during fillBufferFromJournalists
+      expect(vi.mocked(apolloMatch)).toHaveBeenCalledWith(
+        { firstName: "Bob", lastName: "Writer", organizationDomain: "techcrunch.com" },
+        expect.objectContaining({ campaignId: "campaign-1", brandId: "brand-1" }),
       );
       expect(result.found).toBe(true);
       expect(result.lead?.email).toBe("found@techcrunch.com");
