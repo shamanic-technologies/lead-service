@@ -51,7 +51,7 @@ vi.mock("../../src/lib/campaign-client.js", () => ({
 
 // Mock brand-client
 vi.mock("../../src/lib/brand-client.js", () => ({
-  fetchBrand: vi.fn().mockResolvedValue(null),
+  extractBrandFields: vi.fn().mockResolvedValue(null),
 }));
 
 // Mock email-gateway-client
@@ -74,7 +74,7 @@ import { checkDeliveryStatus } from "../../src/lib/email-gateway-client.js";
 import { resolveOrCreateLead } from "../../src/lib/leads-registry.js";
 import { fetchOutletsByCampaign, discoverOutlets } from "../../src/lib/outlet-client.js";
 import { fetchCampaign } from "../../src/lib/campaign-client.js";
-import { fetchBrand } from "../../src/lib/brand-client.js";
+import { extractBrandFields } from "../../src/lib/brand-client.js";
 import { fetchJournalistsByOutlet } from "../../src/lib/journalist-client.js";
 
 /** Helper: convert camelCase buffer row to snake_case raw SQL row (as returned by pgSql) */
@@ -403,6 +403,101 @@ describe("buffer", () => {
       expect(contextArg).toContain("AI-powered PR distribution");
       expect(contextArg).toContain("Launch of new journalist outreach feature");
       expect(contextArg).toContain("TechCrunch");
+    });
+
+    it("injects campaign featureInputs and brand extract-fields into LLM context", async () => {
+      const newLeadRow = toClaimedRow({
+        id: "buf-conv",
+        namespace: "campaign-1",
+        campaignId: "campaign-1",
+        email: "conv@example.com",
+        externalId: "apollo-conv",
+        data: { firstName: "Conv" },
+        brandId: "brand-1",
+        orgId: "org-1",
+        userId: null,
+      });
+
+      pgSqlMock
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([newLeadRow]);
+
+      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValueOnce(undefined);
+
+      // Campaign returns featureInputs
+      vi.mocked(fetchCampaign).mockResolvedValueOnce({
+        id: "campaign-1",
+        name: "Sustainability Launch",
+        targetAudience: "Tech journalists",
+        targetOutcome: "Press coverage",
+        valueForTarget: "Exclusive story",
+        featureInputs: {
+          editorialAngle: "sustainability in AI",
+          targetRegion: "North America",
+        },
+      });
+
+      // Brand extract-fields returns extracted values
+      vi.mocked(extractBrandFields).mockResolvedValueOnce([
+        { key: "brand_name", value: "GreenTech Co", cached: true, extractedAt: "2026-01-01", expiresAt: null, sourceUrls: null },
+        { key: "industry", value: "Clean Technology", cached: true, extractedAt: "2026-01-01", expiresAt: null, sourceUrls: null },
+        { key: "target_job_titles", value: ["Editor", "Reporter"], cached: false, extractedAt: "2026-01-01", expiresAt: null, sourceUrls: null },
+      ]);
+
+      vi.mocked(apolloSearchParams).mockResolvedValue({
+        searchParams: { personTitles: ["Editor"] }, totalResults: 50, attempts: 1,
+      });
+
+      vi.mocked(apolloSearchNext).mockResolvedValue({
+        people: [{ id: "apollo-conv", email: "conv@example.com", firstName: "Conv" }],
+        done: true,
+        totalEntries: 1,
+      });
+
+      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
+
+      const returningMock = vi.fn().mockResolvedValue([{ id: "served-conv" }]);
+      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
+      const valuesMock = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictMock });
+      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
+
+      const setMock = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
+
+      const result = await pullNext({
+        orgId: "org-1",
+        campaignId: "campaign-1",
+        brandId: "brand-1",
+        searchParams: { description: "clean tech editors" },
+      });
+
+      expect(result.found).toBe(true);
+
+      // Verify campaign featureInputs injected
+      const contextArg = vi.mocked(apolloSearchParams).mock.calls[0][0].context;
+      expect(contextArg).toContain("sustainability in AI");
+      expect(contextArg).toContain("North America");
+      expect(contextArg).toContain("Campaign context:");
+
+      // Verify brand extract-fields injected
+      expect(contextArg).toContain("GreenTech Co");
+      expect(contextArg).toContain("Clean Technology");
+      expect(contextArg).toContain("Editor");
+
+      // Verify campaign fields still included
+      expect(contextArg).toContain("Tech journalists");
+      expect(contextArg).toContain("Press coverage");
+
+      // Verify extractBrandFields was called with the right field descriptors
+      expect(vi.mocked(extractBrandFields)).toHaveBeenCalledWith(
+        "brand-1",
+        expect.arrayContaining([
+          expect.objectContaining({ key: "industry" }),
+          expect.objectContaining({ key: "target_job_titles" }),
+        ]),
+        "org-1",
+        expect.any(Object),
+      );
     });
 
     it("merges enrichment cache data into buffer when filling from search", async () => {
