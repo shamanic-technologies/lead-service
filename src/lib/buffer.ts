@@ -7,7 +7,7 @@ import { apolloSearchNext, apolloEnrich, apolloMatch, apolloSearchParams, type A
 import { fetchCampaign } from "./campaign-client.js";
 import { fetchBrand } from "./brand-client.js";
 import { fetchOutletsByCampaign, discoverOutlets } from "./outlet-client.js";
-import { fetchJournalistsByOutlet } from "./journalist-client.js";
+import { fetchJournalistsByOutlet, discoverJournalistEmails } from "./journalist-client.js";
 
 async function isInBuffer(orgId: string, campaignId: string, externalId: string): Promise<boolean> {
   const row = await db.query.leadBuffer.findFirst({
@@ -325,6 +325,36 @@ async function fillBufferFromJournalists(params: {
       continue;
     }
 
+    // Proactively discover emails for journalists on this outlet
+    const organizationDomain = outlet.outletDomain || extractDomain(outlet.outletUrl);
+    const individualJournalists = journalists.filter(j => j.entityType !== "organization");
+    const emailResults = await discoverJournalistEmails(
+      {
+        outletId: outlet.id,
+        organizationDomain,
+        brandId: params.brandId,
+        campaignId: params.campaignId,
+        journalistIds: individualJournalists.map(j => j.id),
+      },
+      {
+        orgId: params.orgId,
+        userId: params.userId ?? undefined,
+        runId: params.pushRunId ?? undefined,
+        workflowName: params.workflowName,
+        featureSlug: params.featureSlug,
+      }
+    );
+
+    // Build a lookup map: journalistId → discovered email
+    const discoveredEmailMap = new Map<string, string>();
+    if (emailResults) {
+      for (const result of emailResults) {
+        if (result.email) {
+          discoveredEmailMap.set(result.journalistId, result.email);
+        }
+      }
+    }
+
     const startJ = oi === cursorState.outletIndex ? cursorState.journalistIndex : 0;
 
     for (let ji = startJ; ji < journalists.length; ji++) {
@@ -337,13 +367,12 @@ async function fillBufferFromJournalists(params: {
 
       if (await isInBuffer(params.orgId, params.campaignId, externalId)) continue;
 
-      // Pick the best valid email if available
-      const validEmail = journalist.emails
+      // Use email from: 1) resolve response, 2) discover-emails, 3) empty (fallback to apolloMatch in pullNext)
+      const resolveEmail = journalist.emails
         ?.filter(e => e.isValid)
         ?.sort((a, b) => b.confidence - a.confidence)
         ?.[0]?.email ?? null;
-
-      const organizationDomain = outlet.outletDomain || extractDomain(outlet.outletUrl);
+      const validEmail = resolveEmail ?? discoveredEmailMap.get(journalist.id) ?? null;
 
       const data: Record<string, unknown> = {
         firstName: journalist.firstName,
