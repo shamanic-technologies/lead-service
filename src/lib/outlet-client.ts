@@ -16,7 +16,7 @@ export async function discoverOutlets(params: {
   brandId: string;
   brandName: string;
   brandDescription: string;
-  industry: string;
+  industry?: string;
   targetGeo?: string;
   targetAudience?: string;
   workflowName?: string;

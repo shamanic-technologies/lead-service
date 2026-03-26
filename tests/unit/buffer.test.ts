@@ -1285,6 +1285,121 @@ describe("buffer", () => {
       expect(result.lead?.email).toBe("ctx@outlet.com");
     });
 
+    it("discovers outlets when brandContext has companyContext but no industry", async () => {
+      const journalistRow = toClaimedRow({
+        id: "buf-j-noind",
+        namespace: "campaign-1",
+        campaignId: "campaign-1",
+        email: "noind@outlet.com",
+        externalId: "journalist:j-noind",
+        data: {
+          firstName: "Sam",
+          lastName: "NoIndustry",
+          organizationName: "NoIndustry Outlet",
+          sourceType: "journalist",
+        },
+        brandId: "brand-1",
+        orgId: "org-1",
+        userId: null,
+      });
+
+      pgSqlMock
+        .mockResolvedValueOnce([])              // buffer empty
+        .mockResolvedValueOnce([journalistRow]); // retry: claimed
+
+      vi.mocked(db.query.cursors.findFirst).mockResolvedValueOnce(undefined);
+
+      vi.mocked(fetchOutletsByCampaign)
+        .mockResolvedValueOnce([])   // no outlets → triggers discovery
+        .mockResolvedValueOnce([{
+          id: "outlet-noind",
+          outletName: "NoIndustry Outlet",
+          outletUrl: "https://noindustry-outlet.com",
+          outletDomain: "noindustry-outlet.com",
+          relevanceScore: 0.9,
+          outletStatus: "active",
+          campaignId: "campaign-1",
+        }]);
+
+      // Brand-service returns no categories
+      vi.mocked(fetchBrand).mockResolvedValueOnce({
+        id: "brand-1",
+        name: "Distribute",
+        domain: "distribute.so",
+        elevatorPitch: null,
+        bio: null,
+        mission: null,
+        location: null,
+        categories: null,
+      });
+      vi.mocked(fetchCampaign).mockResolvedValueOnce(null);
+
+      vi.mocked(discoverOutlets).mockResolvedValueOnce([{
+        id: "outlet-noind",
+        outletName: "NoIndustry Outlet",
+        outletUrl: "https://noindustry-outlet.com",
+        outletDomain: "noindustry-outlet.com",
+        relevanceScore: 0.9,
+        outletStatus: "active",
+        campaignId: "campaign-1",
+      }]);
+
+      vi.mocked(fetchJournalistsByOutlet).mockResolvedValueOnce([{
+        id: "j-noind",
+        journalistName: "Sam NoIndustry",
+        firstName: "Sam",
+        lastName: "NoIndustry",
+        entityType: "individual",
+        relevanceScore: 0.8,
+        whyRelevant: "Covers SaaS",
+        whyNotRelevant: "",
+        emails: [{ email: "noind@outlet.com", isValid: true, confidence: 0.95 }],
+      }]);
+
+      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValueOnce(undefined);
+
+      const returningMock = vi.fn().mockResolvedValue([{ id: "served-noind" }]);
+      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
+      const valuesMock = vi.fn().mockReturnValue({
+        onConflictDoNothing: onConflictMock,
+      });
+      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
+
+      const setMock = vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(undefined),
+      });
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
+
+      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
+
+      // brandContext with companyContext but NO industry
+      const result = await pullNext({
+        orgId: "org-1",
+        campaignId: "campaign-1",
+        brandId: "brand-1",
+        sourceType: "journalist",
+        brandContext: {
+          companyContext: "AI-powered marketing automation platform for SaaS founders",
+          targetOutlets: "Top-tier tech blogs, SaaS publications",
+        },
+      });
+
+      // Should proceed with discovery even without industry
+      expect(vi.mocked(discoverOutlets)).toHaveBeenCalledOnce();
+      expect(vi.mocked(discoverOutlets)).toHaveBeenCalledWith(
+        expect.objectContaining({
+          brandName: "Distribute",
+          brandDescription: "AI-powered marketing automation platform for SaaS founders",
+        }),
+        expect.any(Object),
+      );
+      // industry should be undefined, not blocking discovery
+      const callArgs = vi.mocked(discoverOutlets).mock.calls[0][0];
+      expect(callArgs.industry).toBeUndefined();
+      expect(result.found).toBe(true);
+      expect(result.lead?.email).toBe("noind@outlet.com");
+    });
+
     it("fails gracefully when neither brandContext nor brand-service provide sufficient data", async () => {
       pgSqlMock.mockResolvedValue([]);
 
