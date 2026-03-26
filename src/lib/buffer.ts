@@ -5,7 +5,7 @@ import { checkContacted, markServed } from "./dedup.js";
 import { resolveOrCreateLead, findLeadByApolloPersonId } from "./leads-registry.js";
 import { apolloSearchNext, apolloEnrich, apolloMatch, apolloSearchParams, type ApolloSearchParams } from "./apollo-client.js";
 import { fetchCampaign } from "./campaign-client.js";
-import { fetchBrand } from "./brand-client.js";
+import { extractBrandFields } from "./brand-client.js";
 import { fetchOutletsByCampaign, discoverOutlets } from "./outlet-client.js";
 import { fetchJournalistsByOutlet } from "./journalist-client.js";
 
@@ -42,29 +42,48 @@ async function fillBufferFromSearch(params: {
     featureSlug: params.featureSlug,
   };
 
-  // Fetch campaign + brand in parallel for rich LLM context
-  const [campaign, brand] = await Promise.all([
+  // Fetch campaign + brand fields in parallel for rich LLM context
+  const [campaign, brandFields] = await Promise.all([
     fetchCampaign(params.campaignId, params.orgId, serviceContext),
-    fetchBrand(params.brandId, params.orgId, serviceContext),
+    extractBrandFields(
+      params.brandId,
+      [
+        { key: "brand_name", description: "The brand's display name" },
+        { key: "elevator_pitch", description: "A short elevator pitch describing the brand" },
+        { key: "industry", description: "The brand's primary industry vertical" },
+        { key: "target_geography", description: "Priority geographic markets for outreach" },
+        { key: "ideal_lead_type", description: "Type of leads to target (journalists, editors, producers, executives...)" },
+        { key: "target_job_titles", description: "Job titles to prioritize in outreach" },
+        { key: "offerings", description: "Key products or services the brand offers" },
+      ],
+      params.orgId,
+      serviceContext,
+    ),
   ]);
 
-  // Build rich context string from featureInput (DAG), campaign, and brand
+  // Build rich context string from campaign, brand fields, and featureInputs
   const contextParts: string[] = [];
-  const ctx = params.featureInput ?? {};
 
   if (campaign?.targetAudience) contextParts.push(`Target audience: ${campaign.targetAudience}`);
   if (campaign?.targetOutcome) contextParts.push(`Expected outcome: ${campaign.targetOutcome}`);
   if (campaign?.valueForTarget) contextParts.push(`Value for the audience: ${campaign.valueForTarget}`);
 
-  if (brand?.name) contextParts.push(`Brand: ${brand.name}`);
-  if (brand?.elevatorPitch) contextParts.push(`Brand pitch: ${brand.elevatorPitch}`);
-  if (brand?.bio) contextParts.push(`Brand bio: ${brand.bio}`);
-  if (brand?.mission) contextParts.push(`Brand mission: ${brand.mission}`);
-  if (brand?.categories) contextParts.push(`Brand categories: ${brand.categories}`);
-  if (brand?.location) contextParts.push(`Brand location: ${brand.location}`);
+  // Inject campaign featureInputs (convention 2)
+  const featureInputs = campaign?.featureInputs ?? params.featureInput;
+  if (featureInputs && Object.keys(featureInputs).length > 0) {
+    contextParts.push(`Campaign context: ${JSON.stringify(featureInputs)}`);
+  }
 
-  // featureInput from DAG — dump all fields as additional context
-  if (Object.keys(ctx).length > 0) contextParts.push(`Feature input: ${JSON.stringify(ctx)}`);
+  // Inject brand fields from extract-fields (convention 1)
+  if (brandFields) {
+    for (const field of brandFields) {
+      if (field.value != null) {
+        const label = field.key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+        const value = typeof field.value === "string" ? field.value : JSON.stringify(field.value);
+        contextParts.push(`${label}: ${value}`);
+      }
+    }
+  }
 
   // Include raw searchParams as additional context
   const rawSearch = typeof params.searchParams === "string"

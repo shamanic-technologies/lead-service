@@ -7,6 +7,7 @@ export interface CampaignDetails {
   targetAudience: string | null;
   targetOutcome: string | null;
   valueForTarget: string | null;
+  featureInputs: Record<string, unknown> | null;
 }
 
 export async function fetchCampaign(
