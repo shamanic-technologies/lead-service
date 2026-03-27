@@ -329,6 +329,32 @@ describe("service client headers", () => {
       expect(opts.headers["x-feature-slug"]).toBe("feat-1");
     });
 
+    it("forwards count and acceptanceThreshold in request body", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ journalists: [], cached: false }));
+
+      const { fetchJournalistsByOutlet } = await import("../../src/lib/journalist-client.js");
+      await fetchJournalistsByOutlet("outlet-uuid-1", {
+        orgId: "org-1", count: 5, acceptanceThreshold: 60,
+      });
+
+      const [, opts] = fetchSpy.mock.calls[0];
+      const body = JSON.parse(opts.body);
+      expect(body.outletId).toBe("outlet-uuid-1");
+      expect(body.count).toBe(5);
+      expect(body.acceptanceThreshold).toBe(60);
+    });
+
+    it("omits count and acceptanceThreshold when not provided", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ journalists: [], cached: false }));
+
+      const { fetchJournalistsByOutlet } = await import("../../src/lib/journalist-client.js");
+      await fetchJournalistsByOutlet("outlet-uuid-1", { orgId: "org-1" });
+
+      const [, opts] = fetchSpy.mock.calls[0];
+      const body = JSON.parse(opts.body);
+      expect(body).toEqual({ outletId: "outlet-uuid-1" });
+    });
+
     it("returns null on error", async () => {
       fetchSpy.mockReturnValue(jsonResponse({ error: "not found" }, 404));
 
