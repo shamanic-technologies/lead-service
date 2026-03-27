@@ -19,7 +19,7 @@ export interface JournalistWithEmails {
   emails: JournalistEmail[];
 }
 
-export async function fetchJournalistsByOutlet(
+export async function fetchNextJournalist(
   outletId: string,
   options?: {
     campaignId?: string;
@@ -29,11 +29,10 @@ export async function fetchJournalistsByOutlet(
     brandId?: string;
     workflowName?: string;
     featureSlug?: string;
-    count?: number;
-    acceptanceThreshold?: number;
+    idempotencyKey?: string;
     maxArticles?: number;
   }
-): Promise<JournalistWithEmails[] | null> {
+): Promise<{ found: boolean; journalist?: JournalistWithEmails }> {
   try {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -48,28 +47,24 @@ export async function fetchJournalistsByOutlet(
     if (options?.featureSlug) headers["x-feature-slug"] = options.featureSlug;
 
     const body: Record<string, unknown> = { outletId };
-    if (options?.count != null) body.count = options.count;
-    if (options?.acceptanceThreshold != null) body.acceptanceThreshold = options.acceptanceThreshold;
+    if (options?.idempotencyKey) body.idempotencyKey = options.idempotencyKey;
     if (options?.maxArticles != null) body.maxArticles = options.maxArticles;
 
-    const response = await fetch(`${JOURNALISTS_SERVICE_URL}/journalists/resolve`, {
+    const response = await fetch(`${JOURNALISTS_SERVICE_URL}/buffer/next`, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
     });
 
     if (!response.ok) {
-      console.warn(`[journalist-client] Failed to resolve journalists for outlet ${outletId}: ${response.status}`);
-      return null;
+      console.warn(`[journalist-client] buffer/next failed for outlet ${outletId}: ${response.status}`);
+      return { found: false };
     }
 
-    const data = (await response.json()) as { journalists: JournalistWithEmails[]; cached: boolean };
-    if (data.cached) {
-      console.log(`[journalist-client] Resolved journalists for outlet ${outletId} (cached)`);
-    }
-    return data.journalists;
+    const data = (await response.json()) as { found: boolean; journalist?: JournalistWithEmails };
+    return data;
   } catch (error) {
-    console.error("[journalist-client] Error resolving journalists:", error);
-    return null;
+    console.error("[journalist-client] Error fetching next journalist:", error);
+    return { found: false };
   }
 }
