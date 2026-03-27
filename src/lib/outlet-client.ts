@@ -50,54 +50,6 @@ function buildHeaders(context?: {
   return headers;
 }
 
-export async function discoverOutlets(params: {
-  campaignId: string;
-  brandId: string;
-  featureInput?: Record<string, unknown>;
-  workflowName?: string;
-}, context?: {
-  orgId?: string | null;
-  userId?: string;
-  runId?: string;
-  featureSlug?: string;
-}): Promise<OutletDetails[] | null> {
-  try {
-    const headers = buildHeaders({
-      orgId: context?.orgId,
-      userId: context?.userId,
-      runId: context?.runId,
-      campaignId: params.campaignId,
-      brandId: params.brandId,
-      workflowName: params.workflowName,
-      featureSlug: context?.featureSlug,
-    });
-
-    const response = await fetch(`${OUTLETS_SERVICE_URL}/outlets/discover`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({}),
-    });
-
-    if (response.status === 200) {
-      // 200 = no outlets found
-      console.log(`[outlet-client] Discover returned 0 outlets for campaign ${params.campaignId}`);
-      return [];
-    }
-
-    if (!response.ok) {
-      console.warn(`[outlet-client] Failed to discover outlets for campaign ${params.campaignId}: ${response.status}`);
-      return null;
-    }
-
-    const data = (await response.json()) as { discoveredCount: number; outlets: OutletDetails[] };
-    console.log(`[outlet-client] Discovered ${data.discoveredCount} outlets for campaign ${params.campaignId}`);
-    return data.outlets;
-  } catch (error) {
-    console.error("[outlet-client] Error discovering outlets:", error);
-    return null;
-  }
-}
-
 export async function fetchNextOutlet(context: {
   orgId: string;
   userId?: string;

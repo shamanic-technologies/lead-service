@@ -6,7 +6,7 @@ import { resolveOrCreateLead, findLeadByApolloPersonId } from "./leads-registry.
 import { apolloSearchNext, apolloEnrich, apolloMatch, apolloSearchParams, type ApolloSearchParams } from "./apollo-client.js";
 import { fetchCampaign } from "./campaign-client.js";
 import { extractBrandFields } from "./brand-client.js";
-import { fetchOutletsByCampaign, discoverOutlets } from "./outlet-client.js";
+import { fetchOutletsByCampaign, fetchNextOutlet } from "./outlet-client.js";
 import { fetchNextJournalist } from "./journalist-client.js";
 
 async function isInBuffer(orgId: string, campaignId: string, externalId: string): Promise<boolean> {
@@ -289,25 +289,20 @@ async function fillBufferFromJournalists(params: {
   // Fetch outlets for this campaign
   let outlets = await fetchOutletsByCampaign(params.campaignId, params.orgId, serviceContext);
   if (!outlets || outlets.length === 0) {
-    // No outlets yet — discover them via outlets-service
-    console.log(`[fillBufferFromJournalists] No outlets for campaign=${params.campaignId}, discovering...`);
+    // No outlets yet — trigger auto-discovery via buffer/next on outlets-service
+    console.log(`[fillBufferFromJournalists] No outlets for campaign=${params.campaignId}, triggering discovery via buffer/next...`);
 
-    const discovered = await discoverOutlets(
-      {
-        campaignId: params.campaignId,
-        brandId: params.brandId,
-        featureInput: params.featureInput,
-        workflowName: params.workflowName,
-      },
-      {
-        orgId: params.orgId,
-        userId: params.userId ?? undefined,
-        runId: params.pushRunId ?? undefined,
-        featureSlug: params.featureSlug,
-      }
-    );
+    const nextResult = await fetchNextOutlet({
+      orgId: params.orgId,
+      userId: params.userId ?? undefined,
+      runId: params.pushRunId ?? undefined,
+      campaignId: params.campaignId,
+      brandId: params.brandId,
+      workflowName: params.workflowName,
+      featureSlug: params.featureSlug,
+    });
 
-    if (!discovered || discovered.length === 0) {
+    if (!nextResult.found) {
       console.log(`[fillBufferFromJournalists] Outlet discovery returned 0 results for campaign=${params.campaignId}`);
       return { filled: 0 };
     }
