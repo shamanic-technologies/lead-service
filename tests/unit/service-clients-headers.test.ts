@@ -373,17 +373,17 @@ describe("service client headers", () => {
   });
 
   describe("journalist-client", () => {
-    it("sends POST to /journalists/resolve with outletId in body and headers", async () => {
-      fetchSpy.mockReturnValue(jsonResponse({ journalists: [{ id: "j1", journalistName: "Jane Doe" }], cached: false }));
+    it("sends POST to /buffer/next with outletId in body and headers", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ found: true, journalist: { id: "j1", journalistName: "Jane Doe" } }));
 
-      const { fetchJournalistsByOutlet } = await import("../../src/lib/journalist-client.js");
-      await fetchJournalistsByOutlet("outlet-uuid-1", {
+      const { fetchNextJournalist } = await import("../../src/lib/journalist-client.js");
+      await fetchNextJournalist("outlet-uuid-1", {
         campaignId: "camp-1", orgId: "org-1", userId: "user-1", runId: "run-1", brandId: "brand-1", workflowName: "wf-1", featureSlug: "feat-1",
       });
 
       expect(fetchSpy).toHaveBeenCalledOnce();
       const [url, opts] = fetchSpy.mock.calls[0];
-      expect(url).toContain("/journalists/resolve");
+      expect(url).toContain("/buffer/next");
       expect(opts.method).toBe("POST");
       const body = JSON.parse(opts.body);
       expect(body.outletId).toBe("outlet-uuid-1");
@@ -396,40 +396,39 @@ describe("service client headers", () => {
       expect(opts.headers["x-feature-slug"]).toBe("feat-1");
     });
 
-    it("forwards count, acceptanceThreshold, and maxArticles in request body", async () => {
-      fetchSpy.mockReturnValue(jsonResponse({ journalists: [], cached: false }));
+    it("forwards idempotencyKey and maxArticles in request body", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ found: false }));
 
-      const { fetchJournalistsByOutlet } = await import("../../src/lib/journalist-client.js");
-      await fetchJournalistsByOutlet("outlet-uuid-1", {
-        orgId: "org-1", count: 5, acceptanceThreshold: 60, maxArticles: 10,
+      const { fetchNextJournalist } = await import("../../src/lib/journalist-client.js");
+      await fetchNextJournalist("outlet-uuid-1", {
+        orgId: "org-1", idempotencyKey: "idem-123", maxArticles: 10,
       });
 
       const [, opts] = fetchSpy.mock.calls[0];
       const body = JSON.parse(opts.body);
       expect(body.outletId).toBe("outlet-uuid-1");
-      expect(body.count).toBe(5);
-      expect(body.acceptanceThreshold).toBe(60);
+      expect(body.idempotencyKey).toBe("idem-123");
       expect(body.maxArticles).toBe(10);
     });
 
-    it("omits count and acceptanceThreshold when not provided", async () => {
-      fetchSpy.mockReturnValue(jsonResponse({ journalists: [], cached: false }));
+    it("sends only outletId when no optional params provided", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ found: false }));
 
-      const { fetchJournalistsByOutlet } = await import("../../src/lib/journalist-client.js");
-      await fetchJournalistsByOutlet("outlet-uuid-1", { orgId: "org-1" });
+      const { fetchNextJournalist } = await import("../../src/lib/journalist-client.js");
+      await fetchNextJournalist("outlet-uuid-1", { orgId: "org-1" });
 
       const [, opts] = fetchSpy.mock.calls[0];
       const body = JSON.parse(opts.body);
       expect(body).toEqual({ outletId: "outlet-uuid-1" });
     });
 
-    it("returns null on error", async () => {
+    it("returns found: false on error", async () => {
       fetchSpy.mockReturnValue(jsonResponse({ error: "not found" }, 404));
 
-      const { fetchJournalistsByOutlet } = await import("../../src/lib/journalist-client.js");
-      const result = await fetchJournalistsByOutlet("bad-outlet");
+      const { fetchNextJournalist } = await import("../../src/lib/journalist-client.js");
+      const result = await fetchNextJournalist("bad-outlet");
 
-      expect(result).toBeNull();
+      expect(result).toEqual({ found: false });
     });
   });
 

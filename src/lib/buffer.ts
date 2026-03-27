@@ -7,7 +7,7 @@ import { apolloSearchNext, apolloEnrich, apolloMatch, apolloSearchParams, type A
 import { fetchCampaign } from "./campaign-client.js";
 import { extractBrandFields } from "./brand-client.js";
 import { fetchOutletsByCampaign, discoverOutlets } from "./outlet-client.js";
-import { fetchJournalistsByOutlet } from "./journalist-client.js";
+import { fetchNextJournalist } from "./journalist-client.js";
 
 async function isInBuffer(orgId: string, campaignId: string, externalId: string): Promise<boolean> {
   const row = await db.query.leadBuffer.findFirst({
@@ -283,8 +283,8 @@ async function fillBufferFromJournalists(params: {
       eq(cursors.namespace, cursorNamespace)
     ),
   });
-  const cursorState = (existingCursor?.state as { outletIndex: number; journalistIndex: number } | null)
-    ?? { outletIndex: 0, journalistIndex: 0 };
+  const cursorState = (existingCursor?.state as { outletIndex: number } | null)
+    ?? { outletIndex: 0 };
 
   // Fetch outlets for this campaign
   let outlets = await fetchOutletsByCampaign(params.campaignId, params.orgId, serviceContext);
@@ -324,24 +324,24 @@ async function fillBufferFromJournalists(params: {
 
   for (let oi = cursorState.outletIndex; oi < outlets.length; oi++) {
     const outlet = outlets[oi];
-
-    const journalists = await fetchJournalistsByOutlet(outlet.id, {
-      ...serviceContext,
-      campaignId: params.campaignId,
-      orgId: params.orgId,
-    });
-
-    if (!journalists || journalists.length === 0) {
-      // No journalists for this outlet — advance to next
-      continue;
-    }
-
     const organizationDomain = outlet.outletDomain || extractDomain(outlet.outletUrl);
 
-    const startJ = oi === cursorState.outletIndex ? cursorState.journalistIndex : 0;
+    // Call journalists-service buffer/next in a loop for this outlet
+    // journalists-service manages its own internal buffer per (campaign, outlet)
+    const MAX_JOURNALIST_PULLS = 50;
+    for (let pull = 0; pull < MAX_JOURNALIST_PULLS; pull++) {
+      const result = await fetchNextJournalist(outlet.id, {
+        ...serviceContext,
+        campaignId: params.campaignId,
+        orgId: params.orgId,
+      });
 
-    for (let ji = startJ; ji < journalists.length; ji++) {
-      const journalist = journalists[ji];
+      if (!result.found || !result.journalist) {
+        // No more journalists for this outlet
+        break;
+      }
+
+      const journalist = result.journalist;
 
       // Skip organization-type entities (we need individual people)
       if (journalist.entityType === "organization") continue;
@@ -350,7 +350,7 @@ async function fillBufferFromJournalists(params: {
 
       if (await isInBuffer(params.orgId, params.campaignId, externalId)) continue;
 
-      // Try email from resolve response first
+      // Try email from buffer/next response first
       let validEmail = journalist.emails
         ?.filter(e => e.isValid)
         ?.sort((a, b) => b.confidence - a.confidence)
@@ -358,7 +358,7 @@ async function fillBufferFromJournalists(params: {
 
       let enrichedData: Record<string, unknown> | null = null;
 
-      // No email from resolve — proactively match via Apollo Service
+      // No email — proactively match via Apollo Service
       if (!validEmail && journalist.firstName && journalist.lastName && organizationDomain) {
         const matchResult = await apolloMatch(
           {
@@ -430,14 +430,14 @@ async function fillBufferFromJournalists(params: {
 
     // Save cursor after each outlet
     if (totalFilled > 0) {
-      await saveCursor(params.orgId, cursorNamespace, { outletIndex: oi + 1, journalistIndex: 0 });
+      await saveCursor(params.orgId, cursorNamespace, { outletIndex: oi + 1 });
       console.log(`[fillBufferFromJournalists] Buffered ${totalFilled} journalists from outlet ${outlet.outletName}`);
       return { filled: totalFilled };
     }
   }
 
   // All outlets exhausted
-  await saveCursor(params.orgId, cursorNamespace, { outletIndex: outlets.length, journalistIndex: 0 });
+  await saveCursor(params.orgId, cursorNamespace, { outletIndex: outlets.length });
   return { filled: totalFilled };
 }
 

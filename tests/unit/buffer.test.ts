@@ -42,7 +42,7 @@ vi.mock("../../src/lib/outlet-client.js", () => ({
 
 // Mock journalist-client
 vi.mock("../../src/lib/journalist-client.js", () => ({
-  fetchJournalistsByOutlet: vi.fn().mockResolvedValue(null),
+  fetchNextJournalist: vi.fn().mockResolvedValue({ found: false }),
 }));
 
 // Mock campaign-client
@@ -76,7 +76,7 @@ import { resolveOrCreateLead } from "../../src/lib/leads-registry.js";
 import { fetchOutletsByCampaign, discoverOutlets } from "../../src/lib/outlet-client.js";
 import { fetchCampaign } from "../../src/lib/campaign-client.js";
 import { extractBrandFields } from "../../src/lib/brand-client.js";
-import { fetchJournalistsByOutlet } from "../../src/lib/journalist-client.js";
+import { fetchNextJournalist } from "../../src/lib/journalist-client.js";
 
 /** Helper: convert camelCase buffer row to snake_case raw SQL row (as returned by pgSql) */
 function toClaimedRow(row: {
@@ -995,17 +995,23 @@ describe("buffer", () => {
         { id: "outlet-1", outletName: "TechCrunch", outletUrl: "https://techcrunch.com", outletDomain: "techcrunch.com", relevanceScore: 85, outletStatus: "open", campaignId: "campaign-1" },
       ]);
 
-      // Journalist service returns journalist with email
-      vi.mocked(fetchJournalistsByOutlet).mockResolvedValueOnce([
-        {
-          id: "j-uuid-1",
-          journalistName: "Jane Reporter",
-          firstName: "Jane",
-          lastName: "Reporter",
-          entityType: "individual" as const,
-          emails: [{ email: "jane@techcrunch.com", isValid: true, confidence: 0.95 }],
-        },
-      ]);
+      // Journalist service returns journalist via buffer/next, then exhausted
+      vi.mocked(fetchNextJournalist)
+        .mockResolvedValueOnce({
+          found: true,
+          journalist: {
+            id: "j-uuid-1",
+            journalistName: "Jane Reporter",
+            firstName: "Jane",
+            lastName: "Reporter",
+            entityType: "individual" as const,
+            relevanceScore: 0.85,
+            whyRelevant: "Covers tech",
+            whyNotRelevant: "",
+            emails: [{ email: "jane@techcrunch.com", isValid: true, confidence: 0.95 }],
+          },
+        })
+        .mockResolvedValueOnce({ found: false });
 
       vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
 
@@ -1031,7 +1037,7 @@ describe("buffer", () => {
       expect(vi.mocked(fetchOutletsByCampaign)).toHaveBeenCalledWith(
         "campaign-1", "org-1", expect.objectContaining({ campaignId: "campaign-1" })
       );
-      expect(vi.mocked(fetchJournalistsByOutlet)).toHaveBeenCalledWith(
+      expect(vi.mocked(fetchNextJournalist)).toHaveBeenCalledWith(
         "outlet-1", expect.objectContaining({ campaignId: "campaign-1" })
       );
     });
@@ -1213,17 +1219,22 @@ describe("buffer", () => {
         campaignId: "campaign-1",
       }]);
 
-      vi.mocked(fetchJournalistsByOutlet).mockResolvedValueOnce([{
-        id: "j-discovered",
-        journalistName: "Jane Reporter",
-        firstName: "Jane",
-        lastName: "Reporter",
-        entityType: "individual",
-        relevanceScore: 0.8,
-        whyRelevant: "Covers tech",
-        whyNotRelevant: "",
-        emails: [{ email: "discovered@outlet.com", isValid: true, confidence: 0.95 }],
-      }]);
+      vi.mocked(fetchNextJournalist)
+        .mockResolvedValueOnce({
+          found: true,
+          journalist: {
+            id: "j-discovered",
+            journalistName: "Jane Reporter",
+            firstName: "Jane",
+            lastName: "Reporter",
+            entityType: "individual" as const,
+            relevanceScore: 0.8,
+            whyRelevant: "Covers tech",
+            whyNotRelevant: "",
+            emails: [{ email: "discovered@outlet.com", isValid: true, confidence: 0.95 }],
+          },
+        })
+        .mockResolvedValueOnce({ found: false });
 
       vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValueOnce(undefined);
 
@@ -1328,20 +1339,23 @@ describe("buffer", () => {
         { id: "outlet-1", outletName: "TechCrunch", outletUrl: "https://techcrunch.com", outletDomain: "techcrunch.com", relevanceScore: 85, outletStatus: "open", campaignId: "campaign-1" },
       ]);
 
-      // Resolve returns journalist WITHOUT emails
-      vi.mocked(fetchJournalistsByOutlet).mockResolvedValueOnce([
-        {
-          id: "j-noemail",
-          journalistName: "Bob Writer",
-          firstName: "Bob",
-          lastName: "Writer",
-          entityType: "individual" as const,
-          relevanceScore: 0.8,
-          whyRelevant: "Covers tech",
-          whyNotRelevant: "",
-          emails: [],
-        },
-      ]);
+      // buffer/next returns journalist WITHOUT emails, then exhausted
+      vi.mocked(fetchNextJournalist)
+        .mockResolvedValueOnce({
+          found: true,
+          journalist: {
+            id: "j-noemail",
+            journalistName: "Bob Writer",
+            firstName: "Bob",
+            lastName: "Writer",
+            entityType: "individual" as const,
+            relevanceScore: 0.8,
+            whyRelevant: "Covers tech",
+            whyNotRelevant: "",
+            emails: [],
+          },
+        })
+        .mockResolvedValueOnce({ found: false });
 
       // apolloMatch finds the email
       vi.mocked(apolloMatch).mockResolvedValueOnce({
