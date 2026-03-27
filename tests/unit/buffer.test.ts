@@ -37,6 +37,7 @@ vi.mock("../../src/lib/apollo-client.js", () => ({
 vi.mock("../../src/lib/outlet-client.js", () => ({
   fetchOutletsByCampaign: vi.fn().mockResolvedValue(null),
   discoverOutlets: vi.fn().mockResolvedValue(null),
+  fetchNextOutlet: vi.fn().mockResolvedValue({ found: false }),
 }));
 
 // Mock journalist-client
