@@ -31,6 +31,7 @@ export async function fetchJournalistsByOutlet(
     featureSlug?: string;
     count?: number;
     acceptanceThreshold?: number;
+    maxArticles?: number;
   }
 ): Promise<JournalistWithEmails[] | null> {
   try {
@@ -49,6 +50,7 @@ export async function fetchJournalistsByOutlet(
     const body: Record<string, unknown> = { outletId };
     if (options?.count != null) body.count = options.count;
     if (options?.acceptanceThreshold != null) body.acceptanceThreshold = options.acceptanceThreshold;
+    if (options?.maxArticles != null) body.maxArticles = options.maxArticles;
 
     const response = await fetch(`${JOURNALISTS_SERVICE_URL}/journalists/resolve`, {
       method: "POST",

@@ -329,12 +329,12 @@ describe("service client headers", () => {
       expect(opts.headers["x-feature-slug"]).toBe("feat-1");
     });
 
-    it("forwards count and acceptanceThreshold in request body", async () => {
+    it("forwards count, acceptanceThreshold, and maxArticles in request body", async () => {
       fetchSpy.mockReturnValue(jsonResponse({ journalists: [], cached: false }));
 
       const { fetchJournalistsByOutlet } = await import("../../src/lib/journalist-client.js");
       await fetchJournalistsByOutlet("outlet-uuid-1", {
-        orgId: "org-1", count: 5, acceptanceThreshold: 60,
+        orgId: "org-1", count: 5, acceptanceThreshold: 60, maxArticles: 10,
       });
 
       const [, opts] = fetchSpy.mock.calls[0];
@@ -342,6 +342,7 @@ describe("service client headers", () => {
       expect(body.outletId).toBe("outlet-uuid-1");
       expect(body.count).toBe(5);
       expect(body.acceptanceThreshold).toBe(60);
+      expect(body.maxArticles).toBe(10);
     });
 
     it("omits count and acceptanceThreshold when not provided", async () => {
