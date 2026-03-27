@@ -303,6 +303,73 @@ describe("service client headers", () => {
 
       expect(result).toBeNull();
     });
+
+    it("sends POST to /buffer/next with headers and optional idempotencyKey", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ found: true, outlet: { outletId: "o1", outletName: "TechCrunch" } }));
+
+      const { fetchNextOutlet } = await import("../../src/lib/outlet-client.js");
+      const result = await fetchNextOutlet({
+        orgId: "org-1", userId: "user-1", runId: "run-1",
+        campaignId: "camp-1", brandId: "brand-1", workflowName: "wf-1", featureSlug: "feat-1",
+        idempotencyKey: "idem-123",
+      });
+
+      expect(result.found).toBe(true);
+      expect(result.outlet?.outletId).toBe("o1");
+
+      const [url, opts] = fetchSpy.mock.calls[0];
+      expect(url).toContain("/buffer/next");
+      expect(opts.method).toBe("POST");
+      expect(opts.headers["x-org-id"]).toBe("org-1");
+      expect(opts.headers["x-campaign-id"]).toBe("camp-1");
+      expect(opts.headers["x-brand-id"]).toBe("brand-1");
+      expect(opts.headers["x-workflow-name"]).toBe("wf-1");
+      expect(opts.headers["x-feature-slug"]).toBe("feat-1");
+      const body = JSON.parse(opts.body);
+      expect(body.idempotencyKey).toBe("idem-123");
+    });
+
+    it("sends empty body to /buffer/next when no idempotencyKey", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ found: false }));
+
+      const { fetchNextOutlet } = await import("../../src/lib/outlet-client.js");
+      const result = await fetchNextOutlet({
+        orgId: "org-1", campaignId: "camp-1", brandId: "brand-1",
+      });
+
+      expect(result.found).toBe(false);
+      const [, opts] = fetchSpy.mock.calls[0];
+      const body = JSON.parse(opts.body);
+      expect(body).toEqual({});
+    });
+
+    it("returns found: false on /buffer/next error", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ error: "fail" }, 502));
+
+      const { fetchNextOutlet } = await import("../../src/lib/outlet-client.js");
+      const result = await fetchNextOutlet({
+        orgId: "org-1", campaignId: "camp-1", brandId: "brand-1",
+      });
+
+      expect(result.found).toBe(false);
+    });
+
+    it("sends empty body to /outlets/discover (campaignId/brandId via headers)", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ discoveredCount: 1, outlets: [{ id: "o1" }] }, 201));
+
+      const { discoverOutlets } = await import("../../src/lib/outlet-client.js");
+      await discoverOutlets(
+        { campaignId: "camp-1", brandId: "brand-1" },
+        { orgId: "org-1", userId: "user-1", runId: "run-1" },
+      );
+
+      const [url, opts] = fetchSpy.mock.calls[0];
+      expect(url).toContain("/outlets/discover");
+      expect(opts.headers["x-campaign-id"]).toBe("camp-1");
+      expect(opts.headers["x-brand-id"]).toBe("brand-1");
+      const body = JSON.parse(opts.body);
+      expect(body).toEqual({});
+    });
   });
 
   describe("journalist-client", () => {
