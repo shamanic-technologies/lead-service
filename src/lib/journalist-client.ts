@@ -29,6 +29,8 @@ export async function fetchJournalistsByOutlet(
     brandId?: string;
     workflowName?: string;
     featureSlug?: string;
+    count?: number;
+    acceptanceThreshold?: number;
   }
 ): Promise<JournalistWithEmails[] | null> {
   try {
@@ -44,10 +46,14 @@ export async function fetchJournalistsByOutlet(
     if (options?.workflowName) headers["x-workflow-name"] = options.workflowName;
     if (options?.featureSlug) headers["x-feature-slug"] = options.featureSlug;
 
+    const body: Record<string, unknown> = { outletId };
+    if (options?.count != null) body.count = options.count;
+    if (options?.acceptanceThreshold != null) body.acceptanceThreshold = options.acceptanceThreshold;
+
     const response = await fetch(`${JOURNALISTS_SERVICE_URL}/journalists/resolve`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ outletId }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
