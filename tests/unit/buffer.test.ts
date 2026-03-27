@@ -36,7 +36,6 @@ vi.mock("../../src/lib/apollo-client.js", () => ({
 // Mock outlet-client
 vi.mock("../../src/lib/outlet-client.js", () => ({
   fetchOutletsByCampaign: vi.fn().mockResolvedValue(null),
-  discoverOutlets: vi.fn().mockResolvedValue(null),
   fetchNextOutlet: vi.fn().mockResolvedValue({ found: false }),
 }));
 
@@ -73,7 +72,7 @@ import { pullNext } from "../../src/lib/buffer.js";
 import { apolloSearchNext, apolloSearchParams, apolloEnrich, apolloMatch } from "../../src/lib/apollo-client.js";
 import { checkDeliveryStatus } from "../../src/lib/email-gateway-client.js";
 import { resolveOrCreateLead } from "../../src/lib/leads-registry.js";
-import { fetchOutletsByCampaign, discoverOutlets } from "../../src/lib/outlet-client.js";
+import { fetchOutletsByCampaign, fetchNextOutlet } from "../../src/lib/outlet-client.js";
 import { fetchCampaign } from "../../src/lib/campaign-client.js";
 import { extractBrandFields } from "../../src/lib/brand-client.js";
 import { fetchNextJournalist } from "../../src/lib/journalist-client.js";
@@ -1149,8 +1148,8 @@ describe("buffer", () => {
       vi.mocked(db.query.cursors.findFirst).mockResolvedValueOnce(undefined);
       vi.mocked(fetchOutletsByCampaign).mockResolvedValueOnce([]);
 
-      // Discovery returns empty
-      vi.mocked(discoverOutlets).mockResolvedValueOnce([]);
+      // buffer/next triggers auto-discovery but finds nothing
+      vi.mocked(fetchNextOutlet).mockResolvedValueOnce({ found: false });
 
       const result = await pullNext({
         orgId: "org-1",
@@ -1161,15 +1160,13 @@ describe("buffer", () => {
       });
 
       expect(result.found).toBe(false);
-      expect(vi.mocked(discoverOutlets)).toHaveBeenCalledOnce();
-      // featureInput is passed through as-is
-      expect(vi.mocked(discoverOutlets)).toHaveBeenCalledWith(
+      expect(vi.mocked(fetchNextOutlet)).toHaveBeenCalledOnce();
+      expect(vi.mocked(fetchNextOutlet)).toHaveBeenCalledWith(
         expect.objectContaining({
           campaignId: "campaign-1",
           brandId: "brand-1",
-          featureInput: { companyContext: "A test brand" },
+          orgId: "org-1",
         }),
-        expect.any(Object),
       );
     });
 
@@ -1209,15 +1206,19 @@ describe("buffer", () => {
           campaignId: "campaign-1",
         }]);
 
-      vi.mocked(discoverOutlets).mockResolvedValueOnce([{
-        id: "outlet-discovered",
+      // buffer/next triggers auto-discovery and finds an outlet
+      vi.mocked(fetchNextOutlet).mockResolvedValueOnce({ found: true, outlet: {
+        outletId: "outlet-discovered",
         outletName: "Discovered Outlet",
         outletUrl: "https://discovered-outlet.com",
         outletDomain: "discovered-outlet.com",
-        relevanceScore: 0.9,
-        outletStatus: "active",
         campaignId: "campaign-1",
-      }]);
+        brandId: "brand-1",
+        relevanceScore: 0.9,
+        whyRelevant: "Relevant outlet",
+        whyNotRelevant: "",
+        overallRelevance: null,
+      }});
 
       vi.mocked(fetchNextJournalist)
         .mockResolvedValueOnce({
@@ -1266,28 +1267,27 @@ describe("buffer", () => {
         featureInput,
       });
 
-      // featureInput is forwarded as-is — no field extraction or validation by lead-service
-      expect(vi.mocked(discoverOutlets)).toHaveBeenCalledOnce();
-      expect(vi.mocked(discoverOutlets)).toHaveBeenCalledWith(
+      // fetchNextOutlet triggers auto-discovery on outlets-service
+      expect(vi.mocked(fetchNextOutlet)).toHaveBeenCalledOnce();
+      expect(vi.mocked(fetchNextOutlet)).toHaveBeenCalledWith(
         expect.objectContaining({
           campaignId: "campaign-1",
           brandId: "brand-1",
-          featureInput,
+          orgId: "org-1",
         }),
-        expect.any(Object),
       );
       expect(result.found).toBe(true);
       expect(result.lead?.email).toBe("discovered@outlet.com");
     });
 
-    it("calls discoverOutlets even without featureInput", async () => {
+    it("calls fetchNextOutlet even without featureInput", async () => {
       pgSqlMock.mockResolvedValue([]);
 
       vi.mocked(db.query.cursors.findFirst).mockResolvedValueOnce(undefined);
       vi.mocked(fetchOutletsByCampaign).mockResolvedValueOnce([]);
 
-      // Discovery returns empty — but it should still be called
-      vi.mocked(discoverOutlets).mockResolvedValueOnce([]);
+      // buffer/next triggers auto-discovery but finds nothing
+      vi.mocked(fetchNextOutlet).mockResolvedValueOnce({ found: false });
 
       const result = await pullNext({
         orgId: "org-1",
@@ -1297,14 +1297,13 @@ describe("buffer", () => {
       });
 
       expect(result.found).toBe(false);
-      // discoverOutlets is always called — outlets-service decides what to do
-      expect(vi.mocked(discoverOutlets)).toHaveBeenCalledOnce();
-      expect(vi.mocked(discoverOutlets)).toHaveBeenCalledWith(
+      // fetchNextOutlet is always called — outlets-service handles discovery internally
+      expect(vi.mocked(fetchNextOutlet)).toHaveBeenCalledOnce();
+      expect(vi.mocked(fetchNextOutlet)).toHaveBeenCalledWith(
         expect.objectContaining({
           campaignId: "campaign-1",
           brandId: "brand-1",
         }),
-        expect.any(Object),
       );
     });
 

@@ -354,21 +354,21 @@ describe("service client headers", () => {
       expect(result.found).toBe(false);
     });
 
-    it("sends empty body to /outlets/discover (campaignId/brandId via headers)", async () => {
-      fetchSpy.mockReturnValue(jsonResponse({ discoveredCount: 1, outlets: [{ id: "o1" }] }, 201));
+    it("sends headers to /buffer/next for outlet discovery", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ found: true, outlet: { outletId: "o1" } }));
 
-      const { discoverOutlets } = await import("../../src/lib/outlet-client.js");
-      await discoverOutlets(
-        { campaignId: "camp-1", brandId: "brand-1" },
-        { orgId: "org-1", userId: "user-1", runId: "run-1" },
-      );
+      const { fetchNextOutlet } = await import("../../src/lib/outlet-client.js");
+      await fetchNextOutlet({
+        campaignId: "camp-1", brandId: "brand-1",
+        orgId: "org-1", userId: "user-1", runId: "run-1",
+      });
 
       const [url, opts] = fetchSpy.mock.calls[0];
-      expect(url).toContain("/outlets/discover");
+      expect(url).toContain("/buffer/next");
+      expect(opts.method).toBe("POST");
       expect(opts.headers["x-campaign-id"]).toBe("camp-1");
       expect(opts.headers["x-brand-id"]).toBe("brand-1");
-      const body = JSON.parse(opts.body);
-      expect(body).toEqual({});
+      expect(opts.headers["x-org-id"]).toBe("org-1");
     });
   });
 
