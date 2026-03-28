@@ -30,7 +30,7 @@ async function fillBufferFromSearch(params: {
   featureInput?: Record<string, unknown>;
   pushRunId?: string | null;
   userId?: string | null;
-  workflowName?: string;
+  workflowSlug?: string;
   featureSlug?: string;
 }): Promise<{ filled: number }> {
   const serviceContext = {
@@ -38,7 +38,7 @@ async function fillBufferFromSearch(params: {
     runId: params.pushRunId ?? undefined,
     campaignId: params.campaignId,
     brandId: params.brandId,
-    workflowName: params.workflowName,
+    workflowSlug: params.workflowSlug,
     featureSlug: params.featureSlug,
   };
 
@@ -100,7 +100,7 @@ async function fillBufferFromSearch(params: {
     campaignId: params.campaignId,
     orgId: params.orgId,
     userId: params.userId,
-    workflowName: params.workflowName,
+    workflowSlug: params.workflowSlug,
     featureSlug: params.featureSlug,
   });
 
@@ -115,7 +115,7 @@ async function fillBufferFromSearch(params: {
       runId: params.pushRunId,
       orgId: params.orgId,
       userId: params.userId,
-      workflowName: params.workflowName,
+      workflowSlug: params.workflowSlug,
       featureSlug: params.featureSlug,
     });
 
@@ -188,7 +188,7 @@ async function fillBufferFromSearch(params: {
             runId: params.pushRunId ?? undefined,
             campaignId: params.campaignId,
             brandId: params.brandId,
-            workflowName: params.workflowName,
+            workflowSlug: params.workflowSlug,
             featureSlug: params.featureSlug,
           })
         : new Map<string, boolean>();
@@ -209,7 +209,7 @@ async function fillBufferFromSearch(params: {
         brandId: params.brandId,
         orgId: params.orgId,
         userId: params.userId ?? null,
-        workflowName: params.workflowName ?? null,
+        workflowSlug: params.workflowSlug ?? null,
         featureSlug: params.featureSlug ?? null,
       });
       pageFilled++;
@@ -263,7 +263,7 @@ async function fillBufferFromJournalists(params: {
   featureInput?: Record<string, unknown>;
   pushRunId?: string | null;
   userId?: string | null;
-  workflowName?: string;
+  workflowSlug?: string;
   featureSlug?: string;
 }): Promise<{ filled: number }> {
   const serviceContext = {
@@ -271,7 +271,7 @@ async function fillBufferFromJournalists(params: {
     runId: params.pushRunId ?? undefined,
     campaignId: params.campaignId,
     brandId: params.brandId,
-    workflowName: params.workflowName,
+    workflowSlug: params.workflowSlug,
     featureSlug: params.featureSlug,
   };
 
@@ -298,7 +298,7 @@ async function fillBufferFromJournalists(params: {
       runId: params.pushRunId ?? undefined,
       campaignId: params.campaignId,
       brandId: params.brandId,
-      workflowName: params.workflowName,
+      workflowSlug: params.workflowSlug,
       featureSlug: params.featureSlug,
     });
 
@@ -367,7 +367,7 @@ async function fillBufferFromJournalists(params: {
             userId: params.userId,
             brandId: params.brandId,
             campaignId: params.campaignId,
-            workflowName: params.workflowName,
+            workflowSlug: params.workflowSlug,
             featureSlug: params.featureSlug,
           }
         );
@@ -417,7 +417,7 @@ async function fillBufferFromJournalists(params: {
         brandId: params.brandId,
         orgId: params.orgId,
         userId: params.userId ?? null,
-        workflowName: params.workflowName ?? null,
+        workflowSlug: params.workflowSlug ?? null,
         featureSlug: params.featureSlug ?? null,
       });
       totalFilled++;
@@ -444,7 +444,7 @@ export async function pullNext(params: {
   searchParams?: ApolloSearchParams;
   featureInput?: Record<string, unknown>;
   userId?: string | null;
-  workflowName?: string;
+  workflowSlug?: string;
   featureSlug?: string;
   sourceType?: "apollo" | "journalist";
 }): Promise<{
@@ -513,7 +513,7 @@ export async function pullNext(params: {
           featureInput: params.featureInput,
           pushRunId: params.runId,
           userId: params.userId,
-          workflowName: params.workflowName,
+          workflowSlug: params.workflowSlug,
           featureSlug: params.featureSlug,
         });
         filled = result.filled;
@@ -526,7 +526,7 @@ export async function pullNext(params: {
           featureInput: params.featureInput,
           pushRunId: params.runId,
           userId: params.userId,
-          workflowName: params.workflowName,
+          workflowSlug: params.workflowSlug,
           featureSlug: params.featureSlug,
         });
         filled = result.filled;
@@ -559,7 +559,7 @@ export async function pullNext(params: {
           userId: params.userId,
           brandId: params.brandId,
           campaignId: params.campaignId,
-          workflowName: params.workflowName,
+          workflowSlug: params.workflowSlug,
           featureSlug: params.featureSlug,
         }
       );
@@ -621,7 +621,7 @@ export async function pullNext(params: {
           userId: params.userId,
           brandId: params.brandId,
           campaignId: params.campaignId,
-          workflowName: params.workflowName,
+          workflowSlug: params.workflowSlug,
           featureSlug: params.featureSlug,
         });
 
@@ -698,7 +698,7 @@ export async function pullNext(params: {
       runId: params.runId ?? undefined,
       campaignId: params.campaignId,
       brandId: params.brandId,
-      workflowName: params.workflowName,
+      workflowSlug: params.workflowSlug,
       featureSlug: params.featureSlug,
     });
 
@@ -721,7 +721,7 @@ export async function pullNext(params: {
       metadata: enrichedData,
       runId: params.runId ?? null,
       userId: row.userId,
-      workflowName: params.workflowName ?? null,
+      workflowSlug: params.workflowSlug ?? null,
       featureSlug: params.featureSlug ?? null,
     });
 

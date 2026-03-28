@@ -34,7 +34,7 @@ export async function createRun(params: {
   userId?: string;
   brandId?: string;
   campaignId?: string;
-  workflowName?: string;
+  workflowSlug?: string;
   featureSlug?: string;
 }): Promise<{ id: string }> {
   const headers: Record<string, string> = {
@@ -44,7 +44,7 @@ export async function createRun(params: {
   if (params.parentRunId) headers["x-run-id"] = params.parentRunId;
   if (params.campaignId) headers["x-campaign-id"] = params.campaignId;
   if (params.brandId) headers["x-brand-id"] = params.brandId;
-  if (params.workflowName) headers["x-workflow-name"] = params.workflowName;
+  if (params.workflowSlug) headers["x-workflow-slug"] = params.workflowSlug;
   if (params.featureSlug) headers["x-feature-slug"] = params.featureSlug;
 
   return callRunsService("/runs", {
@@ -54,7 +54,7 @@ export async function createRun(params: {
       taskName: params.taskName,
       brandId: params.brandId,
       campaignId: params.campaignId,
-      workflowName: params.workflowName,
+      workflowSlug: params.workflowSlug,
     },
     headers,
   }) as Promise<{ id: string }>;
@@ -63,7 +63,7 @@ export async function createRun(params: {
 export async function updateRun(
   runId: string,
   status: "completed" | "failed",
-  context?: { orgId?: string; userId?: string; campaignId?: string; brandId?: string; workflowName?: string; featureSlug?: string }
+  context?: { orgId?: string; userId?: string; campaignId?: string; brandId?: string; workflowSlug?: string; featureSlug?: string }
 ): Promise<void> {
   const headers: Record<string, string> = {};
   if (context?.orgId) headers["x-org-id"] = context.orgId;
@@ -71,7 +71,7 @@ export async function updateRun(
   headers["x-run-id"] = runId;
   if (context?.campaignId) headers["x-campaign-id"] = context.campaignId;
   if (context?.brandId) headers["x-brand-id"] = context.brandId;
-  if (context?.workflowName) headers["x-workflow-name"] = context.workflowName;
+  if (context?.workflowSlug) headers["x-workflow-slug"] = context.workflowSlug;
   if (context?.featureSlug) headers["x-feature-slug"] = context.featureSlug;
 
   await callRunsService(`/runs/${runId}`, {
@@ -84,7 +84,7 @@ export async function updateRun(
 export async function addCosts(
   runId: string,
   items: Array<{ costName: string; quantity: number; costSource: "platform" | "org" }>,
-  context?: { orgId?: string; userId?: string; campaignId?: string; brandId?: string; workflowName?: string; featureSlug?: string }
+  context?: { orgId?: string; userId?: string; campaignId?: string; brandId?: string; workflowSlug?: string; featureSlug?: string }
 ): Promise<void> {
   if (items.length === 0) return;
 
@@ -94,7 +94,7 @@ export async function addCosts(
   headers["x-run-id"] = runId;
   if (context?.campaignId) headers["x-campaign-id"] = context.campaignId;
   if (context?.brandId) headers["x-brand-id"] = context.brandId;
-  if (context?.workflowName) headers["x-workflow-name"] = context.workflowName;
+  if (context?.workflowSlug) headers["x-workflow-slug"] = context.workflowSlug;
   if (context?.featureSlug) headers["x-feature-slug"] = context.featureSlug;
 
   await callRunsService(`/runs/${runId}/costs`, {

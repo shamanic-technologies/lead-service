@@ -470,7 +470,7 @@
           "userId": {
             "type": "string"
           },
-          "workflowName": {
+          "workflowSlug": {
             "type": "string"
           },
           "idempotencyKey": {
@@ -768,12 +768,12 @@
           },
           {
             "in": "header",
-            "name": "x-workflow-name",
+            "name": "x-workflow-slug",
             "required": false,
             "schema": {
               "type": "string"
             },
-            "description": "Workflow name (auto-injected by workflow-service)"
+            "description": "Workflow slug (auto-injected by workflow-service)"
           },
           {
             "in": "header",
@@ -881,12 +881,12 @@
           },
           {
             "in": "header",
-            "name": "x-workflow-name",
+            "name": "x-workflow-slug",
             "required": false,
             "schema": {
               "type": "string"
             },
-            "description": "Workflow name (auto-injected by workflow-service)"
+            "description": "Workflow slug (auto-injected by workflow-service)"
           },
           {
             "in": "header",
@@ -981,12 +981,12 @@
           },
           {
             "in": "header",
-            "name": "x-workflow-name",
+            "name": "x-workflow-slug",
             "required": false,
             "schema": {
               "type": "string"
             },
-            "description": "Workflow name (auto-injected by workflow-service)"
+            "description": "Workflow slug (auto-injected by workflow-service)"
           },
           {
             "in": "header",
@@ -1102,12 +1102,12 @@
           },
           {
             "in": "header",
-            "name": "x-workflow-name",
+            "name": "x-workflow-slug",
             "required": false,
             "schema": {
               "type": "string"
             },
-            "description": "Workflow name (auto-injected by workflow-service)"
+            "description": "Workflow slug (auto-injected by workflow-service)"
           },
           {
             "in": "header",
@@ -1229,12 +1229,12 @@
           },
           {
             "in": "header",
-            "name": "x-workflow-name",
+            "name": "x-workflow-slug",
             "required": false,
             "schema": {
               "type": "string"
             },
-            "description": "Workflow name (auto-injected by workflow-service)"
+            "description": "Workflow slug (auto-injected by workflow-service)"
           },
           {
             "in": "header",

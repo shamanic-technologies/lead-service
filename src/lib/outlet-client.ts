@@ -33,7 +33,7 @@ function buildHeaders(context?: {
   runId?: string;
   campaignId?: string;
   brandId?: string;
-  workflowName?: string;
+  workflowSlug?: string;
   featureSlug?: string;
 }): Record<string, string> {
   const headers: Record<string, string> = {
@@ -45,7 +45,7 @@ function buildHeaders(context?: {
   if (context?.runId) headers["x-run-id"] = context.runId;
   if (context?.campaignId) headers["x-campaign-id"] = context.campaignId;
   if (context?.brandId) headers["x-brand-id"] = context.brandId;
-  if (context?.workflowName) headers["x-workflow-name"] = context.workflowName;
+  if (context?.workflowSlug) headers["x-workflow-slug"] = context.workflowSlug;
   if (context?.featureSlug) headers["x-feature-slug"] = context.featureSlug;
   return headers;
 }
@@ -56,7 +56,7 @@ export async function fetchNextOutlet(context: {
   runId?: string;
   campaignId: string;
   brandId: string;
-  workflowName?: string;
+  workflowSlug?: string;
   featureSlug?: string;
   idempotencyKey?: string;
 }): Promise<{ found: boolean; outlet?: BufferNextOutlet }> {
@@ -88,7 +88,7 @@ export async function fetchNextOutlet(context: {
 export async function fetchOutletsByCampaign(
   campaignId: string,
   orgId?: string | null,
-  context?: { userId?: string; runId?: string; campaignId?: string; brandId?: string; workflowName?: string; featureSlug?: string }
+  context?: { userId?: string; runId?: string; campaignId?: string; brandId?: string; workflowSlug?: string; featureSlug?: string }
 ): Promise<OutletDetails[] | null> {
   try {
     const headers = buildHeaders({
@@ -97,7 +97,7 @@ export async function fetchOutletsByCampaign(
       runId: context?.runId,
       campaignId: context?.campaignId,
       brandId: context?.brandId,
-      workflowName: context?.workflowName,
+      workflowSlug: context?.workflowSlug,
       featureSlug: context?.featureSlug,
     });
 

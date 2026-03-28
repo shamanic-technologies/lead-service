@@ -15,7 +15,7 @@ export interface BrandDetails {
 export async function fetchBrand(
   brandId: string,
   orgId?: string | null,
-  context?: { userId?: string; runId?: string; campaignId?: string; brandId?: string; workflowName?: string; featureSlug?: string }
+  context?: { userId?: string; runId?: string; campaignId?: string; brandId?: string; workflowSlug?: string; featureSlug?: string }
 ): Promise<BrandDetails | null> {
   try {
     const headers: Record<string, string> = {
@@ -27,7 +27,7 @@ export async function fetchBrand(
     if (context?.runId) headers["x-run-id"] = context.runId;
     if (context?.campaignId) headers["x-campaign-id"] = context.campaignId;
     if (context?.brandId) headers["x-brand-id"] = context.brandId;
-    if (context?.workflowName) headers["x-workflow-name"] = context.workflowName;
+    if (context?.workflowSlug) headers["x-workflow-slug"] = context.workflowSlug;
     if (context?.featureSlug) headers["x-feature-slug"] = context.featureSlug;
 
     const url = new URL(`${BRAND_SERVICE_URL}/brands/${brandId}`);
@@ -57,7 +57,7 @@ export interface ExtractedField {
   sourceUrls: string[] | null;
 }
 
-type ServiceContext = { userId?: string; runId?: string; campaignId?: string; brandId?: string; workflowName?: string; featureSlug?: string };
+type ServiceContext = { userId?: string; runId?: string; campaignId?: string; brandId?: string; workflowSlug?: string; featureSlug?: string };
 
 function buildHeaders(orgId?: string | null, context?: ServiceContext): Record<string, string> {
   const headers: Record<string, string> = {
@@ -69,7 +69,7 @@ function buildHeaders(orgId?: string | null, context?: ServiceContext): Record<s
   if (context?.runId) headers["x-run-id"] = context.runId;
   if (context?.campaignId) headers["x-campaign-id"] = context.campaignId;
   if (context?.brandId) headers["x-brand-id"] = context.brandId;
-  if (context?.workflowName) headers["x-workflow-name"] = context.workflowName;
+  if (context?.workflowSlug) headers["x-workflow-slug"] = context.workflowSlug;
   if (context?.featureSlug) headers["x-feature-slug"] = context.featureSlug;
   return headers;
 }

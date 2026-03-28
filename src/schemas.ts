@@ -59,10 +59,10 @@ const AuthHeaders = [
   },
   {
     in: "header" as const,
-    name: "x-workflow-name",
+    name: "x-workflow-slug",
     required: false,
     schema: { type: "string" as const },
-    description: "Workflow name (auto-injected by workflow-service)",
+    description: "Workflow slug (auto-injected by workflow-service)",
   },
   {
     in: "header" as const,
@@ -191,7 +191,7 @@ export const BufferNextRequestSchema = z
     searchParams: z.record(z.string(), z.unknown()).nullish(),
     featureInput: z.record(z.string(), z.unknown()).nullish(),
     userId: z.string().optional(),
-    workflowName: z.string().optional(),
+    workflowSlug: z.string().optional(),
     idempotencyKey: z.string().min(1).optional(),
   })
   .openapi("BufferNextRequest");

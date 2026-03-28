@@ -49,15 +49,15 @@ describe("schema validation", () => {
       expect(result.success).toBe(false);
     });
 
-    it("accepts optional workflowName", () => {
+    it("accepts optional workflowSlug", () => {
       const result = BufferNextRequestSchema.safeParse({
         campaignId: "c1",
         brandId: "b1",
-        workflowName: "cold-email-outreach",
+        workflowSlug: "cold-email-outreach",
       });
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.workflowName).toBe("cold-email-outreach");
+        expect(result.data.workflowSlug).toBe("cold-email-outreach");
       }
     });
 
@@ -97,14 +97,14 @@ describe("schema validation", () => {
       }
     });
 
-    it("accepts request without workflowName", () => {
+    it("accepts request without workflowSlug", () => {
       const result = BufferNextRequestSchema.safeParse({
         campaignId: "c1",
         brandId: "b1",
       });
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.workflowName).toBeUndefined();
+        expect(result.data.workflowSlug).toBeUndefined();
       }
     });
   });

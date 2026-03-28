@@ -57,20 +57,20 @@ describe("service client headers", () => {
 
       const { apolloSearch } = await import("../../src/lib/apollo-client.js");
       await apolloSearch({ personTitles: ["CEO"] }, 1, {
-        orgId: "org-1", runId: "run-1", brandId: "brand-1", campaignId: "camp-1", workflowName: "wf-1", featureSlug: "feat-1",
+        orgId: "org-1", runId: "run-1", brandId: "brand-1", campaignId: "camp-1", workflowSlug: "wf-1", featureSlug: "feat-1",
       });
 
       const [, opts] = fetchSpy.mock.calls[0];
       expect(opts.headers["x-run-id"]).toBe("run-1");
       expect(opts.headers["x-brand-id"]).toBe("brand-1");
       expect(opts.headers["x-campaign-id"]).toBe("camp-1");
-      expect(opts.headers["x-workflow-name"]).toBe("wf-1");
+      expect(opts.headers["x-workflow-slug"]).toBe("wf-1");
       expect(opts.headers["x-feature-slug"]).toBe("feat-1");
       const body = JSON.parse(opts.body);
       expect(body).not.toHaveProperty("runId");
       expect(body).not.toHaveProperty("brandId");
       expect(body).not.toHaveProperty("campaignId");
-      expect(body).not.toHaveProperty("workflowName");
+      expect(body).not.toHaveProperty("workflowSlug");
     });
 
     it("sends x-org-id header for apolloEnrich", async () => {
@@ -90,20 +90,20 @@ describe("service client headers", () => {
 
       const { apolloEnrich } = await import("../../src/lib/apollo-client.js");
       await apolloEnrich("person-123", {
-        orgId: "org-1", runId: "run-1", brandId: "brand-1", campaignId: "camp-1", workflowName: "wf-1", featureSlug: "feat-1",
+        orgId: "org-1", runId: "run-1", brandId: "brand-1", campaignId: "camp-1", workflowSlug: "wf-1", featureSlug: "feat-1",
       });
 
       const [, opts] = fetchSpy.mock.calls[0];
       expect(opts.headers["x-run-id"]).toBe("run-1");
       expect(opts.headers["x-brand-id"]).toBe("brand-1");
       expect(opts.headers["x-campaign-id"]).toBe("camp-1");
-      expect(opts.headers["x-workflow-name"]).toBe("wf-1");
+      expect(opts.headers["x-workflow-slug"]).toBe("wf-1");
       expect(opts.headers["x-feature-slug"]).toBe("feat-1");
       const body = JSON.parse(opts.body);
       expect(body).not.toHaveProperty("runId");
       expect(body).not.toHaveProperty("brandId");
       expect(body).not.toHaveProperty("campaignId");
-      expect(body).not.toHaveProperty("workflowName");
+      expect(body).not.toHaveProperty("workflowSlug");
     });
   });
 
@@ -123,19 +123,19 @@ describe("service client headers", () => {
       expect(opts.headers["x-run-id"]).toBe("run-1");
     });
 
-    it("forwards x-campaign-id, x-brand-id, x-workflow-name headers when provided", async () => {
+    it("forwards x-campaign-id, x-brand-id, x-workflow-slug headers when provided", async () => {
       fetchSpy.mockReturnValue(jsonResponse({ results: [] }));
 
       const { checkDeliveryStatus } = await import("../../src/lib/email-gateway-client.js");
       await checkDeliveryStatus("brand-1", "camp-1", [{ leadId: "l1", email: "a@b.com" }], {
         orgId: "org-1", userId: "user-1", runId: "run-1",
-        campaignId: "camp-1", brandId: "brand-1", workflowName: "wf-test", featureSlug: "feat-test",
+        campaignId: "camp-1", brandId: "brand-1", workflowSlug: "wf-test", featureSlug: "feat-test",
       });
 
       const [, opts] = fetchSpy.mock.calls[0];
       expect(opts.headers["x-campaign-id"]).toBe("camp-1");
       expect(opts.headers["x-brand-id"]).toBe("brand-1");
-      expect(opts.headers["x-workflow-name"]).toBe("wf-test");
+      expect(opts.headers["x-workflow-slug"]).toBe("wf-test");
       expect(opts.headers["x-feature-slug"]).toBe("feat-test");
     });
   });
@@ -161,13 +161,13 @@ describe("service client headers", () => {
       const { fetchCampaign } = await import("../../src/lib/campaign-client.js");
       await fetchCampaign("campaign-123", "org-1", {
         userId: "user-1", runId: "run-1",
-        campaignId: "camp-1", brandId: "brand-1", workflowName: "wf-test", featureSlug: "feat-test",
+        campaignId: "camp-1", brandId: "brand-1", workflowSlug: "wf-test", featureSlug: "feat-test",
       });
 
       const [, opts] = fetchSpy.mock.calls[0];
       expect(opts.headers["x-campaign-id"]).toBe("camp-1");
       expect(opts.headers["x-brand-id"]).toBe("brand-1");
-      expect(opts.headers["x-workflow-name"]).toBe("wf-test");
+      expect(opts.headers["x-workflow-slug"]).toBe("wf-test");
       expect(opts.headers["x-feature-slug"]).toBe("feat-test");
     });
   });
@@ -195,13 +195,13 @@ describe("service client headers", () => {
       const { fetchBrand } = await import("../../src/lib/brand-client.js");
       await fetchBrand("brand-123", "org-1", {
         userId: "user-1", runId: "run-1",
-        campaignId: "camp-1", brandId: "brand-1", workflowName: "wf-test", featureSlug: "feat-test",
+        campaignId: "camp-1", brandId: "brand-1", workflowSlug: "wf-test", featureSlug: "feat-test",
       });
 
       const [, opts] = fetchSpy.mock.calls[0];
       expect(opts.headers["x-campaign-id"]).toBe("camp-1");
       expect(opts.headers["x-brand-id"]).toBe("brand-1");
-      expect(opts.headers["x-workflow-name"]).toBe("wf-test");
+      expect(opts.headers["x-workflow-slug"]).toBe("wf-test");
       expect(opts.headers["x-feature-slug"]).toBe("feat-test");
     });
   });
@@ -215,7 +215,7 @@ describe("service client headers", () => {
         "brand-123",
         [{ key: "elevator_pitch", description: "One-sentence pitch" }],
         "org-1",
-        { userId: "user-1", runId: "run-1", campaignId: "camp-1", brandId: "brand-1", workflowName: "wf-1", featureSlug: "feat-1" },
+        { userId: "user-1", runId: "run-1", campaignId: "camp-1", brandId: "brand-1", workflowSlug: "wf-1", featureSlug: "feat-1" },
       );
 
       expect(fetchSpy).toHaveBeenCalledOnce();
@@ -254,7 +254,7 @@ describe("service client headers", () => {
       const { apolloMatch } = await import("../../src/lib/apollo-client.js");
       await apolloMatch(
         { firstName: "Jane", lastName: "Doe", organizationDomain: "test.com" },
-        { orgId: "org-1", userId: "user-1", runId: "run-1", brandId: "brand-1", campaignId: "camp-1", workflowName: "wf-1", featureSlug: "feat-1" }
+        { orgId: "org-1", userId: "user-1", runId: "run-1", brandId: "brand-1", campaignId: "camp-1", workflowSlug: "wf-1", featureSlug: "feat-1" }
       );
 
       expect(fetchSpy).toHaveBeenCalledOnce();
@@ -265,7 +265,7 @@ describe("service client headers", () => {
       expect(opts.headers["x-run-id"]).toBe("run-1");
       expect(opts.headers["x-brand-id"]).toBe("brand-1");
       expect(opts.headers["x-campaign-id"]).toBe("camp-1");
-      expect(opts.headers["x-workflow-name"]).toBe("wf-1");
+      expect(opts.headers["x-workflow-slug"]).toBe("wf-1");
       expect(opts.headers["x-feature-slug"]).toBe("feat-1");
       const body = JSON.parse(opts.body);
       expect(body.firstName).toBe("Jane");
@@ -280,7 +280,7 @@ describe("service client headers", () => {
 
       const { fetchOutletsByCampaign } = await import("../../src/lib/outlet-client.js");
       await fetchOutletsByCampaign("campaign-123", "org-uuid-1", {
-        userId: "user-1", runId: "run-1", campaignId: "camp-1", brandId: "brand-1", workflowName: "wf-1", featureSlug: "feat-1",
+        userId: "user-1", runId: "run-1", campaignId: "camp-1", brandId: "brand-1", workflowSlug: "wf-1", featureSlug: "feat-1",
       });
 
       expect(fetchSpy).toHaveBeenCalledOnce();
@@ -291,7 +291,7 @@ describe("service client headers", () => {
       expect(opts.headers["x-run-id"]).toBe("run-1");
       expect(opts.headers["x-campaign-id"]).toBe("camp-1");
       expect(opts.headers["x-brand-id"]).toBe("brand-1");
-      expect(opts.headers["x-workflow-name"]).toBe("wf-1");
+      expect(opts.headers["x-workflow-slug"]).toBe("wf-1");
       expect(opts.headers["x-feature-slug"]).toBe("feat-1");
     });
 
@@ -310,7 +310,7 @@ describe("service client headers", () => {
       const { fetchNextOutlet } = await import("../../src/lib/outlet-client.js");
       const result = await fetchNextOutlet({
         orgId: "org-1", userId: "user-1", runId: "run-1",
-        campaignId: "camp-1", brandId: "brand-1", workflowName: "wf-1", featureSlug: "feat-1",
+        campaignId: "camp-1", brandId: "brand-1", workflowSlug: "wf-1", featureSlug: "feat-1",
         idempotencyKey: "idem-123",
       });
 
@@ -323,7 +323,7 @@ describe("service client headers", () => {
       expect(opts.headers["x-org-id"]).toBe("org-1");
       expect(opts.headers["x-campaign-id"]).toBe("camp-1");
       expect(opts.headers["x-brand-id"]).toBe("brand-1");
-      expect(opts.headers["x-workflow-name"]).toBe("wf-1");
+      expect(opts.headers["x-workflow-slug"]).toBe("wf-1");
       expect(opts.headers["x-feature-slug"]).toBe("feat-1");
       const body = JSON.parse(opts.body);
       expect(body.idempotencyKey).toBe("idem-123");
@@ -378,7 +378,7 @@ describe("service client headers", () => {
 
       const { fetchNextJournalist } = await import("../../src/lib/journalist-client.js");
       await fetchNextJournalist("outlet-uuid-1", {
-        campaignId: "camp-1", orgId: "org-1", userId: "user-1", runId: "run-1", brandId: "brand-1", workflowName: "wf-1", featureSlug: "feat-1",
+        campaignId: "camp-1", orgId: "org-1", userId: "user-1", runId: "run-1", brandId: "brand-1", workflowSlug: "wf-1", featureSlug: "feat-1",
       });
 
       expect(fetchSpy).toHaveBeenCalledOnce();
@@ -392,7 +392,7 @@ describe("service client headers", () => {
       expect(opts.headers["x-run-id"]).toBe("run-1");
       expect(opts.headers["x-campaign-id"]).toBe("camp-1");
       expect(opts.headers["x-brand-id"]).toBe("brand-1");
-      expect(opts.headers["x-workflow-name"]).toBe("wf-1");
+      expect(opts.headers["x-workflow-slug"]).toBe("wf-1");
       expect(opts.headers["x-feature-slug"]).toBe("feat-1");
     });
 
@@ -483,14 +483,14 @@ describe("service client headers", () => {
         taskName: "test-task",
         campaignId: "camp-1",
         brandId: "brand-1",
-        workflowName: "wf-test",
+        workflowSlug: "wf-test",
         featureSlug: "feat-test",
       });
 
       const [, opts] = fetchSpy.mock.calls[0];
       expect(opts.headers["x-campaign-id"]).toBe("camp-1");
       expect(opts.headers["x-brand-id"]).toBe("brand-1");
-      expect(opts.headers["x-workflow-name"]).toBe("wf-test");
+      expect(opts.headers["x-workflow-slug"]).toBe("wf-test");
       expect(opts.headers["x-feature-slug"]).toBe("feat-test");
     });
 
@@ -500,13 +500,13 @@ describe("service client headers", () => {
       const { updateRun } = await import("../../src/lib/runs-client.js");
       await updateRun("run-1", "completed", {
         orgId: "org-1", userId: "user-1",
-        campaignId: "camp-1", brandId: "brand-1", workflowName: "wf-test", featureSlug: "feat-test",
+        campaignId: "camp-1", brandId: "brand-1", workflowSlug: "wf-test", featureSlug: "feat-test",
       });
 
       const [, opts] = fetchSpy.mock.calls[0];
       expect(opts.headers["x-campaign-id"]).toBe("camp-1");
       expect(opts.headers["x-brand-id"]).toBe("brand-1");
-      expect(opts.headers["x-workflow-name"]).toBe("wf-test");
+      expect(opts.headers["x-workflow-slug"]).toBe("wf-test");
       expect(opts.headers["x-feature-slug"]).toBe("feat-test");
     });
   });
