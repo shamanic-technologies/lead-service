@@ -129,7 +129,7 @@ describe("API Integration Tests", () => {
       expect(res.body.details.fieldErrors.brandId).toBeDefined();
     });
 
-    it("passes workflowName to createRun", async () => {
+    it("passes workflowSlug to createRun", async () => {
       await seedBuffer({
         campaignId: "campaign-wf-next",
         brandId: "brand-wf-next",
@@ -144,11 +144,11 @@ describe("API Integration Tests", () => {
         .send({
           campaignId: "campaign-wf-next",
           brandId: "brand-wf-next",
-          workflowName: "cold-email-outreach",
+          workflowSlug: "cold-email-outreach",
         });
 
       expect(createRun).toHaveBeenCalledWith(
-        expect.objectContaining({ workflowName: "cold-email-outreach" })
+        expect.objectContaining({ workflowSlug: "cold-email-outreach" })
       );
     });
 

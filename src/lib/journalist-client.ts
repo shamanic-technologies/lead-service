@@ -27,7 +27,7 @@ export async function fetchNextJournalist(
     userId?: string;
     runId?: string;
     brandId?: string;
-    workflowName?: string;
+    workflowSlug?: string;
     featureSlug?: string;
     idempotencyKey?: string;
     maxArticles?: number;
@@ -43,7 +43,7 @@ export async function fetchNextJournalist(
     if (options?.runId) headers["x-run-id"] = options.runId;
     if (options?.campaignId) headers["x-campaign-id"] = options.campaignId;
     if (options?.brandId) headers["x-brand-id"] = options.brandId;
-    if (options?.workflowName) headers["x-workflow-name"] = options.workflowName;
+    if (options?.workflowSlug) headers["x-workflow-slug"] = options.workflowSlug;
     if (options?.featureSlug) headers["x-feature-slug"] = options.featureSlug;
 
     const body: Record<string, unknown> = { outletId };

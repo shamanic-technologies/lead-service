@@ -724,7 +724,7 @@ describe("buffer", () => {
       expect(vi.mocked(apolloEnrich)).not.toHaveBeenCalled();
     });
 
-    it("passes workflowName to apolloSearchParams, apolloSearchNext, and apolloEnrich", async () => {
+    it("passes workflowSlug to apolloSearchParams, apolloSearchNext, and apolloEnrich", async () => {
       const newLeadRow = toClaimedRow({
         id: "buf-wf",
         namespace: "campaign-1",
@@ -779,21 +779,21 @@ describe("buffer", () => {
 
         searchParams: { description: "tech CEOs" },
 
-        workflowName: "cold-email-outreach",
+        workflowSlug: "cold-email-outreach",
       });
 
       expect(result.found).toBe(true);
       expect(result.lead?.email).toBe("wf@acme.com");
 
       expect(vi.mocked(apolloSearchParams)).toHaveBeenCalledWith(
-        expect.objectContaining({ workflowName: "cold-email-outreach" })
+        expect.objectContaining({ workflowSlug: "cold-email-outreach" })
       );
       expect(vi.mocked(apolloSearchNext)).toHaveBeenCalledWith(
-        expect.objectContaining({ workflowName: "cold-email-outreach" })
+        expect.objectContaining({ workflowSlug: "cold-email-outreach" })
       );
       expect(vi.mocked(apolloEnrich)).toHaveBeenCalledWith(
         "apollo-wf-1",
-        expect.objectContaining({ workflowName: "cold-email-outreach" })
+        expect.objectContaining({ workflowSlug: "cold-email-outreach" })
       );
     });
 

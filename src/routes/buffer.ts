@@ -34,8 +34,8 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
   try {
     const { campaignId, brandId, searchParams, featureInput, userId, idempotencyKey, sourceType } = parsed.data;
 
-    // Body workflowName takes precedence; fall back to header injected by workflow-service
-    const workflowName = parsed.data.workflowName ?? req.workflowName;
+    // Body workflowSlug takes precedence; fall back to header injected by workflow-service
+    const workflowSlug = parsed.data.workflowSlug ?? req.workflowSlug;
 
     // Idempotency: return cached response if this key was already processed
     if (idempotencyKey) {
@@ -57,7 +57,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       userId: userId ?? req.userId,
       brandId,
       campaignId,
-      workflowName,
+      workflowSlug,
       featureSlug: req.featureSlug,
     });
     const serveRunId = childRun.id;
@@ -70,7 +70,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       searchParams: searchParams ?? undefined,
       featureInput: featureInput ?? undefined,
       userId: userId ?? req.userId ?? null,
-      workflowName,
+      workflowSlug,
       featureSlug: req.featureSlug,
       sourceType,
     });
@@ -96,7 +96,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
         userId: req.userId,
         campaignId,
         brandId,
-        workflowName,
+        workflowSlug,
         featureSlug: req.featureSlug,
       });
     } catch (err) {

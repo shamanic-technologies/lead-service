@@ -78,6 +78,13 @@
       "when": 1774598400000,
       "tag": "0010_add_feature_slug",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1774857600000,
+      "tag": "0011_rename_workflow_name_to_slug",
+      "breakpoints": true
     }
   ]
 }

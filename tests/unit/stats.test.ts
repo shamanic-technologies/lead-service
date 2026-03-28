@@ -47,7 +47,7 @@ vi.mock("../../src/middleware/auth.js", () => ({
     runId: req.runId,
     campaignId: req.campaignId,
     brandId: req.brandId,
-    workflowName: req.workflowName,
+    workflowSlug: req.workflowSlug,
     featureSlug: req.featureSlug,
   }),
 }));

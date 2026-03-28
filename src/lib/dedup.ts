@@ -16,7 +16,7 @@ export async function checkContacted(
   brandId: string,
   campaignId: string,
   items: DeliveryStatusItem[],
-  context?: { orgId?: string; userId?: string; runId?: string; campaignId?: string; brandId?: string; workflowName?: string; featureSlug?: string }
+  context?: { orgId?: string; userId?: string; runId?: string; campaignId?: string; brandId?: string; workflowSlug?: string; featureSlug?: string }
 ): Promise<Map<string, boolean>> {
   const result = new Map<string, boolean>();
 
@@ -53,7 +53,7 @@ export async function markServed(params: {
   metadata?: unknown;
   runId?: string | null;
   userId?: string | null;
-  workflowName?: string | null;
+  workflowSlug?: string | null;
   featureSlug?: string | null;
 }): Promise<{ inserted: boolean }> {
   const result = await db
@@ -69,7 +69,7 @@ export async function markServed(params: {
       brandId: params.brandId,
       campaignId: params.campaignId,
       userId: params.userId ?? null,
-      workflowName: params.workflowName ?? null,
+      workflowSlug: params.workflowSlug ?? null,
       featureSlug: params.featureSlug ?? null,
     })
     .onConflictDoNothing()
