@@ -9,20 +9,77 @@ import {
   isContacted,
   type DeliveryStatusItem,
 } from "../lib/email-gateway-client.js";
+import {
+  resolveFeatureDynastySlugs,
+  resolveWorkflowDynastySlugs,
+  fetchFeatureDynastyMap,
+  fetchWorkflowDynastyMap,
+} from "../lib/dynasty-client.js";
 
-const VALID_GROUP_BY = ["campaignId", "brandId"] as const;
+const VALID_GROUP_BY = [
+  "campaignId",
+  "brandId",
+  "workflowSlug",
+  "featureSlug",
+  "workflowDynastySlug",
+  "featureDynastySlug",
+] as const;
 type GroupByField = (typeof VALID_GROUP_BY)[number];
 
 const COLUMN_MAP = {
   campaignId: { served: servedLeads.campaignId, buffer: leadBuffer.campaignId },
   brandId: { served: servedLeads.brandId, buffer: leadBuffer.brandId },
+  workflowSlug: { served: servedLeads.workflowSlug, buffer: leadBuffer.workflowSlug },
+  featureSlug: { served: servedLeads.featureSlug, buffer: leadBuffer.featureSlug },
 } as const;
 
 const router = Router();
 
+/**
+ * Resolve dynasty slug query params into lists of versioned slugs.
+ * Dynasty slugs take priority over exact slugs.
+ */
+async function resolveDynastySlugs(
+  req: AuthenticatedRequest,
+): Promise<{
+  workflowSlugs: string[] | null;
+  featureSlugs: string[] | null;
+  emptyDynasty: boolean;
+}> {
+  const str = (v: unknown): string | undefined =>
+    typeof v === "string" ? v : undefined;
+
+  const workflowDynastySlug = str(req.query.workflowDynastySlug);
+  const featureDynastySlug = str(req.query.featureDynastySlug);
+  const workflowSlug = str(req.query.workflowSlug);
+  const featureSlug = str(req.query.featureSlug);
+
+  const context = { orgId: req.orgId, userId: req.userId, runId: req.runId };
+
+  let workflowSlugs: string[] | null = null;
+  let featureSlugs: string[] | null = null;
+
+  if (workflowDynastySlug) {
+    workflowSlugs = await resolveWorkflowDynastySlugs(workflowDynastySlug, context);
+    if (workflowSlugs.length === 0) return { workflowSlugs: [], featureSlugs: null, emptyDynasty: true };
+  } else if (workflowSlug) {
+    workflowSlugs = [workflowSlug];
+  }
+
+  if (featureDynastySlug) {
+    featureSlugs = await resolveFeatureDynastySlugs(featureDynastySlug, context);
+    if (featureSlugs.length === 0) return { workflowSlugs, featureSlugs: [], emptyDynasty: true };
+  } else if (featureSlug) {
+    featureSlugs = [featureSlug];
+  }
+
+  return { workflowSlugs, featureSlugs, emptyDynasty: false };
+}
+
 function buildConditions(
   req: AuthenticatedRequest,
   table: "served" | "buffer",
+  dynastyResolved: { workflowSlugs: string[] | null; featureSlugs: string[] | null },
 ) {
   const { brandId, campaignId, orgId, userId, runIds } = req.query;
   const str = (v: unknown): string | undefined =>
@@ -48,6 +105,12 @@ function buildConditions(
         )!,
       );
     }
+    if (dynastyResolved.workflowSlugs && dynastyResolved.workflowSlugs.length > 0) {
+      conds.push(inArray(servedLeads.workflowSlug, dynastyResolved.workflowSlugs));
+    }
+    if (dynastyResolved.featureSlugs && dynastyResolved.featureSlugs.length > 0) {
+      conds.push(inArray(servedLeads.featureSlug, dynastyResolved.featureSlugs));
+    }
     return { conds, runIdList, brandIdStr, campaignIdStr, orgIdStr };
   }
 
@@ -58,6 +121,12 @@ function buildConditions(
   if (userIdStr) conds.push(eq(leadBuffer.userId, userIdStr));
   if (runIdList.length > 0) {
     conds.push(inArray(leadBuffer.pushRunId, runIdList));
+  }
+  if (dynastyResolved.workflowSlugs && dynastyResolved.workflowSlugs.length > 0) {
+    conds.push(inArray(leadBuffer.workflowSlug, dynastyResolved.workflowSlugs));
+  }
+  if (dynastyResolved.featureSlugs && dynastyResolved.featureSlugs.length > 0) {
+    conds.push(inArray(leadBuffer.featureSlug, dynastyResolved.featureSlugs));
   }
   return { conds, runIdList, brandIdStr, campaignIdStr, orgIdStr };
 }
@@ -119,11 +188,11 @@ async function countContacted(
 }
 
 /**
- * Count contacted leads per groupBy dimension (brandId or campaignId).
+ * Count contacted leads per groupBy dimension.
  */
 async function countContactedGrouped(
   servedConds: SQL[],
-  groupByField: GroupByField,
+  groupByField: "campaignId" | "brandId" | "workflowSlug" | "featureSlug",
   context: ServiceContext,
 ): Promise<Map<string, number>> {
   const groupCol = COLUMN_MAP[groupByField].served;
@@ -189,6 +258,8 @@ async function countContactedGrouped(
   return result;
 }
 
+const ZERO_STATS = { groups: [] };
+
 router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
   try {
     const groupByParam =
@@ -201,13 +272,90 @@ router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
       return;
     }
 
-    const served = buildConditions(req, "served");
-    const buffer = buildConditions(req, "buffer");
+    // Resolve dynasty slugs (if provided) before building conditions
+    const dynastyResolved = await resolveDynastySlugs(req);
+    if (dynastyResolved.emptyDynasty) {
+      // Dynasty resolved to zero slugs — return zero stats immediately
+      if (groupByParam) {
+        res.json(ZERO_STATS);
+      } else {
+        res.json({
+          served: 0,
+          contacted: 0,
+          buffered: 0,
+          skipped: 0,
+          apollo: { enrichedLeadsCount: 0, searchCount: 0, fetchedPeopleCount: 0, totalMatchingPeople: 0 },
+        });
+      }
+      return;
+    }
+
+    const served = buildConditions(req, "served", dynastyResolved);
+    const buffer = buildConditions(req, "buffer", dynastyResolved);
     const egContext = getServiceContext(req);
 
-    // --- Grouped response ---
+    // --- Dynasty groupBy (requires reverse map) ---
+    if (groupByParam === "workflowDynastySlug" || groupByParam === "featureDynastySlug") {
+      const isWorkflow = groupByParam === "workflowDynastySlug";
+      const dbField = isWorkflow ? "workflowSlug" : "featureSlug";
+      const servedCol = COLUMN_MAP[dbField].served;
+      const bufferCol = COLUMN_MAP[dbField].buffer;
+      const context = { orgId: req.orgId, userId: req.userId, runId: req.runId };
+
+      const [dynastyMap, servedRows, contactedMap, bufferRows] = await Promise.all([
+        isWorkflow ? fetchWorkflowDynastyMap(context) : fetchFeatureDynastyMap(context),
+        db
+          .select({ key: servedCol, count: count() })
+          .from(servedLeads)
+          .where(and(...served.conds))
+          .groupBy(servedCol),
+        countContactedGrouped(served.conds, dbField, egContext),
+        db
+          .select({ key: bufferCol, status: leadBuffer.status, count: count() })
+          .from(leadBuffer)
+          .where(and(...buffer.conds))
+          .groupBy(bufferCol, leadBuffer.status),
+      ]);
+
+      // Aggregate by dynasty slug using reverse map
+      const groups = new Map<
+        string,
+        { served: number; contacted: number; buffered: number; skipped: number }
+      >();
+
+      const getGroup = (dynastyKey: string) => {
+        if (!groups.has(dynastyKey))
+          groups.set(dynastyKey, { served: 0, contacted: 0, buffered: 0, skipped: 0 });
+        return groups.get(dynastyKey)!;
+      };
+
+      const toDynasty = (slug: string | null): string =>
+        dynastyMap.get(slug ?? "") ?? slug ?? "unknown";
+
+      for (const row of servedRows) {
+        getGroup(toDynasty(row.key)).served += row.count;
+      }
+      for (const [key, contacted] of contactedMap) {
+        getGroup(toDynasty(key)).contacted += contacted;
+      }
+      for (const row of bufferRows) {
+        const g = getGroup(toDynasty(row.key));
+        if (row.status === "buffered") g.buffered += row.count;
+        if (row.status === "skipped") g.skipped += row.count;
+      }
+
+      res.json({
+        groups: Array.from(groups.entries()).map(([key, stats]) => ({
+          key,
+          ...stats,
+        })),
+      });
+      return;
+    }
+
+    // --- Standard groupBy (exact slug columns) ---
     if (groupByParam) {
-      const field = groupByParam as GroupByField;
+      const field = groupByParam as keyof typeof COLUMN_MAP;
       const servedCol = COLUMN_MAP[field].served;
       const bufferCol = COLUMN_MAP[field].buffer;
 
@@ -296,7 +444,7 @@ router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
       apollo,
     });
   } catch (error) {
-    console.error("[stats] Error:", error);
+    console.error("[lead-service] Stats error:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });

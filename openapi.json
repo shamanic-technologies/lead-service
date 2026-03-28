@@ -1288,14 +1288,54 @@
           },
           {
             "in": "query",
+            "name": "workflowSlug",
+            "required": false,
+            "description": "Filter by exact workflow slug",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "featureSlug",
+            "required": false,
+            "description": "Filter by exact feature slug",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workflowDynastySlug",
+            "required": false,
+            "description": "Filter by workflow dynasty slug. Resolved to all versioned slugs via workflow-service, then filtered with WHERE IN (...). Takes priority over workflowSlug.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "featureDynastySlug",
+            "required": false,
+            "description": "Filter by feature dynasty slug. Resolved to all versioned slugs via features-service, then filtered with WHERE IN (...). Takes priority over featureSlug.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "groupBy",
             "required": false,
-            "description": "Group stats by this dimension. When set, returns { groups: [...] } instead of flat stats. Allowed values: campaignId, brandId",
+            "description": "Group stats by this dimension. When set, returns { groups: [...] } instead of flat stats.",
             "schema": {
               "type": "string",
               "enum": [
                 "campaignId",
-                "brandId"
+                "brandId",
+                "workflowSlug",
+                "featureSlug",
+                "workflowDynastySlug",
+                "featureDynastySlug"
               ]
             }
           }
