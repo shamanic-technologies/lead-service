@@ -453,11 +453,51 @@ registry.registerPath({
     },
     {
       in: "query" as const,
+      name: "workflowSlug",
+      required: false,
+      description: "Filter by exact workflow slug",
+      schema: { type: "string" as const },
+    },
+    {
+      in: "query" as const,
+      name: "featureSlug",
+      required: false,
+      description: "Filter by exact feature slug",
+      schema: { type: "string" as const },
+    },
+    {
+      in: "query" as const,
+      name: "workflowDynastySlug",
+      required: false,
+      description:
+        "Filter by workflow dynasty slug. Resolved to all versioned slugs via workflow-service, then filtered with WHERE IN (...). Takes priority over workflowSlug.",
+      schema: { type: "string" as const },
+    },
+    {
+      in: "query" as const,
+      name: "featureDynastySlug",
+      required: false,
+      description:
+        "Filter by feature dynasty slug. Resolved to all versioned slugs via features-service, then filtered with WHERE IN (...). Takes priority over featureSlug.",
+      schema: { type: "string" as const },
+    },
+    {
+      in: "query" as const,
       name: "groupBy",
       required: false,
       description:
-        "Group stats by this dimension. When set, returns { groups: [...] } instead of flat stats. Allowed values: campaignId, brandId",
-      schema: { type: "string" as const, enum: ["campaignId", "brandId"] },
+        "Group stats by this dimension. When set, returns { groups: [...] } instead of flat stats.",
+      schema: {
+        type: "string" as const,
+        enum: [
+          "campaignId",
+          "brandId",
+          "workflowSlug",
+          "featureSlug",
+          "workflowDynastySlug",
+          "featureDynastySlug",
+        ],
+      },
     },
   ],
   responses: {
