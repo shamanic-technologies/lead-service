@@ -1,7 +1,4 @@
-const EMAIL_GATEWAY_SERVICE_URL =
-  process.env.EMAIL_GATEWAY_SERVICE_URL || "http://localhost:3009";
-const EMAIL_GATEWAY_SERVICE_API_KEY =
-  process.env.EMAIL_GATEWAY_SERVICE_API_KEY || "";
+import { EMAIL_GATEWAY_SERVICE_URL, EMAIL_GATEWAY_SERVICE_API_KEY } from "../config.js";
 
 export interface DeliveryStatusItem {
   leadId: string;

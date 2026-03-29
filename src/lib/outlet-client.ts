@@ -1,5 +1,4 @@
-const OUTLETS_SERVICE_URL = process.env.OUTLETS_SERVICE_URL || "http://localhost:3010";
-const OUTLETS_SERVICE_API_KEY = process.env.OUTLETS_SERVICE_API_KEY || "";
+import { OUTLETS_SERVICE_URL, OUTLETS_SERVICE_API_KEY } from "../config.js";
 
 export interface OutletDetails {
   id: string;
