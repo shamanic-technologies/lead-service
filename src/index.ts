@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { db, sql } from "./db/index.js";
+import { PORT } from "./config.js";
 import healthRoutes from "./routes/health.js";
 import bufferRoutes from "./routes/buffer.js";
 import cursorRoutes from "./routes/cursor.js";
@@ -18,7 +19,6 @@ const __dirname = dirname(__filename);
 const openapiPath = join(__dirname, "..", "openapi.json");
 
 const app = express();
-const PORT = process.env.PORT || 3006;
 
 app.use(cors());
 app.use(express.json());

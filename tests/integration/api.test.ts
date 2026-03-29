@@ -24,6 +24,7 @@ vi.mock("../../src/lib/email-gateway-client.js", () => ({
 
 describe("API Integration Tests", () => {
   beforeAll(async () => {
+    // LEAD_SERVICE_API_KEY is set by tests/setup.ts; override with test-specific key
     process.env.LEAD_SERVICE_API_KEY = TEST_API_KEY;
   });
 

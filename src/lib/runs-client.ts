@@ -1,5 +1,4 @@
-const RUNS_SERVICE_URL = process.env.RUNS_SERVICE_URL || "https://runs.distribute.org";
-const RUNS_SERVICE_API_KEY = process.env.RUNS_SERVICE_API_KEY || "";
+import { RUNS_SERVICE_URL, RUNS_SERVICE_API_KEY } from "../config.js";
 
 async function callRunsService(path: string, options: {
   method?: string;

@@ -1,5 +1,4 @@
-const APOLLO_SERVICE_URL = process.env.APOLLO_SERVICE_URL || "http://localhost:3003";
-const APOLLO_SERVICE_API_KEY = process.env.APOLLO_SERVICE_API_KEY || "";
+import { APOLLO_SERVICE_URL, APOLLO_SERVICE_API_KEY } from "../config.js";
 
 async function callApolloService<T>(
   path: string,

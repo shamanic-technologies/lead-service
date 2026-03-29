@@ -1,7 +1,9 @@
-const FEATURES_SERVICE_URL = process.env.FEATURES_SERVICE_URL || "http://localhost:3010";
-const FEATURES_SERVICE_API_KEY = process.env.FEATURES_SERVICE_API_KEY || "";
-const WORKFLOW_SERVICE_URL = process.env.WORKFLOW_SERVICE_URL || "http://localhost:3002";
-const WORKFLOW_SERVICE_API_KEY = process.env.WORKFLOW_SERVICE_API_KEY || "";
+import {
+  FEATURES_SERVICE_URL,
+  FEATURES_SERVICE_API_KEY,
+  WORKFLOW_SERVICE_URL,
+  WORKFLOW_SERVICE_API_KEY,
+} from "../config.js";
 
 interface DynastyEntry {
   dynastySlug: string;

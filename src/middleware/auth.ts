@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { LEAD_SERVICE_API_KEY } from "../config.js";
 
 export interface ServiceContext {
   orgId?: string;
@@ -39,7 +40,7 @@ export async function authenticate(
 ) {
   try {
     const apiKey = req.headers["x-api-key"] as string;
-    if (!apiKey || apiKey !== process.env.LEAD_SERVICE_API_KEY) {
+    if (!apiKey || apiKey !== LEAD_SERVICE_API_KEY) {
       return res.status(401).json({ error: "Invalid API key" });
     }
 

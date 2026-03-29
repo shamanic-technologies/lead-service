@@ -3,11 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-// Set env vars before importing
-process.env.FEATURES_SERVICE_URL = "http://features:3010";
-process.env.FEATURES_SERVICE_API_KEY = "feat-key";
-process.env.WORKFLOW_SERVICE_URL = "http://workflows:3002";
-process.env.WORKFLOW_SERVICE_API_KEY = "wf-key";
+// Env vars are set by tests/setup.ts before module imports
 
 const {
   resolveFeatureDynastySlugs,
@@ -33,7 +29,7 @@ describe("dynasty-client", () => {
       expect(mockFetch).toHaveBeenCalledWith(
         "http://features:3010/features/dynasty/slugs?dynastySlug=feat-alpha",
         expect.objectContaining({
-          headers: expect.objectContaining({ "X-API-Key": "feat-key" }),
+          headers: expect.objectContaining({ "X-API-Key": process.env.FEATURES_SERVICE_API_KEY }),
         }),
       );
     });
@@ -76,7 +72,7 @@ describe("dynasty-client", () => {
       expect(mockFetch).toHaveBeenCalledWith(
         "http://workflows:3002/workflows/dynasty/slugs?dynastySlug=cold-email",
         expect.objectContaining({
-          headers: expect.objectContaining({ "X-API-Key": "wf-key" }),
+          headers: expect.objectContaining({ "X-API-Key": process.env.WORKFLOW_SERVICE_API_KEY }),
         }),
       );
     });

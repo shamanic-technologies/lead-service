@@ -1,5 +1,4 @@
-const JOURNALISTS_SERVICE_URL = process.env.JOURNALISTS_SERVICE_URL || "http://localhost:3011";
-const JOURNALISTS_SERVICE_API_KEY = process.env.JOURNALISTS_SERVICE_API_KEY || "";
+import { JOURNALISTS_SERVICE_URL, JOURNALISTS_SERVICE_API_KEY } from "../config.js";
 
 export interface JournalistEmail {
   email: string;

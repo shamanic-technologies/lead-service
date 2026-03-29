@@ -1,10 +1,7 @@
+import { KEY_SERVICE_URL, KEY_SERVICE_API_KEY } from "../config.js";
+
 function getKeyServiceConfig() {
-  const url = process.env.KEY_SERVICE_URL;
-  const apiKey = process.env.KEY_SERVICE_API_KEY;
-  if (!url || !apiKey) {
-    throw new Error("KEY_SERVICE_URL and KEY_SERVICE_API_KEY must be set");
-  }
-  return { url, apiKey };
+  return { url: KEY_SERVICE_URL, apiKey: KEY_SERVICE_API_KEY };
 }
 
 export interface ProviderRequirement {

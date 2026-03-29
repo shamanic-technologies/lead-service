@@ -1,5 +1,4 @@
-const BRAND_SERVICE_URL = process.env.BRAND_SERVICE_URL || "http://localhost:3005";
-const BRAND_SERVICE_API_KEY = process.env.BRAND_SERVICE_API_KEY || "";
+import { BRAND_SERVICE_URL, BRAND_SERVICE_API_KEY } from "../config.js";
 
 export interface BrandDetails {
   id: string;
