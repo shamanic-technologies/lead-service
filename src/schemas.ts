@@ -73,6 +73,13 @@ const AuthHeaders = [
   },
 ];
 
+// buffer/next requires x-campaign-id and x-brand-id
+const BufferNextHeaders = AuthHeaders.map((h) =>
+  h.name === "x-campaign-id" || h.name === "x-brand-id"
+    ? { ...h, required: true }
+    : h
+);
+
 // --- Health ---
 
 const HealthResponseSchema = z
@@ -185,13 +192,7 @@ export const ApolloPersonDataSchema = z
 
 export const BufferNextRequestSchema = z
   .object({
-    campaignId: z.string().min(1),
-    brandId: z.string().min(1),
     sourceType: z.enum(["apollo", "journalist"]).default("apollo").optional(),
-    searchParams: z.record(z.string(), z.unknown()).nullish(),
-    featureInput: z.record(z.string(), z.unknown()).nullish(),
-    userId: z.string().optional(),
-    workflowSlug: z.string().optional(),
     idempotencyKey: z.string().min(1).optional(),
   })
   .openapi("BufferNextRequest");
@@ -317,7 +318,7 @@ registry.registerPath({
       content: { "application/json": { schema: BufferNextRequestSchema } },
     },
   },
-  parameters: AuthHeaders,
+  parameters: BufferNextHeaders,
   responses: {
     200: {
       description: "Next lead from buffer",

@@ -437,14 +437,6 @@
       "BufferNextRequest": {
         "type": "object",
         "properties": {
-          "campaignId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "brandId": {
-            "type": "string",
-            "minLength": 1
-          },
           "sourceType": {
             "type": "string",
             "enum": [
@@ -453,35 +445,11 @@
             ],
             "default": "apollo"
           },
-          "searchParams": {
-            "type": "object",
-            "nullable": true,
-            "additionalProperties": {
-              "nullable": true
-            }
-          },
-          "featureInput": {
-            "type": "object",
-            "nullable": true,
-            "additionalProperties": {
-              "nullable": true
-            }
-          },
-          "userId": {
-            "type": "string"
-          },
-          "workflowSlug": {
-            "type": "string"
-          },
           "idempotencyKey": {
             "type": "string",
             "minLength": 1
           }
-        },
-        "required": [
-          "campaignId",
-          "brandId"
-        ]
+        }
       },
       "CursorGetResponse": {
         "type": "object",
@@ -751,7 +719,7 @@
           {
             "in": "header",
             "name": "x-campaign-id",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             },
@@ -760,7 +728,7 @@
           {
             "in": "header",
             "name": "x-brand-id",
-            "required": false,
+            "required": true,
             "schema": {
               "type": "string"
             },

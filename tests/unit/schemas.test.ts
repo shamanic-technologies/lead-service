@@ -3,38 +3,13 @@ import { BufferNextRequestSchema, ApolloPersonDataSchema } from "../../src/schem
 
 describe("schema validation", () => {
   describe("BufferNextRequestSchema", () => {
-    it("rejects empty brandId", () => {
-      const result = BufferNextRequestSchema.safeParse({
-        campaignId: "c1",
-        brandId: "",
-      });
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        const fields = result.error.flatten().fieldErrors;
-        expect(fields.brandId).toBeDefined();
-      }
-    });
-
-    it("rejects empty campaignId", () => {
-      const result = BufferNextRequestSchema.safeParse({
-        campaignId: "",
-        brandId: "b1",
-      });
-      expect(result.success).toBe(false);
-    });
-
-    it("accepts valid request", () => {
-      const result = BufferNextRequestSchema.safeParse({
-        campaignId: "c1",
-        brandId: "b1",
-      });
+    it("accepts empty body (all fields optional)", () => {
+      const result = BufferNextRequestSchema.safeParse({});
       expect(result.success).toBe(true);
     });
 
     it("accepts optional idempotencyKey", () => {
       const result = BufferNextRequestSchema.safeParse({
-        campaignId: "c1",
-        brandId: "b1",
         idempotencyKey: "run-123",
       });
       expect(result.success).toBe(true);
@@ -42,69 +17,43 @@ describe("schema validation", () => {
 
     it("rejects empty idempotencyKey", () => {
       const result = BufferNextRequestSchema.safeParse({
-        campaignId: "c1",
-        brandId: "b1",
         idempotencyKey: "",
       });
       expect(result.success).toBe(false);
     });
 
-    it("accepts optional workflowSlug", () => {
+    it("accepts sourceType apollo", () => {
       const result = BufferNextRequestSchema.safeParse({
-        campaignId: "c1",
-        brandId: "b1",
-        workflowSlug: "cold-email-outreach",
+        sourceType: "apollo",
       });
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.workflowSlug).toBe("cold-email-outreach");
+        expect(result.data.sourceType).toBe("apollo");
       }
     });
 
-    it("accepts null searchParams", () => {
+    it("accepts sourceType journalist", () => {
       const result = BufferNextRequestSchema.safeParse({
-        campaignId: "c1",
-        brandId: "b1",
-        searchParams: null,
+        sourceType: "journalist",
       });
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.searchParams).toBeNull();
+        expect(result.data.sourceType).toBe("journalist");
       }
     });
 
-    it("accepts optional featureInput", () => {
+    it("rejects invalid sourceType", () => {
       const result = BufferNextRequestSchema.safeParse({
-        campaignId: "c1",
-        brandId: "b1",
-        featureInput: { companyContext: "AI startup", industry: "Technology" },
+        sourceType: "invalid",
       });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.featureInput).toEqual({ companyContext: "AI startup", industry: "Technology" });
-      }
+      expect(result.success).toBe(false);
     });
 
-    it("accepts null featureInput", () => {
-      const result = BufferNextRequestSchema.safeParse({
-        campaignId: "c1",
-        brandId: "b1",
-        featureInput: null,
-      });
+    it("defaults sourceType to apollo", () => {
+      const result = BufferNextRequestSchema.safeParse({});
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.featureInput).toBeNull();
-      }
-    });
-
-    it("accepts request without workflowSlug", () => {
-      const result = BufferNextRequestSchema.safeParse({
-        campaignId: "c1",
-        brandId: "b1",
-      });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.workflowSlug).toBeUndefined();
+        expect(result.data.sourceType).toBe("apollo");
       }
     });
   });

@@ -410,8 +410,6 @@ describe("buffer", () => {
         campaignId: "campaign-1",
         brandId: "brand-1",
 
-        searchParams: { description: "tech CEOs" },
-
       });
 
       expect(result.found).toBe(true);
@@ -420,7 +418,7 @@ describe("buffer", () => {
       expect(vi.mocked(apolloSearchParams)).toHaveBeenCalledOnce();
     });
 
-    it("passes featureInput as LLM context for Apollo search", async () => {
+    it("injects campaign featureInputs from campaign-service into LLM context", async () => {
       const newLeadRow = toClaimedRow({
         id: "buf-ctx-search",
         namespace: "campaign-1",
@@ -438,6 +436,20 @@ describe("buffer", () => {
         .mockResolvedValueOnce([newLeadRow]);
 
       vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValueOnce(undefined);
+
+      // Campaign-service returns featureInputs
+      vi.mocked(fetchCampaign).mockResolvedValueOnce({
+        id: "campaign-1",
+        name: "PR Outreach",
+        targetAudience: null,
+        targetOutcome: null,
+        valueForTarget: null,
+        featureInputs: {
+          companyContext: "AI-powered PR distribution",
+          prAngle: "Launch of new journalist outreach feature",
+          targetOutlets: ["TechCrunch", "The Verge"],
+        },
+      });
 
       vi.mocked(apolloSearchParams).mockResolvedValue({
         searchParams: { personTitles: ["Head of PR"] }, totalResults: 50, attempts: 1,
@@ -463,24 +475,18 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
-        searchParams: { description: "PR contacts" },
-        featureInput: {
-          companyContext: "AI-powered PR distribution",
-          prAngle: "Launch of new journalist outreach feature",
-          targetOutlets: ["TechCrunch", "The Verge"],
-        },
       });
 
       expect(result.found).toBe(true);
 
-      // Verify the LLM context includes featureInput as JSON
+      // Verify the LLM context includes featureInputs fetched from campaign-service
       const contextArg = vi.mocked(apolloSearchParams).mock.calls[0][0].context;
       expect(contextArg).toContain("AI-powered PR distribution");
       expect(contextArg).toContain("Launch of new journalist outreach feature");
       expect(contextArg).toContain("TechCrunch");
     });
 
-    it("injects campaign featureInputs and brand extract-fields into LLM context", async () => {
+    it("fetches campaign featureInputs and brand extract-fields for LLM context", async () => {
       const newLeadRow = toClaimedRow({
         id: "buf-conv",
         namespace: "campaign-1",
@@ -543,7 +549,6 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
-        searchParams: { description: "clean tech editors" },
       });
 
       expect(result.found).toBe(true);
@@ -649,8 +654,6 @@ describe("buffer", () => {
         campaignId: "campaign-1",
         brandId: "brand-1",
 
-        searchParams: { description: "community directors" },
-
       });
 
       expect(result.found).toBe(true);
@@ -680,8 +683,6 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
-
-        searchParams: { description: "impossible search" },
 
       });
 
@@ -851,8 +852,6 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
-
-        searchParams: { description: "tech CEOs" },
 
         workflowSlug: "cold-email-outreach",
       });
