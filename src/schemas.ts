@@ -455,14 +455,30 @@ registry.registerPath({
       in: "query" as const,
       name: "workflowSlug",
       required: false,
-      description: "Filter by exact workflow slug",
+      description: "Filter by exact workflow slug (single value)",
+      schema: { type: "string" as const },
+    },
+    {
+      in: "query" as const,
+      name: "workflowSlugs",
+      required: false,
+      description:
+        "Filter by multiple workflow slugs (comma-separated). Takes priority over workflowSlug.",
       schema: { type: "string" as const },
     },
     {
       in: "query" as const,
       name: "featureSlug",
       required: false,
-      description: "Filter by exact feature slug",
+      description: "Filter by exact feature slug (single value)",
+      schema: { type: "string" as const },
+    },
+    {
+      in: "query" as const,
+      name: "featureSlugs",
+      required: false,
+      description:
+        "Filter by multiple feature slugs (comma-separated). Takes priority over featureSlug.",
       schema: { type: "string" as const },
     },
     {

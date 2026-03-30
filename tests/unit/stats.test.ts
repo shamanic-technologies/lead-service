@@ -299,6 +299,47 @@ describe("GET /stats", () => {
     expect(res.body).toEqual({ groups: [] });
   });
 
+  // --- Multi-slug filtering ---
+
+  it("filters by comma-separated workflowSlugs", async () => {
+    const app = createApp();
+    const res = await request(app).get("/stats?workflowSlugs=cold-email-v1,cold-email-v2");
+    expect(res.status).toBe(200);
+    // Dynasty resolver should NOT be called
+    expect(mockResolveWorkflowDynastySlugs).not.toHaveBeenCalled();
+  });
+
+  it("filters by comma-separated featureSlugs", async () => {
+    const app = createApp();
+    const res = await request(app).get("/stats?featureSlugs=feat-a,feat-b");
+    expect(res.status).toBe(200);
+    expect(mockResolveFeatureDynastySlugs).not.toHaveBeenCalled();
+  });
+
+  it("workflowSlugs takes priority over workflowSlug", async () => {
+    const app = createApp();
+    const res = await request(app).get("/stats?workflowSlugs=v1,v2&workflowSlug=v3");
+    expect(res.status).toBe(200);
+    // Should use the plural param, not the singular
+    expect(mockResolveWorkflowDynastySlugs).not.toHaveBeenCalled();
+  });
+
+  it("workflowDynastySlug takes priority over workflowSlugs", async () => {
+    mockResolveWorkflowDynastySlugs.mockResolvedValue(["cold-email", "cold-email-v2"]);
+
+    const app = createApp();
+    const res = await request(app).get("/stats?workflowDynastySlug=cold-email&workflowSlugs=v1,v2");
+    expect(res.status).toBe(200);
+    expect(mockResolveWorkflowDynastySlugs).toHaveBeenCalledWith("cold-email", expect.any(Object));
+  });
+
+  it("groupBy=workflowSlug with workflowSlugs filter returns grouped stats", async () => {
+    const app = createApp();
+    const res = await request(app).get("/stats?groupBy=workflowSlug&workflowSlugs=slug1,slug2");
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("groups");
+  });
+
   it("workflowDynastySlug takes priority over workflowSlug", async () => {
     mockResolveWorkflowDynastySlugs.mockResolvedValue(["cold-email", "cold-email-v2"]);
 
