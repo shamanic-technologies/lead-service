@@ -39,35 +39,44 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
     return res.status(400).json({ error: "x-campaign-id and x-brand-id headers required" });
   }
 
-  try {
-    const { idempotencyKey, sourceType } = parsed.data;
-    const workflowSlug = req.workflowSlug;
+  const { idempotencyKey, sourceType } = parsed.data;
+  const workflowSlug = req.workflowSlug;
 
-    // Idempotency: return cached response if this key was already processed
-    if (idempotencyKey) {
-      const cached = await db.query.idempotencyCache.findFirst({
-        where: eq(idempotencyCache.idempotencyKey, idempotencyKey),
-      });
-      if (cached) {
-        console.log(`[buffer/next] Idempotency hit for key=${idempotencyKey}`);
-        return res.json(cached.response);
-      }
-    }
+  const runMeta = {
+    orgId: req.orgId,
+    userId: req.userId,
+    campaignId,
+    brandId,
+    workflowSlug,
+    featureSlug: req.featureSlug,
+  };
 
-    // Create child run for traceability (x-run-id from caller becomes our parentRunId)
-    const childRun = await createRun({
-      orgId: req.orgId!,
-      serviceName: "lead-service",
-      taskName: "lead-serve",
-      parentRunId: req.runId!,
-      userId: req.userId,
-      brandId,
-      campaignId,
-      workflowSlug,
-      featureSlug: req.featureSlug,
+  // Idempotency: return cached response if this key was already processed
+  if (idempotencyKey) {
+    const cached = await db.query.idempotencyCache.findFirst({
+      where: eq(idempotencyCache.idempotencyKey, idempotencyKey),
     });
-    const serveRunId = childRun.id;
+    if (cached) {
+      console.log(`[buffer/next] Idempotency hit for key=${idempotencyKey}`);
+      return res.json(cached.response);
+    }
+  }
 
+  // Create child run for traceability (x-run-id from caller becomes our parentRunId)
+  const childRun = await createRun({
+    orgId: req.orgId!,
+    serviceName: "lead-service",
+    taskName: "lead-serve",
+    parentRunId: req.runId!,
+    userId: req.userId,
+    brandId,
+    campaignId,
+    workflowSlug,
+    featureSlug: req.featureSlug,
+  });
+  const serveRunId = childRun.id;
+
+  try {
     const result = await pullNext({
       orgId: req.orgId!,
       campaignId,
@@ -94,22 +103,19 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       }
     }
 
-    try {
-      await updateRun(serveRunId, "completed", {
-        orgId: req.orgId,
-        userId: req.userId,
-        campaignId,
-        brandId,
-        workflowSlug,
-        featureSlug: req.featureSlug,
-      });
-    } catch (err) {
-      console.error("[buffer/next] Failed to update run:", err);
-    }
+    // Only mark completed when a lead was actually served to served_leads
+    const runStatus = result.found ? "completed" : "failed";
+    await updateRun(serveRunId, runStatus, runMeta);
 
     res.json(result);
   } catch (error) {
     console.error("[buffer/next] Error:", error);
+    // Best-effort close the run as failed on unhandled errors
+    try {
+      await updateRun(serveRunId, "failed", runMeta);
+    } catch (runErr) {
+      console.error("[buffer/next] Failed to close run after error:", runErr);
+    }
     res.status(500).json({ error: "Internal server error" });
   }
 });
