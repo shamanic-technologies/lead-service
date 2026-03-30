@@ -293,6 +293,26 @@ const StatsGroupedResponseSchema = z
   })
   .openapi("StatsGroupedResponse");
 
+// --- Lead Status ---
+
+const LeadStatusItemSchema = z
+  .object({
+    leadId: z.string().uuid(),
+    email: z.string(),
+    contacted: z.boolean(),
+    delivered: z.boolean(),
+    bounced: z.boolean(),
+    replied: z.boolean(),
+    lastDeliveredAt: z.string().nullable(),
+  })
+  .openapi("LeadStatusItem");
+
+const LeadStatusResponseSchema = z
+  .object({
+    statuses: z.array(LeadStatusItemSchema),
+  })
+  .openapi("LeadStatusResponse");
+
 // --- Register Paths ---
 
 registry.registerPath({
@@ -528,6 +548,43 @@ registry.registerPath({
     },
     400: {
       description: "Invalid groupBy value",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: { description: "Unauthorized" },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/leads/status",
+  summary: "Get per-lead delivery status for a campaign",
+  description:
+    "Returns delivery status (contacted, delivered, bounced, replied) for each served lead in a campaign. " +
+    "Calls email-gateway internally to resolve status.",
+  parameters: [
+    ...AuthHeaders,
+    {
+      in: "query" as const,
+      name: "campaignId",
+      required: true,
+      schema: { type: "string" as const },
+      description: "Campaign ID to fetch lead statuses for",
+    },
+    {
+      in: "query" as const,
+      name: "brandId",
+      required: false,
+      schema: { type: "string" as const },
+      description: "Optional brand ID filter",
+    },
+  ],
+  responses: {
+    200: {
+      description: "Per-lead delivery statuses",
+      content: { "application/json": { schema: LeadStatusResponseSchema } },
+    },
+    400: {
+      description: "Missing campaignId",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     401: { description: "Unauthorized" },

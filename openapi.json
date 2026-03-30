@@ -644,6 +644,57 @@
         "required": [
           "groups"
         ]
+      },
+      "LeadStatusResponse": {
+        "type": "object",
+        "properties": {
+          "statuses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LeadStatusItem"
+            }
+          }
+        },
+        "required": [
+          "statuses"
+        ]
+      },
+      "LeadStatusItem": {
+        "type": "object",
+        "properties": {
+          "leadId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string"
+          },
+          "contacted": {
+            "type": "boolean"
+          },
+          "delivered": {
+            "type": "boolean"
+          },
+          "bounced": {
+            "type": "boolean"
+          },
+          "replied": {
+            "type": "boolean"
+          },
+          "lastDeliveredAt": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "leadId",
+          "email",
+          "contacted",
+          "delivered",
+          "bounced",
+          "replied",
+          "lastDeliveredAt"
+        ]
       }
     },
     "parameters": {},
@@ -1344,6 +1395,129 @@
           },
           "400": {
             "description": "Invalid groupBy value",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/leads/status": {
+      "get": {
+        "summary": "Get per-lead delivery status for a campaign",
+        "description": "Returns delivery status (contacted, delivered, bounced, replied) for each served lead in a campaign. Calls email-gateway internally to resolve status.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "API key for authenticating requests"
+          },
+          {
+            "in": "header",
+            "name": "x-org-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Internal organization UUID from client-service"
+          },
+          {
+            "in": "header",
+            "name": "x-user-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Internal user UUID from client-service"
+          },
+          {
+            "in": "header",
+            "name": "x-run-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The caller's run ID (used as parentRunId when creating this service's own run)"
+          },
+          {
+            "in": "header",
+            "name": "x-campaign-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Campaign identifier (auto-injected by workflow-service)"
+          },
+          {
+            "in": "header",
+            "name": "x-brand-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Brand identifier (auto-injected by workflow-service)"
+          },
+          {
+            "in": "header",
+            "name": "x-workflow-slug",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Workflow slug (auto-injected by workflow-service)"
+          },
+          {
+            "in": "header",
+            "name": "x-feature-slug",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Feature slug for tracking (propagated through the call chain)"
+          },
+          {
+            "in": "query",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Campaign ID to fetch lead statuses for"
+          },
+          {
+            "in": "query",
+            "name": "brandId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional brand ID filter"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Per-lead delivery statuses",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing campaignId",
             "content": {
               "application/json": {
                 "schema": {
