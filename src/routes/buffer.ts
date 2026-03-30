@@ -17,11 +17,11 @@ function pruneExpiredIdempotencyCache(): void {
     .where(lt(idempotencyCache.createdAt, cutoff))
     .then((result) => {
       if (result.length > 0) {
-        console.log(`[idempotency] Pruned ${result.length} expired cache entries`);
+        console.log(`[lead-service] Pruned ${result.length} expired idempotency cache entries`);
       }
     })
     .catch((err) => {
-      console.warn("[idempotency] Failed to prune expired cache:", err);
+      console.warn("[lead-service] Failed to prune expired idempotency cache:", err);
     });
 }
 
@@ -31,7 +31,6 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
     return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
   }
 
-  // All identity/context comes from headers (injected by workflow-service)
   const campaignId = req.campaignId;
   const brandId = req.brandId;
 
@@ -39,8 +38,9 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
     return res.status(400).json({ error: "x-campaign-id and x-brand-id headers required" });
   }
 
-  const { idempotencyKey, sourceType } = parsed.data;
+  const { sourceType } = parsed.data;
   const workflowSlug = req.workflowSlug;
+  const runId = req.runId!;
 
   const runMeta = {
     orgId: req.orgId,
@@ -51,15 +51,13 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
     featureSlug: req.featureSlug,
   };
 
-  // Idempotency: return cached response if this key was already processed
-  if (idempotencyKey) {
-    const cached = await db.query.idempotencyCache.findFirst({
-      where: eq(idempotencyCache.idempotencyKey, idempotencyKey),
-    });
-    if (cached) {
-      console.log(`[buffer/next] Idempotency hit for key=${idempotencyKey}`);
-      return res.json(cached.response);
-    }
+  // Idempotency on x-run-id: if this run already got a lead, return the cached response
+  const cached = await db.query.idempotencyCache.findFirst({
+    where: eq(idempotencyCache.idempotencyKey, runId),
+  });
+  if (cached) {
+    console.log(`[lead-service] Idempotency hit for runId=${runId}`);
+    return res.json(cached.response);
   }
 
   // Create child run for traceability (x-run-id from caller becomes our parentRunId)
@@ -67,7 +65,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
     orgId: req.orgId!,
     serviceName: "lead-service",
     taskName: "lead-serve",
-    parentRunId: req.runId!,
+    parentRunId: runId,
     userId: req.userId,
     brandId,
     campaignId,
@@ -88,33 +86,29 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       sourceType,
     });
 
-    // Cache the response for idempotency + probabilistic TTL cleanup (~1% of requests)
-    if (idempotencyKey) {
-      if (Math.random() < 0.01) pruneExpiredIdempotencyCache();
-      try {
-        await db.insert(idempotencyCache).values({
-          idempotencyKey,
-          orgId: req.orgId!,
-          response: result,
-        });
-      } catch (err) {
-        // Ignore duplicate key errors (race condition between concurrent retries)
-        console.warn("[buffer/next] Failed to cache idempotency response:", err);
-      }
+    // Cache response keyed by caller's runId for idempotency
+    if (Math.random() < 0.01) pruneExpiredIdempotencyCache();
+    try {
+      await db.insert(idempotencyCache).values({
+        idempotencyKey: runId,
+        orgId: req.orgId!,
+        response: result,
+      });
+    } catch (err) {
+      // Ignore duplicate key errors (race condition between concurrent retries)
+      console.warn("[lead-service] Failed to cache idempotency response:", err);
     }
 
-    // Only mark completed when a lead was actually served to served_leads
     const runStatus = result.found ? "completed" : "failed";
     await updateRun(serveRunId, runStatus, runMeta);
 
     res.json(result);
   } catch (error) {
-    console.error("[buffer/next] Error:", error);
-    // Best-effort close the run as failed on unhandled errors
+    console.error("[lead-service] buffer/next error:", error);
     try {
       await updateRun(serveRunId, "failed", runMeta);
     } catch (runErr) {
-      console.error("[buffer/next] Failed to close run after error:", runErr);
+      console.error("[lead-service] Failed to close run after error:", runErr);
     }
     res.status(500).json({ error: "Internal server error" });
   }

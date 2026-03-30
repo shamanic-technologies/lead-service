@@ -73,7 +73,7 @@ describe("POST /buffer/next run status", () => {
       .post("/buffer/next")
       .set("x-campaign-id", "c1")
       .set("x-brand-id", "b1")
-      .send({});
+      .send({ sourceType: "apollo" });
 
     expect(res.status).toBe(200);
     expect(res.body.found).toBe(false);
@@ -95,7 +95,7 @@ describe("POST /buffer/next run status", () => {
       .post("/buffer/next")
       .set("x-campaign-id", "c1")
       .set("x-brand-id", "b1")
-      .send({});
+      .send({ sourceType: "apollo" });
 
     expect(res.status).toBe(200);
     expect(res.body.found).toBe(true);
@@ -114,7 +114,7 @@ describe("POST /buffer/next run status", () => {
       .post("/buffer/next")
       .set("x-campaign-id", "c1")
       .set("x-brand-id", "b1")
-      .send({});
+      .send({ sourceType: "apollo" });
 
     expect(res.status).toBe(500);
     expect(mockUpdateRun).toHaveBeenCalledWith(
