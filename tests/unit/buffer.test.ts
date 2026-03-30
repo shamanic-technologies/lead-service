@@ -118,8 +118,20 @@ describe("buffer", () => {
   });
 
   describe("pullNext", () => {
-    it("returns found: false when buffer is empty", async () => {
+    it("returns found: false when buffer is empty and Apollo search returns nothing", async () => {
       pgSqlMock.mockResolvedValue([]);
+
+      // fillBufferFromSearch will call apolloSearchParams then apolloSearchNext
+      vi.mocked(apolloSearchParams).mockResolvedValue({
+        searchParams: { personTitles: ["CEO"] },
+        totalResults: 0,
+        attempts: 1,
+      });
+      vi.mocked(apolloSearchNext).mockResolvedValue({
+        people: [],
+        done: true,
+        totalEntries: 0,
+      });
 
       const result = await pullNext({
         orgId: "org-1",
@@ -128,6 +140,69 @@ describe("buffer", () => {
       });
 
       expect(result.found).toBe(false);
+      // Should have attempted to fill even without searchParams
+      expect(apolloSearchParams).toHaveBeenCalled();
+      expect(apolloSearchNext).toHaveBeenCalled();
+    });
+
+    it("fills buffer from Apollo search even when searchParams is omitted (regression)", async () => {
+      // First call: buffer empty → triggers fill
+      // Second call: buffer has the lead
+      pgSqlMock
+        .mockResolvedValueOnce([])  // 1st pullNext: buffer empty
+        .mockResolvedValueOnce([toClaimedRow({
+          id: "buf-1",
+          namespace: "campaign-1",
+          campaignId: "campaign-1",
+          email: "hire@example.com",
+          externalId: "apollo-1",
+          data: { firstName: "Jane", email: "hire@example.com" },
+          brandId: "brand-1",
+          orgId: "org-1",
+          userId: null,
+        })]);
+
+      vi.mocked(apolloSearchParams).mockResolvedValue({
+        searchParams: { personTitles: ["Software Engineer"] },
+        totalResults: 10,
+        attempts: 1,
+      });
+      vi.mocked(apolloSearchNext).mockResolvedValue({
+        people: [{ id: "apollo-1", email: "hire@example.com", firstName: "Jane" }],
+        done: false,
+        totalEntries: 10,
+      });
+
+      // isInBuffer → false
+      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValue(undefined as never);
+
+      // db.insert for buffer row
+      const valuesMock = vi.fn().mockReturnValue({ onConflictDoNothing: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: "served-1" }]) }) });
+      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
+
+      // checkDeliveryStatus for batch dedup
+      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
+
+      // resolveOrCreateLead
+      vi.mocked(resolveOrCreateLead).mockResolvedValue({ leadId: "lead-hire-1", isNew: true });
+
+      // db.update for status changes
+      const setMock = vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(undefined),
+      });
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
+
+      // Call WITHOUT searchParams — this should still trigger Apollo fill
+      const result = await pullNext({
+        orgId: "org-1",
+        campaignId: "campaign-1",
+        brandId: "brand-1",
+        // No searchParams!
+      });
+
+      expect(result.found).toBe(true);
+      expect(result.lead?.email).toBe("hire@example.com");
+      expect(apolloSearchParams).toHaveBeenCalled();
     });
 
     it("returns a lead with leadId and marks it served", async () => {
