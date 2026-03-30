@@ -33,3 +33,10 @@ Single source of truth for lead management — buffering, deduplication, enrichm
 - `src/instrument.ts` — Sentry instrumentation
 - `tests/` — Test files (`*.test.ts`)
 - `openapi.json` — Auto-generated from Zod schemas, do NOT edit manually
+
+## API Design Rules
+
+- **Minimal request body.** Everything that workflow-service auto-injects as headers (`x-org-id`, `x-user-id`, `x-run-id`, `x-campaign-id`, `x-brand-id`, `x-workflow-slug`, `x-feature-slug`) MUST be read from headers, never duplicated in the body.
+- **No `.default()` on Zod fields.** If a field is needed, make it required. A missing field is a 400, not a silent default.
+- **No optional "convenience" fields.** If the service can fetch data internally (campaign context from campaign-service, brand fields from brand-service), do NOT accept it as a body parameter. Fetch it yourself.
+- **Idempotency is internal.** Use `x-run-id` as the idempotency key. Never expose idempotency keys in the API surface.
