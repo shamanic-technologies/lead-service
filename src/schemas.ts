@@ -192,7 +192,7 @@ export const ApolloPersonDataSchema = z
 
 export const BufferNextRequestSchema = z
   .object({
-    sourceType: z.enum(["apollo", "journalist"]).default("apollo").optional(),
+    sourceType: z.enum(["apollo", "journalist"]),
     idempotencyKey: z.string().min(1).optional(),
   })
   .openapi("BufferNextRequest");

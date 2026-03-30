@@ -3,13 +3,14 @@ import { BufferNextRequestSchema, ApolloPersonDataSchema } from "../../src/schem
 
 describe("schema validation", () => {
   describe("BufferNextRequestSchema", () => {
-    it("accepts empty body (all fields optional)", () => {
+    it("rejects missing sourceType", () => {
       const result = BufferNextRequestSchema.safeParse({});
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
     });
 
     it("accepts optional idempotencyKey", () => {
       const result = BufferNextRequestSchema.safeParse({
+        sourceType: "apollo",
         idempotencyKey: "run-123",
       });
       expect(result.success).toBe(true);
@@ -17,6 +18,7 @@ describe("schema validation", () => {
 
     it("rejects empty idempotencyKey", () => {
       const result = BufferNextRequestSchema.safeParse({
+        sourceType: "apollo",
         idempotencyKey: "",
       });
       expect(result.success).toBe(false);
@@ -47,14 +49,6 @@ describe("schema validation", () => {
         sourceType: "invalid",
       });
       expect(result.success).toBe(false);
-    });
-
-    it("defaults sourceType to apollo", () => {
-      const result = BufferNextRequestSchema.safeParse({});
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.sourceType).toBe("apollo");
-      }
     });
   });
 

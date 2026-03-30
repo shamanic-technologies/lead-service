@@ -137,6 +137,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
+        sourceType: "apollo",
       });
 
       expect(result.found).toBe(false);
@@ -197,6 +198,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
+        sourceType: "apollo",
         // No searchParams!
       });
 
@@ -239,6 +241,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
+        sourceType: "apollo",
         runId: "child-run-1",
       });
 
@@ -285,6 +288,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
+        sourceType: "apollo",
       });
 
       expect(result.found).toBe(true);
@@ -356,6 +360,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
+        sourceType: "apollo",
       });
 
       expect(result.found).toBe(true);
@@ -409,6 +414,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
+        sourceType: "apollo",
 
       });
 
@@ -475,6 +481,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
+        sourceType: "apollo",
       });
 
       expect(result.found).toBe(true);
@@ -549,6 +556,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
+        sourceType: "apollo",
       });
 
       expect(result.found).toBe(true);
@@ -653,6 +661,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
+        sourceType: "apollo",
 
       });
 
@@ -683,6 +692,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
+        sourceType: "apollo",
 
       });
 
@@ -735,6 +745,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
+        sourceType: "apollo",
         runId: "run-1",
       });
 
@@ -793,6 +804,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
+        sourceType: "apollo",
       });
 
       expect(result.found).toBe(true);
@@ -852,6 +864,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
+        sourceType: "apollo",
 
         workflowSlug: "cold-email-outreach",
       });
@@ -900,6 +913,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
+        sourceType: "apollo",
       });
 
       expect(result.found).toBe(true);
@@ -935,6 +949,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
+        sourceType: "apollo",
       });
 
       expect(result.found).toBe(false);
@@ -989,6 +1004,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
+        sourceType: "apollo",
       });
 
       expect(result.found).toBe(true);
@@ -1025,6 +1041,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
+        sourceType: "apollo",
       });
 
       // Should still serve the lead (fallback: not delivered)
@@ -1163,6 +1180,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
+        sourceType: "apollo",
       });
 
       expect(result.found).toBe(true);
@@ -1210,6 +1228,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
+        sourceType: "apollo",
       });
 
       expect(result.found).toBe(false);
@@ -1527,6 +1546,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandId: "brand-1",
+        sourceType: "apollo",
       });
 
       // Should skip the duplicate and serve the next lead
