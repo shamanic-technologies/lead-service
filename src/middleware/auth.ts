@@ -52,15 +52,14 @@ export async function authenticate(
       return res.status(400).json({ error: "x-org-id, x-user-id, and x-run-id headers required" });
     }
 
-    req.orgId = orgId;
-    req.userId = userId;
-    req.runId = runId;
-
-    // Optional workflow tracking headers (injected by workflow-service)
     const campaignId = req.headers["x-campaign-id"] as string | undefined;
     const brandId = req.headers["x-brand-id"] as string | undefined;
     const workflowSlug = req.headers["x-workflow-slug"] as string | undefined;
     const featureSlug = req.headers["x-feature-slug"] as string | undefined;
+
+    req.orgId = orgId;
+    req.userId = userId;
+    req.runId = runId;
     if (campaignId) req.campaignId = campaignId;
     if (brandId) req.brandId = brandId;
     if (workflowSlug) req.workflowSlug = workflowSlug;

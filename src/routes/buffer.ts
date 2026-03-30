@@ -31,11 +31,17 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
     return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
   }
 
-  try {
-    const { campaignId, brandId, searchParams, featureInput, userId, idempotencyKey, sourceType } = parsed.data;
+  // All identity/context comes from headers (injected by workflow-service)
+  const campaignId = req.campaignId;
+  const brandId = req.brandId;
 
-    // Body workflowSlug takes precedence; fall back to header injected by workflow-service
-    const workflowSlug = parsed.data.workflowSlug ?? req.workflowSlug;
+  if (!campaignId || !brandId) {
+    return res.status(400).json({ error: "x-campaign-id and x-brand-id headers required" });
+  }
+
+  try {
+    const { idempotencyKey, sourceType } = parsed.data;
+    const workflowSlug = req.workflowSlug;
 
     // Idempotency: return cached response if this key was already processed
     if (idempotencyKey) {
@@ -54,7 +60,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       serviceName: "lead-service",
       taskName: "lead-serve",
       parentRunId: req.runId!,
-      userId: userId ?? req.userId,
+      userId: req.userId,
       brandId,
       campaignId,
       workflowSlug,
@@ -67,9 +73,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       campaignId,
       brandId,
       runId: serveRunId,
-      searchParams: searchParams ?? undefined,
-      featureInput: featureInput ?? undefined,
-      userId: userId ?? req.userId ?? null,
+      userId: req.userId ?? null,
       workflowSlug,
       featureSlug: req.featureSlug,
       sourceType,

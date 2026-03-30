@@ -3,7 +3,7 @@ import { db, sql as pgSql } from "../db/index.js";
 import { leadBuffer, enrichments, cursors } from "../db/schema.js";
 import { checkContacted, markServed } from "./dedup.js";
 import { resolveOrCreateLead, findLeadByApolloPersonId } from "./leads-registry.js";
-import { apolloSearchNext, apolloEnrich, apolloMatch, apolloSearchParams, type ApolloSearchParams } from "./apollo-client.js";
+import { apolloSearchNext, apolloEnrich, apolloMatch, apolloSearchParams } from "./apollo-client.js";
 import { fetchCampaign } from "./campaign-client.js";
 import { extractBrandFields } from "./brand-client.js";
 import { fetchOutletsByCampaign, fetchNextOutlet } from "./outlet-client.js";
@@ -26,8 +26,6 @@ async function fillBufferFromSearch(params: {
   orgId: string;
   campaignId: string;
   brandId: string;
-  searchParams: ApolloSearchParams;
-  featureInput?: Record<string, unknown>;
   pushRunId?: string | null;
   userId?: string | null;
   workflowSlug?: string;
@@ -68,8 +66,8 @@ async function fillBufferFromSearch(params: {
   if (campaign?.targetOutcome) contextParts.push(`Expected outcome: ${campaign.targetOutcome}`);
   if (campaign?.valueForTarget) contextParts.push(`Value for the audience: ${campaign.valueForTarget}`);
 
-  // Inject campaign featureInputs (convention 2)
-  const featureInputs = campaign?.featureInputs ?? params.featureInput;
+  // Inject campaign featureInputs
+  const featureInputs = campaign?.featureInputs;
   if (featureInputs && Object.keys(featureInputs).length > 0) {
     contextParts.push(`Campaign context: ${JSON.stringify(featureInputs)}`);
   }
@@ -84,12 +82,6 @@ async function fillBufferFromSearch(params: {
       }
     }
   }
-
-  // Include raw searchParams as additional context
-  const rawSearch = typeof params.searchParams === "string"
-    ? params.searchParams
-    : JSON.stringify(params.searchParams);
-  contextParts.push(`Search parameters: ${rawSearch}`);
 
   const context = contextParts.join("\n");
 
@@ -260,7 +252,6 @@ async function fillBufferFromJournalists(params: {
   orgId: string;
   campaignId: string;
   brandId: string;
-  featureInput?: Record<string, unknown>;
   pushRunId?: string | null;
   userId?: string | null;
   workflowSlug?: string;
@@ -441,8 +432,6 @@ export async function pullNext(params: {
   campaignId: string;
   brandId: string;
   runId?: string | null;
-  searchParams?: ApolloSearchParams;
-  featureInput?: Record<string, unknown>;
   userId?: string | null;
   workflowSlug?: string;
   featureSlug?: string;
@@ -510,7 +499,6 @@ export async function pullNext(params: {
           orgId: params.orgId,
           campaignId: params.campaignId,
           brandId: params.brandId,
-          featureInput: params.featureInput,
           pushRunId: params.runId,
           userId: params.userId,
           workflowSlug: params.workflowSlug,
@@ -518,15 +506,10 @@ export async function pullNext(params: {
         });
         filled = result.filled;
       } else {
-        // Always attempt Apollo search — fillBufferFromSearch generates its own
-        // search params via LLM (apolloSearchParams) using campaign+brand context.
-        // Caller-provided searchParams are just additional context, not required.
         const result = await fillBufferFromSearch({
           orgId: params.orgId,
           campaignId: params.campaignId,
           brandId: params.brandId,
-          searchParams: params.searchParams ?? {},
-          featureInput: params.featureInput,
           pushRunId: params.runId,
           userId: params.userId,
           workflowSlug: params.workflowSlug,
