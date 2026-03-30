@@ -8,22 +8,6 @@ describe("schema validation", () => {
       expect(result.success).toBe(false);
     });
 
-    it("accepts optional idempotencyKey", () => {
-      const result = BufferNextRequestSchema.safeParse({
-        sourceType: "apollo",
-        idempotencyKey: "run-123",
-      });
-      expect(result.success).toBe(true);
-    });
-
-    it("rejects empty idempotencyKey", () => {
-      const result = BufferNextRequestSchema.safeParse({
-        sourceType: "apollo",
-        idempotencyKey: "",
-      });
-      expect(result.success).toBe(false);
-    });
-
     it("accepts sourceType apollo", () => {
       const result = BufferNextRequestSchema.safeParse({
         sourceType: "apollo",

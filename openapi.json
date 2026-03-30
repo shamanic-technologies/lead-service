@@ -443,10 +443,6 @@
               "apollo",
               "journalist"
             ]
-          },
-          "idempotencyKey": {
-            "type": "string",
-            "minLength": 1
           }
         },
         "required": [
