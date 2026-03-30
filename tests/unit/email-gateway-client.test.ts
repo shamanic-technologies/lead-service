@@ -115,6 +115,65 @@ describe("email-gateway-client", () => {
       errorSpy.mockRestore();
     });
 
+    it("returns empty results for empty items array", async () => {
+      const result = await checkDeliveryStatus("brand-1", "campaign-1", []);
+      expect(result).toEqual({ results: [] });
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("batches items when exceeding batch size", async () => {
+      const items = Array.from({ length: 150 }, (_, i) => ({
+        leadId: `lead-${i}`,
+        email: `user${i}@acme.com`,
+      }));
+
+      mockFetch.mockImplementation(async (_url: string, opts: { body: string }) => {
+        const body = JSON.parse(opts.body);
+        return {
+          ok: true,
+          json: () => Promise.resolve({
+            results: body.items.map((item: { leadId: string; email: string }) => ({
+              leadId: item.leadId,
+              email: item.email,
+            })),
+          }),
+        };
+      });
+
+      const result = await checkDeliveryStatus("brand-1", "campaign-1", items);
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      const firstBatch = JSON.parse(mockFetch.mock.calls[0][1].body);
+      const secondBatch = JSON.parse(mockFetch.mock.calls[1][1].body);
+      expect(firstBatch.items).toHaveLength(100);
+      expect(secondBatch.items).toHaveLength(50);
+      expect(result!.results).toHaveLength(150);
+    });
+
+    it("returns null if any batch fails", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const items = Array.from({ length: 150 }, (_, i) => ({
+        leadId: `lead-${i}`,
+        email: `user${i}@acme.com`,
+      }));
+
+      let callCount = 0;
+      mockFetch.mockImplementation(async () => {
+        callCount++;
+        if (callCount === 2) {
+          return { ok: false, status: 500, text: () => Promise.resolve("error") };
+        }
+        return {
+          ok: true,
+          json: () => Promise.resolve({ results: [] }),
+        };
+      });
+
+      const result = await checkDeliveryStatus("brand-1", "campaign-1", items);
+      expect(result).toBeNull();
+      vi.restoreAllMocks();
+    });
+
     it("returns null and logs error on unexpected errors", async () => {
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});

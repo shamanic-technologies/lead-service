@@ -46,16 +46,43 @@ export interface DeliveryStatusResponse {
   results: StatusResult[];
 }
 
+const BATCH_SIZE = 100;
+
+async function checkDeliveryStatusBatch(
+  brandId: string,
+  campaignId: string | undefined,
+  items: DeliveryStatusItem[],
+  headers: Record<string, string>,
+): Promise<DeliveryStatusResponse | null> {
+  const body: Record<string, unknown> = { brandId, items };
+  if (campaignId) body.campaignId = campaignId;
+
+  const response = await fetch(`${EMAIL_GATEWAY_SERVICE_URL}/status`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    console.error(
+      `[email-gateway-client] Status check failed: ${response.status} - ${error}`
+    );
+    return null;
+  }
+
+  return (await response.json()) as DeliveryStatusResponse;
+}
+
 export async function checkDeliveryStatus(
   brandId: string,
   campaignId: string | undefined,
   items: DeliveryStatusItem[],
   context?: { orgId?: string; userId?: string; runId?: string; campaignId?: string; brandId?: string; workflowSlug?: string; featureSlug?: string }
 ): Promise<DeliveryStatusResponse | null> {
-  try {
-    const body: Record<string, unknown> = { brandId, items };
-    if (campaignId) body.campaignId = campaignId;
+  if (items.length === 0) return { results: [] };
 
+  try {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "X-API-Key": EMAIL_GATEWAY_SERVICE_API_KEY,
@@ -68,21 +95,26 @@ export async function checkDeliveryStatus(
     if (context?.workflowSlug) headers["x-workflow-slug"] = context.workflowSlug;
     if (context?.featureSlug) headers["x-feature-slug"] = context.featureSlug;
 
-    const response = await fetch(`${EMAIL_GATEWAY_SERVICE_URL}/status`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      console.error(
-        `[email-gateway-client] Status check failed: ${response.status} - ${error}`
-      );
-      return null;
+    if (items.length <= BATCH_SIZE) {
+      return await checkDeliveryStatusBatch(brandId, campaignId, items, headers);
     }
 
-    return (await response.json()) as DeliveryStatusResponse;
+    const batches: DeliveryStatusItem[][] = [];
+    for (let i = 0; i < items.length; i += BATCH_SIZE) {
+      batches.push(items.slice(i, i + BATCH_SIZE));
+    }
+
+    const batchResults = await Promise.all(
+      batches.map((batch) => checkDeliveryStatusBatch(brandId, campaignId, batch, headers))
+    );
+
+    const allResults: StatusResult[] = [];
+    for (const result of batchResults) {
+      if (!result) return null;
+      allResults.push(...result.results);
+    }
+
+    return { results: allResults };
   } catch (error) {
     const isConnectionError =
       error instanceof TypeError && error.message === "fetch failed";
