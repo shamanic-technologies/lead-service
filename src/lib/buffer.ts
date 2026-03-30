@@ -517,12 +517,15 @@ export async function pullNext(params: {
           featureSlug: params.featureSlug,
         });
         filled = result.filled;
-      } else if (params.searchParams) {
+      } else {
+        // Always attempt Apollo search — fillBufferFromSearch generates its own
+        // search params via LLM (apolloSearchParams) using campaign+brand context.
+        // Caller-provided searchParams are just additional context, not required.
         const result = await fillBufferFromSearch({
           orgId: params.orgId,
           campaignId: params.campaignId,
           brandId: params.brandId,
-          searchParams: params.searchParams,
+          searchParams: params.searchParams ?? {},
           featureInput: params.featureInput,
           pushRunId: params.runId,
           userId: params.userId,
