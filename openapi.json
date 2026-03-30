@@ -442,14 +442,16 @@
             "enum": [
               "apollo",
               "journalist"
-            ],
-            "default": "apollo"
+            ]
           },
           "idempotencyKey": {
             "type": "string",
             "minLength": 1
           }
-        }
+        },
+        "required": [
+          "sourceType"
+        ]
       },
       "CursorGetResponse": {
         "type": "object",

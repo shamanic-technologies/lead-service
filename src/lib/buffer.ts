@@ -435,7 +435,7 @@ export async function pullNext(params: {
   userId?: string | null;
   workflowSlug?: string;
   featureSlug?: string;
-  sourceType?: "apollo" | "journalist";
+  sourceType: "apollo" | "journalist";
 }): Promise<{
   found: boolean;
   lead?: {
@@ -491,7 +491,7 @@ export async function pullNext(params: {
 
     if (!row) {
       // Buffer empty — fill from the appropriate source
-      const st = params.sourceType ?? "apollo";
+      const st = params.sourceType;
       let filled = 0;
 
       if (st === "journalist") {
