@@ -52,7 +52,9 @@ async function resolveDynastySlugs(
   const workflowDynastySlug = str(req.query.workflowDynastySlug);
   const featureDynastySlug = str(req.query.featureDynastySlug);
   const workflowSlug = str(req.query.workflowSlug);
+  const workflowSlugsParam = str(req.query.workflowSlugs);
   const featureSlug = str(req.query.featureSlug);
+  const featureSlugsParam = str(req.query.featureSlugs);
 
   const context = { orgId: req.orgId, userId: req.userId, runId: req.runId };
 
@@ -62,6 +64,8 @@ async function resolveDynastySlugs(
   if (workflowDynastySlug) {
     workflowSlugs = await resolveWorkflowDynastySlugs(workflowDynastySlug, context);
     if (workflowSlugs.length === 0) return { workflowSlugs: [], featureSlugs: null, emptyDynasty: true };
+  } else if (workflowSlugsParam) {
+    workflowSlugs = workflowSlugsParam.split(",").filter(Boolean);
   } else if (workflowSlug) {
     workflowSlugs = [workflowSlug];
   }
@@ -69,6 +73,8 @@ async function resolveDynastySlugs(
   if (featureDynastySlug) {
     featureSlugs = await resolveFeatureDynastySlugs(featureDynastySlug, context);
     if (featureSlugs.length === 0) return { workflowSlugs, featureSlugs: [], emptyDynasty: true };
+  } else if (featureSlugsParam) {
+    featureSlugs = featureSlugsParam.split(",").filter(Boolean);
   } else if (featureSlug) {
     featureSlugs = [featureSlug];
   }
