@@ -87,7 +87,7 @@ describe("POST /buffer/next run status", () => {
   it("marks run as completed when pullNext returns found: true", async () => {
     mockPullNext.mockResolvedValue({
       found: true,
-      lead: { leadId: "lid", email: "a@b.com", externalId: null, data: {}, brandId: "b1", orgId: "test-org", userId: null },
+      lead: { leadId: "lid", email: "a@b.com", data: {}, brandId: "b1", orgId: "test-org", userId: null, apolloPersonId: null, journalistId: null, outletId: null },
     });
 
     const app = createApp();

@@ -332,7 +332,7 @@ async function fillBufferFromJournalists(params: {
       // Skip organization-type entities (we need individual people)
       if (journalist.entityType === "organization") continue;
 
-      const externalId = `journalist:${journalist.id}`;
+      const externalId = journalist.id;
 
       if (await isInBuffer(params.orgId, params.campaignId, externalId)) continue;
 
@@ -441,11 +441,13 @@ export async function pullNext(params: {
   lead?: {
     leadId: string;
     email: string;
-    externalId: string | null;
     data: unknown;
     brandId: string;
     orgId: string | null;
     userId: string | null;
+    apolloPersonId: string | null;
+    journalistId: string | null;
+    outletId: string | null;
   };
 }> {
   const MAX_ITERATIONS = 100;
@@ -732,17 +734,22 @@ export async function pullNext(params: {
         ? { ...(enrichedData as Record<string, unknown>), email }
         : { email };
 
+    // Extract typed IDs from the data blob
+    const dataObj = finalData as Record<string, unknown>;
+    const isJournalist = dataObj.sourceType === "journalist";
 
     return {
       found: true,
       lead: {
         leadId,
         email,
-        externalId: row.externalId,
         data: finalData,
         brandId: params.brandId,
         orgId: row.orgId,
         userId: row.userId,
+        apolloPersonId: (dataObj.id as string) ?? null,
+        journalistId: isJournalist ? ((dataObj.journalistId as string) ?? null) : null,
+        outletId: isJournalist ? ((dataObj.outletId as string) ?? null) : null,
       },
     };
   }

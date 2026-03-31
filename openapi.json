@@ -48,10 +48,6 @@
               "email": {
                 "type": "string"
               },
-              "externalId": {
-                "type": "string",
-                "nullable": true
-              },
               "data": {
                 "$ref": "#/components/schemas/ApolloPersonData"
               },
@@ -65,12 +61,23 @@
               "userId": {
                 "type": "string",
                 "nullable": true
+              },
+              "apolloPersonId": {
+                "type": "string",
+                "nullable": true
+              },
+              "journalistId": {
+                "type": "string",
+                "nullable": true
+              },
+              "outletId": {
+                "type": "string",
+                "nullable": true
               }
             },
             "required": [
               "leadId",
               "email",
-              "externalId",
               "data",
               "brandId",
               "orgId",

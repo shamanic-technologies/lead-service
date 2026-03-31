@@ -248,7 +248,7 @@ describe("buffer", () => {
       expect(result.found).toBe(true);
       expect(result.lead?.leadId).toBe("lead-abc");
       expect(result.lead?.email).toBe("alice@acme.com");
-      expect(result.lead?.externalId).toBe("e-1");
+      expect(result.lead?.apolloPersonId).toBeNull();
       expect(result.lead?.data).toEqual({ name: "Alice", email: "alice@acme.com" });
     });
 
@@ -1057,7 +1057,7 @@ describe("buffer", () => {
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "jane@techcrunch.com",
-        externalId: "journalist:j-uuid-1",
+        externalId: "j-uuid-1",
         data: {
           firstName: "Jane",
           lastName: "Reporter",
@@ -1138,7 +1138,7 @@ describe("buffer", () => {
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "",
-        externalId: "journalist:j-uuid-2",
+        externalId: "j-uuid-2",
         data: {
           firstName: "John",
           lastName: "Writer",
@@ -1200,7 +1200,7 @@ describe("buffer", () => {
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "",
-          externalId: "journalist:j-uuid-3",
+          externalId: "j-uuid-3",
           data: {
             firstName: "Ghost",
             lastName: "Journalist",
@@ -1269,7 +1269,7 @@ describe("buffer", () => {
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "discovered@outlet.com",
-        externalId: "journalist:j-discovered",
+        externalId: "j-discovered",
         data: {
           firstName: "Jane",
           lastName: "Reporter",
@@ -1406,7 +1406,7 @@ describe("buffer", () => {
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "found@techcrunch.com",
-        externalId: "journalist:j-noemail",
+        externalId: "j-noemail",
         data: {
           firstName: "Bob",
           lastName: "Writer",
