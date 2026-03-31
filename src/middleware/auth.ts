@@ -17,6 +17,7 @@ export interface AuthenticatedRequest extends Request {
   runId?: string;
   campaignId?: string;
   brandId?: string;
+  brandIds?: string[];
   workflowSlug?: string;
   featureSlug?: string;
 }
@@ -31,6 +32,14 @@ export function getServiceContext(req: AuthenticatedRequest): ServiceContext {
     workflowSlug: req.workflowSlug,
     featureSlug: req.featureSlug,
   };
+}
+
+/**
+ * Parse x-brand-id header as CSV, returning an array of brand IDs.
+ */
+function parseBrandIds(header: string | undefined): string[] {
+  if (!header) return [];
+  return String(header).split(",").map(s => s.trim()).filter(Boolean);
 }
 
 export async function authenticate(
@@ -53,7 +62,7 @@ export async function authenticate(
     }
 
     const campaignId = req.headers["x-campaign-id"] as string | undefined;
-    const brandId = req.headers["x-brand-id"] as string | undefined;
+    const brandIdRaw = req.headers["x-brand-id"] as string | undefined;
     const workflowSlug = req.headers["x-workflow-slug"] as string | undefined;
     const featureSlug = req.headers["x-feature-slug"] as string | undefined;
 
@@ -61,7 +70,12 @@ export async function authenticate(
     req.userId = userId;
     req.runId = runId;
     if (campaignId) req.campaignId = campaignId;
-    if (brandId) req.brandId = brandId;
+    if (brandIdRaw) {
+      req.brandId = brandIdRaw;
+      req.brandIds = parseBrandIds(brandIdRaw);
+    } else {
+      req.brandIds = [];
+    }
     if (workflowSlug) req.workflowSlug = workflowSlug;
     if (featureSlug) req.featureSlug = featureSlug;
 

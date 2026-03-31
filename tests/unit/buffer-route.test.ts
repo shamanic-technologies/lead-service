@@ -39,7 +39,9 @@ vi.mock("../../src/middleware/auth.js", () => ({
     _req.userId = "test-user";
     _req.runId = "parent-run";
     _req.campaignId = _req.headers["x-campaign-id"];
-    _req.brandId = _req.headers["x-brand-id"];
+    const brandIdRaw = _req.headers["x-brand-id"] as string | undefined;
+    _req.brandId = brandIdRaw;
+    _req.brandIds = brandIdRaw ? String(brandIdRaw).split(",").map((s: string) => s.trim()).filter(Boolean) : [];
     next();
   },
   AuthenticatedRequest: {},
@@ -87,7 +89,7 @@ describe("POST /buffer/next run status", () => {
   it("marks run as completed when pullNext returns found: true", async () => {
     mockPullNext.mockResolvedValue({
       found: true,
-      lead: { leadId: "lid", email: "a@b.com", data: {}, brandId: "b1", orgId: "test-org", userId: null, apolloPersonId: null, journalistId: null, outletId: null },
+      lead: { leadId: "lid", email: "a@b.com", data: {}, brandIds: ["b1"], orgId: "test-org", userId: null, apolloPersonId: null, journalistId: null, outletId: null },
     });
 
     const app = createApp();

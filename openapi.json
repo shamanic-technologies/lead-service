@@ -51,8 +51,11 @@
               "data": {
                 "$ref": "#/components/schemas/ApolloPersonData"
               },
-              "brandId": {
-                "type": "string"
+              "brandIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               },
               "orgId": {
                 "type": "string",
@@ -85,7 +88,7 @@
               "leadId",
               "email",
               "data",
-              "brandId",
+              "brandIds",
               "orgId",
               "userId"
             ]
@@ -110,7 +113,9 @@
                   "organizationName": "Acme Corp",
                   "organizationDomain": "acme.com"
                 },
-                "brandId": "brand-uuid",
+                "brandIds": [
+                  "brand-uuid"
+                ],
                 "orgId": "org-uuid",
                 "userId": "user-uuid",
                 "apolloPersonId": "5f2a3b4c5d6e7f8a9b0c1d2e",
@@ -133,7 +138,9 @@
                   "organizationDomain": "techcrunch.com",
                   "sourceType": "journalist"
                 },
-                "brandId": "brand-uuid",
+                "brandIds": [
+                  "brand-uuid"
+                ],
                 "orgId": "org-uuid",
                 "userId": "user-uuid",
                 "apolloPersonId": "7a8b9c0d1e2f3a4b5c6d7e8f",
@@ -591,8 +598,11 @@
             "type": "string",
             "nullable": true
           },
-          "brandId": {
-            "type": "string"
+          "brandIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "campaignId": {
             "type": "string"
@@ -620,7 +630,7 @@
           "metadata",
           "parentRunId",
           "runId",
-          "brandId",
+          "brandIds",
           "campaignId",
           "orgId",
           "userId",
@@ -849,7 +859,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "Brand identifier (auto-injected by workflow-service)"
+            "description": "Brand identifier(s), comma-separated for multi-brand campaigns (auto-injected by workflow-service). Example: uuid1,uuid2,uuid3"
           },
           {
             "in": "header",
@@ -962,7 +972,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "Brand identifier (auto-injected by workflow-service)"
+            "description": "Brand identifier(s), comma-separated for multi-brand campaigns (auto-injected by workflow-service). Example: uuid1,uuid2,uuid3"
           },
           {
             "in": "header",
@@ -1062,7 +1072,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "Brand identifier (auto-injected by workflow-service)"
+            "description": "Brand identifier(s), comma-separated for multi-brand campaigns (auto-injected by workflow-service). Example: uuid1,uuid2,uuid3"
           },
           {
             "in": "header",
@@ -1183,7 +1193,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "Brand identifier (auto-injected by workflow-service)"
+            "description": "Brand identifier(s), comma-separated for multi-brand campaigns (auto-injected by workflow-service). Example: uuid1,uuid2,uuid3"
           },
           {
             "in": "header",
@@ -1310,7 +1320,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "Brand identifier (auto-injected by workflow-service)"
+            "description": "Brand identifier(s), comma-separated for multi-brand campaigns (auto-injected by workflow-service). Example: uuid1,uuid2,uuid3"
           },
           {
             "in": "header",
@@ -1534,7 +1544,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "Brand identifier (auto-injected by workflow-service)"
+            "description": "Brand identifier(s), comma-separated for multi-brand campaigns (auto-injected by workflow-service). Example: uuid1,uuid2,uuid3"
           },
           {
             "in": "header",

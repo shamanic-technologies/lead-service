@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, type SQL } from "drizzle-orm";
+import { eq, and, sql, type SQL } from "drizzle-orm";
 import { type AuthenticatedRequest, authenticate } from "../middleware/auth.js";
 import { db } from "../db/index.js";
 import { servedLeads } from "../db/schema.js";
@@ -23,7 +23,7 @@ router.get("/leads", authenticate, async (req: AuthenticatedRequest, res) => {
     const conditions: SQL[] = [eq(servedLeads.orgId, req.orgId!)];
 
     if (brandId && typeof brandId === "string") {
-      conditions.push(eq(servedLeads.brandId, brandId));
+      conditions.push(sql`${brandId} = ANY(${servedLeads.brandIds})`);
     }
     if (campaignId && typeof campaignId === "string") {
       conditions.push(eq(servedLeads.campaignId, campaignId));

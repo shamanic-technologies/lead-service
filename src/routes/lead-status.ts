@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, type SQL } from "drizzle-orm";
+import { eq, and, sql, type SQL } from "drizzle-orm";
 import { type AuthenticatedRequest, authenticate, getServiceContext } from "../middleware/auth.js";
 import { db } from "../db/index.js";
 import { servedLeads } from "../db/schema.js";
@@ -66,14 +66,14 @@ router.get("/leads/status", authenticate, async (req: AuthenticatedRequest, res)
 
     const brandId = typeof req.query.brandId === "string" ? req.query.brandId : undefined;
     if (brandId) {
-      conditions.push(eq(servedLeads.brandId, brandId));
+      conditions.push(sql`${brandId} = ANY(${servedLeads.brandIds})`);
     }
 
     const rows = await db
       .select({
         leadId: servedLeads.leadId,
         email: servedLeads.email,
-        brandId: servedLeads.brandId,
+        brandIds: servedLeads.brandIds,
       })
       .from(servedLeads)
       .where(and(...conditions));
@@ -83,15 +83,15 @@ router.get("/leads/status", authenticate, async (req: AuthenticatedRequest, res)
       return;
     }
 
-    // Group by brandId since email-gateway scopes status per brand/campaign
+    // Group by first brandId since email-gateway scopes status per brand/campaign
     const groups = new Map<string, { brandId: string; items: DeliveryStatusItem[] }>();
     for (const row of rows) {
       if (!row.leadId) continue;
-      const key = row.brandId;
-      if (!groups.has(key)) {
-        groups.set(key, { brandId: row.brandId, items: [] });
+      const primaryBrandId = row.brandIds[0] ?? "unknown";
+      if (!groups.has(primaryBrandId)) {
+        groups.set(primaryBrandId, { brandId: primaryBrandId, items: [] });
       }
-      groups.get(key)!.items.push({ leadId: row.leadId, email: row.email });
+      groups.get(primaryBrandId)!.items.push({ leadId: row.leadId, email: row.email });
     }
 
     const context = getServiceContext(req);

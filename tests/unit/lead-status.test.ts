@@ -83,8 +83,8 @@ describe("GET /leads/status", () => {
 
   it("returns per-lead delivery status from email-gateway", async () => {
     const servedRows = [
-      { leadId: "lead-1", email: "alice@acme.com", brandId: "b1" },
-      { leadId: "lead-2", email: "bob@acme.com", brandId: "b1" },
+      { leadId: "lead-1", email: "alice@acme.com", brandIds: ["b1"] },
+      { leadId: "lead-2", email: "bob@acme.com", brandIds: ["b1"] },
     ];
     mockWhere.mockResolvedValue(servedRows);
 
@@ -167,7 +167,7 @@ describe("GET /leads/status", () => {
 
   it("returns all-false status when email-gateway is unreachable", async () => {
     mockWhere.mockResolvedValue([
-      { leadId: "lead-1", email: "alice@acme.com", brandId: "b1" },
+      { leadId: "lead-1", email: "alice@acme.com", brandIds: ["b1"] },
     ]);
     mockCheckDeliveryStatus.mockResolvedValue(null);
 
@@ -189,8 +189,8 @@ describe("GET /leads/status", () => {
 
   it("skips rows with null leadId", async () => {
     mockWhere.mockResolvedValue([
-      { leadId: null, email: "orphan@acme.com", brandId: "b1" },
-      { leadId: "lead-1", email: "alice@acme.com", brandId: "b1" },
+      { leadId: null, email: "orphan@acme.com", brandIds: ["b1"] },
+      { leadId: "lead-1", email: "alice@acme.com", brandIds: ["b1"] },
     ]);
     mockCheckDeliveryStatus.mockResolvedValue(null);
 
@@ -201,10 +201,10 @@ describe("GET /leads/status", () => {
     expect(res.body.statuses[0].leadId).toBe("lead-1");
   });
 
-  it("groups email-gateway calls by brandId", async () => {
+  it("groups email-gateway calls by first brandId", async () => {
     mockWhere.mockResolvedValue([
-      { leadId: "lead-1", email: "alice@acme.com", brandId: "b1" },
-      { leadId: "lead-2", email: "bob@other.com", brandId: "b2" },
+      { leadId: "lead-1", email: "alice@acme.com", brandIds: ["b1"] },
+      { leadId: "lead-2", email: "bob@other.com", brandIds: ["b2"] },
     ]);
     mockCheckDeliveryStatus.mockResolvedValue({ results: [] });
 

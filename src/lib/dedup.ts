@@ -11,16 +11,28 @@ import {
  * Returns a Map of email -> boolean (contacted or not).
  * Falls back to all-false if email-gateway is unreachable —
  * the downstream /send endpoint has its own idempotency.
+ *
+ * With multi-brand, checks against the first brand ID (email-gateway
+ * body param expects a single brandId; the full CSV is forwarded via header).
  */
 export async function checkContacted(
-  brandId: string,
+  brandIds: string[],
   campaignId: string,
   items: DeliveryStatusItem[],
   context?: { orgId?: string; userId?: string; runId?: string; campaignId?: string; brandId?: string; workflowSlug?: string; featureSlug?: string }
 ): Promise<Map<string, boolean>> {
   const result = new Map<string, boolean>();
 
-  const statusResponse = await checkDeliveryStatus(brandId, campaignId, items, context);
+  const primaryBrandId = brandIds[0];
+  if (!primaryBrandId) {
+    // No brand IDs — can't check, assume not contacted
+    for (const item of items) {
+      result.set(item.email, false);
+    }
+    return result;
+  }
+
+  const statusResponse = await checkDeliveryStatus(primaryBrandId, campaignId, items, context);
 
   if (statusResponse) {
     for (const sr of statusResponse.results) {
@@ -45,7 +57,7 @@ export async function checkContacted(
 export async function markServed(params: {
   orgId: string;
   namespace: string;
-  brandId: string;
+  brandIds: string[];
   campaignId: string;
   email: string;
   leadId?: string | null;
@@ -66,7 +78,7 @@ export async function markServed(params: {
       externalId: params.externalId ?? null,
       metadata: params.metadata ?? null,
       runId: params.runId ?? null,
-      brandId: params.brandId,
+      brandIds: params.brandIds,
       campaignId: params.campaignId,
       userId: params.userId ?? null,
       workflowSlug: params.workflowSlug ?? null,

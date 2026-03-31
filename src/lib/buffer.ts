@@ -25,17 +25,20 @@ const MAX_PAGES = 50;
 async function fillBufferFromSearch(params: {
   orgId: string;
   campaignId: string;
-  brandId: string;
+  brandIds: string[];
   pushRunId?: string | null;
   userId?: string | null;
   workflowSlug?: string;
   featureSlug?: string;
 }): Promise<{ filled: number }> {
+  const primaryBrandId = params.brandIds[0];
+  const brandIdCsv = params.brandIds.join(",");
+
   const serviceContext = {
     userId: params.userId ?? undefined,
     runId: params.pushRunId ?? undefined,
     campaignId: params.campaignId,
-    brandId: params.brandId,
+    brandId: brandIdCsv,
     workflowSlug: params.workflowSlug,
     featureSlug: params.featureSlug,
   };
@@ -44,7 +47,6 @@ async function fillBufferFromSearch(params: {
   const [campaign, brandFields] = await Promise.all([
     fetchCampaign(params.campaignId, params.orgId, serviceContext),
     extractBrandFields(
-      params.brandId,
       [
         { key: "brand_name", description: "The brand's display name" },
         { key: "elevator_pitch", description: "A short elevator pitch describing the brand" },
@@ -88,7 +90,7 @@ async function fillBufferFromSearch(params: {
   const { searchParams: validatedParams } = await apolloSearchParams({
     context,
     runId: params.pushRunId ?? "",
-    brandId: params.brandId,
+    brandId: brandIdCsv,
     campaignId: params.campaignId,
     orgId: params.orgId,
     userId: params.userId,
@@ -102,7 +104,7 @@ async function fillBufferFromSearch(params: {
   for (let page = 1; page <= MAX_PAGES; page++) {
     const result = await apolloSearchNext({
       campaignId: params.campaignId,
-      brandId: params.brandId,
+      brandId: brandIdCsv,
       searchParams: validatedParams,
       runId: params.pushRunId,
       orgId: params.orgId,
@@ -174,12 +176,12 @@ async function fillBufferFromSearch(params: {
 
     const contactedMap =
       itemsWithEmails.length > 0
-        ? await checkContacted(params.brandId, params.campaignId, itemsWithEmails, {
+        ? await checkContacted(params.brandIds, params.campaignId, itemsWithEmails, {
             orgId: params.orgId,
             userId: params.userId ?? undefined,
             runId: params.pushRunId ?? undefined,
             campaignId: params.campaignId,
-            brandId: params.brandId,
+            brandId: brandIdCsv,
             workflowSlug: params.workflowSlug,
             featureSlug: params.featureSlug,
           })
@@ -198,7 +200,7 @@ async function fillBufferFromSearch(params: {
         data,
         status: "buffered",
         pushRunId: params.pushRunId ?? null,
-        brandId: params.brandId,
+        brandIds: params.brandIds,
         orgId: params.orgId,
         userId: params.userId ?? null,
         workflowSlug: params.workflowSlug ?? null,
@@ -251,17 +253,19 @@ async function saveCursor(orgId: string, namespace: string, state: unknown): Pro
 async function fillBufferFromJournalists(params: {
   orgId: string;
   campaignId: string;
-  brandId: string;
+  brandIds: string[];
   pushRunId?: string | null;
   userId?: string | null;
   workflowSlug?: string;
   featureSlug?: string;
 }): Promise<{ filled: number }> {
+  const brandIdCsv = params.brandIds.join(",");
+
   const serviceContext = {
     userId: params.userId ?? undefined,
     runId: params.pushRunId ?? undefined,
     campaignId: params.campaignId,
-    brandId: params.brandId,
+    brandId: brandIdCsv,
     workflowSlug: params.workflowSlug,
     featureSlug: params.featureSlug,
   };
@@ -288,7 +292,7 @@ async function fillBufferFromJournalists(params: {
       userId: params.userId ?? undefined,
       runId: params.pushRunId ?? undefined,
       campaignId: params.campaignId,
-      brandId: params.brandId,
+      brandId: brandIdCsv,
       workflowSlug: params.workflowSlug,
       featureSlug: params.featureSlug,
     });
@@ -356,7 +360,7 @@ async function fillBufferFromJournalists(params: {
             runId: params.pushRunId,
             orgId: params.orgId,
             userId: params.userId,
-            brandId: params.brandId,
+            brandId: brandIdCsv,
             campaignId: params.campaignId,
             workflowSlug: params.workflowSlug,
             featureSlug: params.featureSlug,
@@ -405,7 +409,7 @@ async function fillBufferFromJournalists(params: {
         data,
         status: "buffered",
         pushRunId: params.pushRunId ?? null,
-        brandId: params.brandId,
+        brandIds: params.brandIds,
         orgId: params.orgId,
         userId: params.userId ?? null,
         workflowSlug: params.workflowSlug ?? null,
@@ -430,7 +434,7 @@ async function fillBufferFromJournalists(params: {
 export async function pullNext(params: {
   orgId: string;
   campaignId: string;
-  brandId: string;
+  brandIds: string[];
   runId?: string | null;
   userId?: string | null;
   workflowSlug?: string;
@@ -442,7 +446,7 @@ export async function pullNext(params: {
     leadId: string;
     email: string;
     data: unknown;
-    brandId: string;
+    brandIds: string[];
     orgId: string | null;
     userId: string | null;
     apolloPersonId: string | null;
@@ -450,6 +454,7 @@ export async function pullNext(params: {
     outletId: string | null;
   };
 }> {
+  const brandIdCsv = params.brandIds.join(",");
   const MAX_ITERATIONS = 100;
   let iterations = 0;
   while (true) {
@@ -485,7 +490,7 @@ export async function pullNext(params: {
       data: claimedRows[0].data as unknown,
       status: claimedRows[0].status as string,
       pushRunId: claimedRows[0].push_run_id as string | null,
-      brandId: claimedRows[0].brand_id as string | null,
+      brandIds: claimedRows[0].brand_ids as string[] | null,
       orgId: claimedRows[0].org_id as string,
       userId: claimedRows[0].user_id as string | null,
       createdAt: claimedRows[0].created_at as Date,
@@ -500,7 +505,7 @@ export async function pullNext(params: {
         const result = await fillBufferFromJournalists({
           orgId: params.orgId,
           campaignId: params.campaignId,
-          brandId: params.brandId,
+          brandIds: params.brandIds,
           pushRunId: params.runId,
           userId: params.userId,
           workflowSlug: params.workflowSlug,
@@ -511,7 +516,7 @@ export async function pullNext(params: {
         const result = await fillBufferFromSearch({
           orgId: params.orgId,
           campaignId: params.campaignId,
-          brandId: params.brandId,
+          brandIds: params.brandIds,
           pushRunId: params.runId,
           userId: params.userId,
           workflowSlug: params.workflowSlug,
@@ -545,7 +550,7 @@ export async function pullNext(params: {
           runId: params.runId,
           orgId: params.orgId,
           userId: params.userId,
-          brandId: params.brandId,
+          brandId: brandIdCsv,
           campaignId: params.campaignId,
           workflowSlug: params.workflowSlug,
           featureSlug: params.featureSlug,
@@ -607,7 +612,7 @@ export async function pullNext(params: {
           runId: params.runId,
           orgId: params.orgId,
           userId: params.userId,
-          brandId: params.brandId,
+          brandId: brandIdCsv,
           campaignId: params.campaignId,
           workflowSlug: params.workflowSlug,
           featureSlug: params.featureSlug,
@@ -678,14 +683,14 @@ export async function pullNext(params: {
     });
 
     // Check contacted status via email-gateway
-    const contactedMap = await checkContacted(params.brandId, params.campaignId, [
+    const contactedMap = await checkContacted(params.brandIds, params.campaignId, [
       { leadId, email },
     ], {
       orgId: params.orgId,
       userId: params.userId ?? undefined,
       runId: params.runId ?? undefined,
       campaignId: params.campaignId,
-      brandId: params.brandId,
+      brandId: brandIdCsv,
       workflowSlug: params.workflowSlug,
       featureSlug: params.featureSlug,
     });
@@ -701,7 +706,7 @@ export async function pullNext(params: {
     const { inserted } = await markServed({
       orgId: params.orgId,
       namespace: params.campaignId,
-      brandId: params.brandId,
+      brandIds: params.brandIds,
       campaignId: params.campaignId,
       email,
       leadId,
@@ -714,8 +719,7 @@ export async function pullNext(params: {
     });
 
     if (!inserted) {
-      // Another request already served this email for this org+brand — skip
-      // Another concurrent request already served this email — skip
+      // Another request already served this email for this org+campaign — skip
       await db
         .update(leadBuffer)
         .set({ status: "skipped" })
@@ -744,7 +748,7 @@ export async function pullNext(params: {
         leadId,
         email,
         data: finalData,
-        brandId: params.brandId,
+        brandIds: params.brandIds,
         orgId: row.orgId,
         userId: row.userId,
         apolloPersonId: (dataObj.id as string) ?? null,
