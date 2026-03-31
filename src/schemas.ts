@@ -199,11 +199,13 @@ export const BufferNextRequestSchema = z
 const ServedLeadSchema = z.object({
   leadId: z.string().uuid(),
   email: z.string(),
-  externalId: z.string().nullable(),
   data: ApolloPersonDataSchema.nullable(),
   brandId: z.string(),
   orgId: z.string().nullable(),
   userId: z.string().nullable(),
+  apolloPersonId: z.string().nullable().optional(),
+  journalistId: z.string().nullable().optional(),
+  outletId: z.string().nullable().optional(),
 });
 
 const BufferNextResponseSchema = z
