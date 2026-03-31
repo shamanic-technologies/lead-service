@@ -54,7 +54,8 @@ async function checkDeliveryStatusBatch(
   items: DeliveryStatusItem[],
   headers: Record<string, string>,
 ): Promise<DeliveryStatusResponse | null> {
-  const body: Record<string, unknown> = { brandId, items };
+  headers["x-brand-id"] = brandId;
+  const body: Record<string, unknown> = { items };
   if (campaignId) body.campaignId = campaignId;
 
   const response = await fetch(`${EMAIL_GATEWAY_SERVICE_URL}/status`, {
