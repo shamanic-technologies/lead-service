@@ -207,24 +207,25 @@ describe("service client headers", () => {
   });
 
   describe("brand-client extractBrandFields", () => {
-    it("sends correct headers and body for extractBrandFields", async () => {
-      fetchSpy.mockReturnValue(jsonResponse({ brandId: "brand-123", results: [] }));
+    it("calls POST /brands/extract-fields (no brandId in path) and sends correct headers", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ results: [] }));
 
       const { extractBrandFields } = await import("../../src/lib/brand-client.js");
       await extractBrandFields(
-        "brand-123",
         [{ key: "elevator_pitch", description: "One-sentence pitch" }],
         "org-1",
-        { userId: "user-1", runId: "run-1", campaignId: "camp-1", brandId: "brand-1", workflowSlug: "wf-1", featureSlug: "feat-1" },
+        { userId: "user-1", runId: "run-1", campaignId: "camp-1", brandId: "brand-1,brand-2", workflowSlug: "wf-1", featureSlug: "feat-1" },
       );
 
       expect(fetchSpy).toHaveBeenCalledOnce();
       const [url, opts] = fetchSpy.mock.calls[0];
-      expect(url).toContain("/brands/brand-123/extract-fields");
+      expect(url).toContain("/brands/extract-fields");
+      expect(url).not.toContain("/brands/brand-");
       expect(opts.method).toBe("POST");
       expect(opts.headers["x-org-id"]).toBe("org-1");
       expect(opts.headers["x-user-id"]).toBe("user-1");
       expect(opts.headers["x-run-id"]).toBe("run-1");
+      expect(opts.headers["x-brand-id"]).toBe("brand-1,brand-2");
       const body = JSON.parse(opts.body);
       expect(body.fields).toHaveLength(1);
       expect(body.fields[0].key).toBe("elevator_pitch");

@@ -32,9 +32,9 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
   }
 
   const campaignId = req.campaignId;
-  const brandId = req.brandId;
+  const brandIds = req.brandIds ?? [];
 
-  if (!campaignId || !brandId) {
+  if (!campaignId || brandIds.length === 0) {
     return res.status(400).json({ error: "x-campaign-id and x-brand-id headers required" });
   }
 
@@ -46,7 +46,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
     orgId: req.orgId,
     userId: req.userId,
     campaignId,
-    brandId,
+    brandId: req.brandId,
     workflowSlug,
     featureSlug: req.featureSlug,
   };
@@ -67,7 +67,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
     taskName: "lead-serve",
     parentRunId: runId,
     userId: req.userId,
-    brandId,
+    brandId: req.brandId,
     campaignId,
     workflowSlug,
     featureSlug: req.featureSlug,
@@ -78,7 +78,7 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
     const result = await pullNext({
       orgId: req.orgId!,
       campaignId,
-      brandId,
+      brandIds,
       runId: serveRunId,
       userId: req.userId ?? null,
       workflowSlug,

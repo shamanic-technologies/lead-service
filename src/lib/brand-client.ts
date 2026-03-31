@@ -74,24 +74,23 @@ function buildHeaders(orgId?: string | null, context?: ServiceContext): Record<s
 }
 
 export async function extractBrandFields(
-  brandId: string,
   fields: Array<{ key: string; description: string }>,
   orgId?: string | null,
   context?: ServiceContext,
 ): Promise<ExtractedField[] | null> {
   try {
-    const response = await fetch(`${BRAND_SERVICE_URL}/brands/${brandId}/extract-fields`, {
+    const response = await fetch(`${BRAND_SERVICE_URL}/brands/extract-fields`, {
       method: "POST",
       headers: buildHeaders(orgId, context),
       body: JSON.stringify({ fields }),
     });
 
     if (!response.ok) {
-      console.warn(`[brand-client] extract-fields failed for brand ${brandId}: ${response.status}`);
+      console.warn(`[brand-client] extract-fields failed: ${response.status}`);
       return null;
     }
 
-    const data = (await response.json()) as { brandId: string; results: ExtractedField[] };
+    const data = (await response.json()) as { results: ExtractedField[] };
     return data.results;
   } catch (error) {
     console.error("[brand-client] Error extracting brand fields:", error);

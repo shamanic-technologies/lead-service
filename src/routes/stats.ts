@@ -28,7 +28,6 @@ type GroupByField = (typeof VALID_GROUP_BY)[number];
 
 const COLUMN_MAP = {
   campaignId: { served: servedLeads.campaignId, buffer: leadBuffer.campaignId },
-  brandId: { served: servedLeads.brandId, buffer: leadBuffer.brandId },
   workflowSlug: { served: servedLeads.workflowSlug, buffer: leadBuffer.workflowSlug },
   featureSlug: { served: servedLeads.featureSlug, buffer: leadBuffer.featureSlug },
 } as const;
@@ -99,7 +98,7 @@ function buildConditions(
 
   if (table === "served") {
     const conds: SQL[] = [eq(servedLeads.orgId, req.orgId!)];
-    if (brandIdStr) conds.push(eq(servedLeads.brandId, brandIdStr));
+    if (brandIdStr) conds.push(sql`${brandIdStr} = ANY(${servedLeads.brandIds})`);
     if (campaignIdStr) conds.push(eq(servedLeads.campaignId, campaignIdStr));
     if (orgIdStr) conds.push(eq(servedLeads.orgId, orgIdStr));
     if (userIdStr) conds.push(eq(servedLeads.userId, userIdStr));
@@ -121,7 +120,7 @@ function buildConditions(
   }
 
   const conds: SQL[] = [eq(leadBuffer.orgId, req.orgId!)];
-  if (brandIdStr) conds.push(eq(leadBuffer.brandId, brandIdStr));
+  if (brandIdStr) conds.push(sql`${brandIdStr} = ANY(${leadBuffer.brandIds})`);
   if (campaignIdStr) conds.push(eq(leadBuffer.campaignId, campaignIdStr));
   if (orgIdStr) conds.push(eq(leadBuffer.orgId, orgIdStr));
   if (userIdStr) conds.push(eq(leadBuffer.userId, userIdStr));
@@ -139,7 +138,7 @@ function buildConditions(
 
 /**
  * Count distinct contacted leads by querying email-gateway for delivery status.
- * Groups served leads by brandId+campaignId, calls email-gateway per group,
+ * Groups served leads by first brandId + campaignId, calls email-gateway per group,
  * and returns the count of unique leadIds confirmed contacted.
  */
 async function countContacted(
@@ -150,7 +149,7 @@ async function countContacted(
     .select({
       leadId: servedLeads.leadId,
       email: servedLeads.email,
-      brandId: servedLeads.brandId,
+      brandIds: servedLeads.brandIds,
       campaignId: servedLeads.campaignId,
     })
     .from(servedLeads)
@@ -158,13 +157,14 @@ async function countContacted(
 
   if (rows.length === 0) return 0;
 
-  // Group by brandId+campaignId since email-gateway scopes status per brand/campaign
+  // Group by first brandId + campaignId since email-gateway scopes status per brand/campaign
   const groups = new Map<string, { brandId: string; campaignId: string; items: DeliveryStatusItem[] }>();
   for (const row of rows) {
     if (!row.leadId) continue;
-    const key = `${row.brandId}::${row.campaignId}`;
+    const primaryBrandId = row.brandIds[0] ?? "unknown";
+    const key = `${primaryBrandId}::${row.campaignId}`;
     if (!groups.has(key)) {
-      groups.set(key, { brandId: row.brandId, campaignId: row.campaignId, items: [] });
+      groups.set(key, { brandId: primaryBrandId, campaignId: row.campaignId, items: [] });
     }
     groups.get(key)!.items.push({ leadId: row.leadId, email: row.email });
   }
@@ -195,10 +195,11 @@ async function countContacted(
 
 /**
  * Count contacted leads per groupBy dimension.
+ * For brandId groupBy, unnests brand_ids to get per-brand counts.
  */
 async function countContactedGrouped(
   servedConds: SQL[],
-  groupByField: "campaignId" | "brandId" | "workflowSlug" | "featureSlug",
+  groupByField: "campaignId" | "workflowSlug" | "featureSlug",
   context: ServiceContext,
 ): Promise<Map<string, number>> {
   const groupCol = COLUMN_MAP[groupByField].served;
@@ -207,7 +208,7 @@ async function countContactedGrouped(
     .select({
       leadId: servedLeads.leadId,
       email: servedLeads.email,
-      brandId: servedLeads.brandId,
+      brandIds: servedLeads.brandIds,
       campaignId: servedLeads.campaignId,
       groupKey: groupCol,
     })
@@ -216,13 +217,14 @@ async function countContactedGrouped(
 
   if (rows.length === 0) return new Map();
 
-  // Group by brandId+campaignId for email-gateway calls
+  // Group by first brandId + campaignId for email-gateway calls
   const callGroups = new Map<string, { brandId: string; campaignId: string; items: (DeliveryStatusItem & { groupKey: string })[] }>();
   for (const row of rows) {
     if (!row.leadId) continue;
-    const key = `${row.brandId}::${row.campaignId}`;
+    const primaryBrandId = row.brandIds[0] ?? "unknown";
+    const key = `${primaryBrandId}::${row.campaignId}`;
     if (!callGroups.has(key)) {
-      callGroups.set(key, { brandId: row.brandId, campaignId: row.campaignId, items: [] });
+      callGroups.set(key, { brandId: primaryBrandId, campaignId: row.campaignId, items: [] });
     }
     callGroups.get(key)!.items.push({
       leadId: row.leadId,
@@ -259,6 +261,77 @@ async function countContactedGrouped(
 
   const result = new Map<string, number>();
   for (const [key, set] of contactedPerGroup) {
+    result.set(key, set.size);
+  }
+  return result;
+}
+
+/**
+ * Count contacted leads grouped by individual brand ID (unnesting brand_ids).
+ */
+async function countContactedGroupedByBrand(
+  servedConds: SQL[],
+  context: ServiceContext,
+): Promise<Map<string, number>> {
+  const rows = await db
+    .select({
+      leadId: servedLeads.leadId,
+      email: servedLeads.email,
+      brandIds: servedLeads.brandIds,
+      campaignId: servedLeads.campaignId,
+    })
+    .from(servedLeads)
+    .where(and(...servedConds));
+
+  if (rows.length === 0) return new Map();
+
+  // Group by first brandId + campaignId for email-gateway calls
+  const callGroups = new Map<string, { brandId: string; campaignId: string; items: (DeliveryStatusItem & { brandIds: string[] })[] }>();
+  for (const row of rows) {
+    if (!row.leadId) continue;
+    const primaryBrandId = row.brandIds[0] ?? "unknown";
+    const key = `${primaryBrandId}::${row.campaignId}`;
+    if (!callGroups.has(key)) {
+      callGroups.set(key, { brandId: primaryBrandId, campaignId: row.campaignId, items: [] });
+    }
+    callGroups.get(key)!.items.push({
+      leadId: row.leadId,
+      email: row.email,
+      brandIds: row.brandIds,
+    });
+  }
+
+  // Track contacted leadIds per brand
+  const contactedPerBrand = new Map<string, Set<string>>();
+
+  await Promise.all(
+    Array.from(callGroups.values()).map(async (group) => {
+      const response = await checkDeliveryStatus(
+        group.brandId,
+        group.campaignId,
+        group.items,
+        context,
+      );
+      if (!response) return;
+      for (const result of response.results) {
+        if (isContacted(result)) {
+          const item = group.items.find((i) => i.email === result.email);
+          if (item) {
+            // Attribute to each brand in the array
+            for (const bid of item.brandIds) {
+              if (!contactedPerBrand.has(bid)) {
+                contactedPerBrand.set(bid, new Set());
+              }
+              contactedPerBrand.get(bid)!.add(item.leadId);
+            }
+          }
+        }
+      }
+    }),
+  );
+
+  const result = new Map<string, number>();
+  for (const [key, set] of contactedPerBrand) {
     result.set(key, set.size);
   }
   return result;
@@ -348,6 +421,59 @@ router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
         const g = getGroup(toDynasty(row.key));
         if (row.status === "buffered") g.buffered += row.count;
         if (row.status === "skipped") g.skipped += row.count;
+      }
+
+      res.json({
+        groups: Array.from(groups.entries()).map(([key, stats]) => ({
+          key,
+          ...stats,
+        })),
+      });
+      return;
+    }
+
+    // --- brandId groupBy (unnest brand_ids) ---
+    if (groupByParam === "brandId") {
+      const [servedRows, contactedMap, bufferRows] = await Promise.all([
+        // Unnest brand_ids for per-brand served counts
+        db.execute(sql`
+          SELECT unnest(brand_ids) AS key, COUNT(*)::int AS count
+          FROM served_leads
+          WHERE ${and(...served.conds)}
+          GROUP BY key
+        `) as Promise<{ key: string; count: number }[]>,
+        countContactedGroupedByBrand(served.conds, egContext),
+        // Unnest brand_ids for per-brand buffer counts
+        db.execute(sql`
+          SELECT unnest(brand_ids) AS key, status, COUNT(*)::int AS count
+          FROM lead_buffer
+          WHERE ${and(...buffer.conds)}
+          GROUP BY key, status
+        `) as Promise<{ key: string; status: string; count: number }[]>,
+      ]);
+
+      const groups = new Map<
+        string,
+        { served: number; contacted: number; buffered: number; skipped: number }
+      >();
+
+      const getGroup = (key: string | null) => {
+        const k = key ?? "unknown";
+        if (!groups.has(k))
+          groups.set(k, { served: 0, contacted: 0, buffered: 0, skipped: 0 });
+        return groups.get(k)!;
+      };
+
+      for (const row of servedRows) {
+        getGroup(row.key).served = row.count;
+      }
+      for (const [key, contacted] of contactedMap) {
+        getGroup(key).contacted = contacted;
+      }
+      for (const row of bufferRows) {
+        const g = getGroup(row.key);
+        if (row.status === "buffered") g.buffered = row.count;
+        if (row.status === "skipped") g.skipped = row.count;
       }
 
       res.json({

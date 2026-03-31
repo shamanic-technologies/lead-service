@@ -87,7 +87,7 @@ function toClaimedRow(row: {
   data: unknown;
   status?: string;
   pushRunId?: string | null;
-  brandId: string;
+  brandIds: string[];
   orgId: string;
   userId: string | null;
   createdAt?: Date;
@@ -101,7 +101,7 @@ function toClaimedRow(row: {
     data: row.data,
     status: "claimed",
     push_run_id: row.pushRunId ?? null,
-    brand_id: row.brandId,
+    brand_ids: row.brandIds,
     org_id: row.orgId,
     user_id: row.userId,
     created_at: row.createdAt ?? new Date(),
@@ -136,7 +136,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "apollo",
       });
 
@@ -158,7 +158,7 @@ describe("buffer", () => {
           email: "hire@example.com",
           externalId: "apollo-1",
           data: { firstName: "Jane", email: "hire@example.com" },
-          brandId: "brand-1",
+          brandIds: ["brand-1"],
           orgId: "org-1",
           userId: null,
         })]);
@@ -197,7 +197,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "apollo",
         // No searchParams!
       });
@@ -215,7 +215,7 @@ describe("buffer", () => {
         email: "alice@acme.com",
         externalId: "e-1",
         data: { name: "Alice" },
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         orgId: "org-1",
         userId: null,
       })]);
@@ -240,7 +240,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "apollo",
         runId: "child-run-1",
       });
@@ -267,7 +267,7 @@ describe("buffer", () => {
         email: "svitlana@hashtagweb3.com",
         externalId: "e-1",
         data: apolloData,
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         orgId: "org-1",
         userId: null,
       })]);
@@ -287,7 +287,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "apollo",
       });
 
@@ -305,7 +305,7 @@ describe("buffer", () => {
           email: "alice@acme.com",
           externalId: "e-1",
           data: { name: "Alice" },
-          brandId: "brand-1",
+          brandIds: ["brand-1"],
           orgId: "org-1",
           userId: null,
         })])
@@ -316,7 +316,7 @@ describe("buffer", () => {
           email: "bob@acme.com",
           externalId: "e-2",
           data: { name: "Bob" },
-          brandId: "brand-1",
+          brandIds: ["brand-1"],
           orgId: "org-1",
           userId: null,
         })]);
@@ -359,7 +359,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "apollo",
       });
 
@@ -376,7 +376,7 @@ describe("buffer", () => {
         email: "new-lead@example.com",
         externalId: "apollo-1",
         data: { firstName: "New" },
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         orgId: "org-1",
         userId: null,
       });
@@ -413,7 +413,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "apollo",
 
       });
@@ -432,7 +432,7 @@ describe("buffer", () => {
         email: "ctx-lead@example.com",
         externalId: "apollo-ctx",
         data: { firstName: "Ctx" },
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         orgId: "org-1",
         userId: null,
       });
@@ -480,7 +480,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "apollo",
       });
 
@@ -501,7 +501,7 @@ describe("buffer", () => {
         email: "conv@example.com",
         externalId: "apollo-conv",
         data: { firstName: "Conv" },
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         orgId: "org-1",
         userId: null,
       });
@@ -555,7 +555,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "apollo",
       });
 
@@ -576,9 +576,8 @@ describe("buffer", () => {
       expect(contextArg).toContain("Tech journalists");
       expect(contextArg).toContain("Press coverage");
 
-      // Verify extractBrandFields was called with the right field descriptors
+      // Verify extractBrandFields was called with the right field descriptors (no brandId in path)
       expect(vi.mocked(extractBrandFields)).toHaveBeenCalledWith(
-        "brand-1",
         expect.arrayContaining([
           expect.objectContaining({ key: "industry" }),
           expect.objectContaining({ key: "target_job_titles" }),
@@ -606,7 +605,7 @@ describe("buffer", () => {
           organizationName: "Braven",
           title: "Managing Director",
         },
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         orgId: "org-1",
         userId: null,
       });
@@ -660,7 +659,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "apollo",
 
       });
@@ -691,7 +690,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "apollo",
 
       });
@@ -708,7 +707,7 @@ describe("buffer", () => {
         email: "",
         externalId: "apollo-person-1",
         data: { firstName: "Ray" },
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         orgId: "org-1",
         userId: null,
       })]);
@@ -744,7 +743,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "apollo",
         runId: "run-1",
       });
@@ -764,7 +763,7 @@ describe("buffer", () => {
           email: "",
           externalId: "known-no-email",
           data: { firstName: "Ghost" },
-          brandId: "brand-1",
+          brandIds: ["brand-1"],
           orgId: "org-1",
           userId: null,
         })])
@@ -775,7 +774,7 @@ describe("buffer", () => {
           email: "bob@acme.com",
           externalId: "e-2",
           data: { name: "Bob" },
-          brandId: "brand-1",
+          brandIds: ["brand-1"],
           orgId: "org-1",
           userId: null,
         })]);
@@ -803,7 +802,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "apollo",
       });
 
@@ -820,7 +819,7 @@ describe("buffer", () => {
         email: "",
         externalId: "apollo-wf-1",
         data: { firstName: "Workflow" },
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         orgId: "org-1",
         userId: null,
       });
@@ -863,7 +862,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "apollo",
 
         workflowSlug: "cold-email-outreach",
@@ -892,7 +891,7 @@ describe("buffer", () => {
         email: "torian@theorion.com",
         externalId: "e-1",
         data: { firstName: "Torian", email: null, title: "Director" },
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         orgId: "org-1",
         userId: null,
       })]);
@@ -912,7 +911,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "apollo",
       });
 
@@ -934,7 +933,7 @@ describe("buffer", () => {
           email: "",
           externalId: null,
           data: { name: "Ghost" },
-          brandId: "brand-1",
+          brandIds: ["brand-1"],
           orgId: "org-1",
           userId: null,
         })])
@@ -948,7 +947,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "apollo",
       });
 
@@ -966,7 +965,7 @@ describe("buffer", () => {
           email: "",
           externalId: "apollo-no-email",
           data: { name: "NoEmail" },
-          brandId: "brand-1",
+          brandIds: ["brand-1"],
           orgId: "org-1",
           userId: null,
         })])
@@ -977,7 +976,7 @@ describe("buffer", () => {
           email: "good@acme.com",
           externalId: "e-good",
           data: { name: "Good" },
-          brandId: "brand-1",
+          brandIds: ["brand-1"],
           orgId: "org-1",
           userId: null,
         })]);
@@ -1003,7 +1002,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "apollo",
       });
 
@@ -1019,7 +1018,7 @@ describe("buffer", () => {
         email: "alice@acme.com",
         externalId: "e-1",
         data: { name: "Alice" },
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         orgId: "org-1",
         userId: null,
       })]);
@@ -1040,7 +1039,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "apollo",
       });
 
@@ -1065,7 +1064,7 @@ describe("buffer", () => {
           organizationName: "TechCrunch",
           sourceType: "journalist",
         },
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         orgId: "org-1",
         userId: null,
       });
@@ -1118,7 +1117,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "journalist",
       });
 
@@ -1146,7 +1145,7 @@ describe("buffer", () => {
           organizationName: "The Verge",
           sourceType: "journalist",
         },
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         orgId: "org-1",
         userId: null,
       })]);
@@ -1179,7 +1178,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "apollo",
       });
 
@@ -1207,7 +1206,7 @@ describe("buffer", () => {
             organizationDomain: "unknown.com",
             sourceType: "journalist",
           },
-          brandId: "brand-1",
+          brandIds: ["brand-1"],
           orgId: "org-1",
           userId: null,
         })])
@@ -1227,7 +1226,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "apollo",
       });
 
@@ -1247,7 +1246,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "journalist",
         featureInput: { companyContext: "A test brand" },
       });
@@ -1276,7 +1275,7 @@ describe("buffer", () => {
           organizationName: "Discovered Outlet",
           sourceType: "journalist",
         },
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         orgId: "org-1",
         userId: null,
       });
@@ -1306,7 +1305,7 @@ describe("buffer", () => {
         outletUrl: "https://discovered-outlet.com",
         outletDomain: "discovered-outlet.com",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         relevanceScore: 0.9,
         whyRelevant: "Relevant outlet",
         whyNotRelevant: "",
@@ -1355,7 +1354,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "journalist",
         featureInput,
       });
@@ -1385,7 +1384,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "journalist",
       });
 
@@ -1414,7 +1413,7 @@ describe("buffer", () => {
           organizationName: "TechCrunch",
           sourceType: "journalist",
         },
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         orgId: "org-1",
         userId: null,
       });
@@ -1476,7 +1475,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "journalist",
       });
 
@@ -1501,7 +1500,7 @@ describe("buffer", () => {
           email: "jserra@elkisconstruction.com",
           externalId: "e-dup",
           data: { name: "J Serra" },
-          brandId: "brand-1",
+          brandIds: ["brand-1"],
           orgId: "org-1",
           userId: null,
         })])
@@ -1512,7 +1511,7 @@ describe("buffer", () => {
           email: "unique@other.com",
           externalId: "e-next",
           data: { name: "Unique" },
-          brandId: "brand-1",
+          brandIds: ["brand-1"],
           orgId: "org-1",
           userId: null,
         })]);
@@ -1545,7 +1544,7 @@ describe("buffer", () => {
       const result = await pullNext({
         orgId: "org-1",
         campaignId: "campaign-1",
-        brandId: "brand-1",
+        brandIds: ["brand-1"],
         sourceType: "apollo",
       });
 

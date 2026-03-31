@@ -6,6 +6,7 @@ const mockFrom = vi.fn();
 const mockWhere = vi.fn();
 const mockGroupBy = vi.fn();
 const mockSelect = vi.fn();
+const mockExecute = vi.fn();
 
 vi.mock("../../src/db/index.js", () => ({
   db: {
@@ -20,6 +21,7 @@ vi.mock("../../src/db/index.js", () => ({
         },
       };
     },
+    execute: (...args: unknown[]) => mockExecute(...args),
   },
 }));
 
@@ -94,6 +96,7 @@ describe("GET /stats", () => {
     // Default: all queries return zero/empty
     mockWhere.mockReturnValue(queryResult([{ count: 0 }]));
     mockCheckDeliveryStatus.mockResolvedValue(null);
+    mockExecute.mockResolvedValue([]);
     // Default dynasty mocks
     mockResolveFeatureDynastySlugs.mockResolvedValue([]);
     mockResolveWorkflowDynastySlugs.mockResolvedValue([]);
@@ -154,8 +157,8 @@ describe("GET /stats", () => {
     const app = createApp();
 
     const servedLeadRows = [
-      { leadId: "lead-1", email: "alice@acme.com", brandId: "b1", campaignId: "c1" },
-      { leadId: "lead-2", email: "bob@acme.com", brandId: "b1", campaignId: "c1" },
+      { leadId: "lead-1", email: "alice@acme.com", brandIds: ["b1"], campaignId: "c1" },
+      { leadId: "lead-2", email: "bob@acme.com", brandIds: ["b1"], campaignId: "c1" },
     ];
 
     // Flat response Promise.all order:
@@ -214,7 +217,7 @@ describe("GET /stats", () => {
       if (whereCall === 1) return queryResult([{ count: 1 }]);
       if (whereCall === 2) {
         return queryResult([
-          { leadId: "lead-1", email: "alice@acme.com", brandId: "b1", campaignId: "c1" },
+          { leadId: "lead-1", email: "alice@acme.com", brandIds: ["b1"], campaignId: "c1" },
         ]);
       }
       return queryResult([]);
