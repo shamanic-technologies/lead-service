@@ -56,13 +56,14 @@ describe("email-gateway-client", () => {
       const [url, opts] = mockFetch.mock.calls[0];
       expect(url).toContain("/status");
       expect(opts.method).toBe("POST");
+      expect(opts.headers["x-brand-id"]).toBe("brand-1");
       const body = JSON.parse(opts.body);
-      expect(body.brandId).toBe("brand-1");
+      expect(body.brandId).toBeUndefined();
       expect(body.campaignId).toBe("campaign-1");
       expect(body.items).toEqual([{ leadId: "lead-1", email: "alice@acme.com" }]);
     });
 
-    it("sends brandId without campaignId when campaignId is undefined", async () => {
+    it("sends brandId via x-brand-id header, not in body, when campaignId is undefined", async () => {
       mockFetch.mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({ results: [] }),
@@ -72,15 +73,12 @@ describe("email-gateway-client", () => {
         { leadId: "lead-1", email: "alice@acme.com" },
       ]);
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          body: JSON.stringify({
-            brandId: "brand-1",
-            items: [{ leadId: "lead-1", email: "alice@acme.com" }],
-          }),
-        })
-      );
+      const [, opts] = mockFetch.mock.calls[0];
+      expect(opts.headers["x-brand-id"]).toBe("brand-1");
+      const body = JSON.parse(opts.body);
+      expect(body.brandId).toBeUndefined();
+      expect(body.campaignId).toBeUndefined();
+      expect(body.items).toEqual([{ leadId: "lead-1", email: "alice@acme.com" }]);
     });
 
     it("returns null on non-200 response", async () => {
