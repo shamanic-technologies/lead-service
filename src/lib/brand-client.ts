@@ -35,7 +35,11 @@ export async function fetchBrand(
     const response = await fetch(url.toString(), { headers });
 
     if (!response.ok) {
-      console.warn(`[brand-client] Failed to fetch brand ${brandId}: ${response.status}`);
+      const msg = `[brand-client] Failed to fetch brand ${brandId}: ${response.status}`;
+      if (response.status >= 500) {
+        throw new Error(msg);
+      }
+      console.warn(msg);
       return null;
     }
 
@@ -43,7 +47,7 @@ export async function fetchBrand(
     return data.brand;
   } catch (error) {
     console.error("[brand-client] Error fetching brand:", error);
-    return null;
+    throw error;
   }
 }
 
@@ -86,7 +90,11 @@ export async function extractBrandFields(
     });
 
     if (!response.ok) {
-      console.warn(`[brand-client] extract-fields failed: ${response.status}`);
+      const msg = `[brand-client] extract-fields failed: ${response.status}`;
+      if (response.status >= 500) {
+        throw new Error(msg);
+      }
+      console.warn(msg);
       return null;
     }
 
@@ -94,7 +102,7 @@ export async function extractBrandFields(
     return data.results;
   } catch (error) {
     console.error("[brand-client] Error extracting brand fields:", error);
-    return null;
+    throw error;
   }
 }
 
@@ -109,7 +117,11 @@ export async function fetchExtractedFields(
     });
 
     if (!response.ok) {
-      console.warn(`[brand-client] fetch extracted-fields failed for brand ${brandId}: ${response.status}`);
+      const msg = `[brand-client] fetch extracted-fields failed for brand ${brandId}: ${response.status}`;
+      if (response.status >= 500) {
+        throw new Error(msg);
+      }
+      console.warn(msg);
       return null;
     }
 
@@ -117,6 +129,6 @@ export async function fetchExtractedFields(
     return data.fields;
   } catch (error) {
     console.error("[brand-client] Error fetching extracted fields:", error);
-    return null;
+    throw error;
   }
 }

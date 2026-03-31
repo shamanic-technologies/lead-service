@@ -56,7 +56,11 @@ export async function fetchNextJournalist(
     });
 
     if (!response.ok) {
-      console.warn(`[journalist-client] buffer/next failed for outlet ${outletId}: ${response.status}`);
+      const msg = `[journalist-client] buffer/next failed for outlet ${outletId}: ${response.status}`;
+      if (response.status >= 500) {
+        throw new Error(msg);
+      }
+      console.warn(msg);
       return { found: false };
     }
 
@@ -64,6 +68,6 @@ export async function fetchNextJournalist(
     return data;
   } catch (error) {
     console.error("[journalist-client] Error fetching next journalist:", error);
-    return { found: false };
+    throw error;
   }
 }

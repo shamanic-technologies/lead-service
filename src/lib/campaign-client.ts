@@ -32,7 +32,11 @@ export async function fetchCampaign(
     });
 
     if (!response.ok) {
-      console.warn(`[campaign-client] Failed to fetch campaign ${campaignId}: ${response.status}`);
+      const msg = `[campaign-client] Failed to fetch campaign ${campaignId}: ${response.status}`;
+      if (response.status >= 500) {
+        throw new Error(msg);
+      }
+      console.warn(msg);
       return null;
     }
 
@@ -40,6 +44,6 @@ export async function fetchCampaign(
     return data.campaign;
   } catch (error) {
     console.error("[campaign-client] Error fetching campaign:", error);
-    return null;
+    throw error;
   }
 }

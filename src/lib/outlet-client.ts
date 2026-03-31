@@ -72,7 +72,11 @@ export async function fetchNextOutlet(context: {
     });
 
     if (!response.ok) {
-      console.warn(`[outlet-client] buffer/next failed for campaign ${context.campaignId}: ${response.status}`);
+      const msg = `[outlet-client] buffer/next failed for campaign ${context.campaignId}: ${response.status}`;
+      if (response.status >= 500) {
+        throw new Error(msg);
+      }
+      console.warn(msg);
       return { found: false };
     }
 
@@ -80,7 +84,7 @@ export async function fetchNextOutlet(context: {
     return data;
   } catch (error) {
     console.error("[outlet-client] Error fetching next outlet:", error);
-    return { found: false };
+    throw error;
   }
 }
 
@@ -106,7 +110,11 @@ export async function fetchOutletsByCampaign(
     );
 
     if (!response.ok) {
-      console.warn(`[outlet-client] Failed to fetch outlets for campaign ${campaignId}: ${response.status}`);
+      const msg = `[outlet-client] Failed to fetch outlets for campaign ${campaignId}: ${response.status}`;
+      if (response.status >= 500) {
+        throw new Error(msg);
+      }
+      console.warn(msg);
       return null;
     }
 
@@ -114,6 +122,6 @@ export async function fetchOutletsByCampaign(
     return data.outlets;
   } catch (error) {
     console.error("[outlet-client] Error fetching outlets:", error);
-    return null;
+    throw error;
   }
 }
