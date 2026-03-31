@@ -206,6 +206,23 @@ describe("service client headers", () => {
     });
   });
 
+  describe("brand-client fetchBrand", () => {
+    it("throws on 5xx error", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ error: "internal" }, 500));
+
+      const { fetchBrand } = await import("../../src/lib/brand-client.js");
+      await expect(fetchBrand("brand-1", "org-1")).rejects.toThrow("500");
+    });
+
+    it("returns null on 4xx error", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ error: "not found" }, 404));
+
+      const { fetchBrand } = await import("../../src/lib/brand-client.js");
+      const result = await fetchBrand("brand-1", "org-1");
+      expect(result).toBeNull();
+    });
+  });
+
   describe("brand-client extractBrandFields", () => {
     it("calls POST /brands/extract-fields (no brandId in path) and sends correct headers", async () => {
       fetchSpy.mockReturnValue(jsonResponse({ results: [] }));
@@ -344,8 +361,17 @@ describe("service client headers", () => {
       expect(body).toEqual({});
     });
 
-    it("returns found: false on /buffer/next error", async () => {
+    it("throws on /buffer/next 5xx error", async () => {
       fetchSpy.mockReturnValue(jsonResponse({ error: "fail" }, 502));
+
+      const { fetchNextOutlet } = await import("../../src/lib/outlet-client.js");
+      await expect(fetchNextOutlet({
+        orgId: "org-1", campaignId: "camp-1", brandId: "brand-1",
+      })).rejects.toThrow("502");
+    });
+
+    it("returns found: false on /buffer/next 4xx error", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ error: "not found" }, 404));
 
       const { fetchNextOutlet } = await import("../../src/lib/outlet-client.js");
       const result = await fetchNextOutlet({
@@ -423,13 +449,20 @@ describe("service client headers", () => {
       expect(body).toEqual({ outletId: "outlet-uuid-1" });
     });
 
-    it("returns found: false on error", async () => {
+    it("returns found: false on 4xx error", async () => {
       fetchSpy.mockReturnValue(jsonResponse({ error: "not found" }, 404));
 
       const { fetchNextJournalist } = await import("../../src/lib/journalist-client.js");
       const result = await fetchNextJournalist("bad-outlet");
 
       expect(result).toEqual({ found: false });
+    });
+
+    it("throws on 5xx error", async () => {
+      fetchSpy.mockReturnValue(jsonResponse({ error: "downstream failure" }, 502));
+
+      const { fetchNextJournalist } = await import("../../src/lib/journalist-client.js");
+      await expect(fetchNextJournalist("bad-outlet")).rejects.toThrow("502");
     });
   });
 

@@ -170,7 +170,7 @@ export async function apolloSearch(
     return result;
   } catch (error) {
     console.error("[apollo-client] Search failed:", error);
-    return null;
+    throw error;
   }
 }
 
@@ -212,7 +212,7 @@ export async function apolloSearchNext(options: {
     });
   } catch (error) {
     console.error("[apollo-client] SearchNext failed:", error);
-    return null;
+    throw error;
   }
 }
 
@@ -328,7 +328,7 @@ export async function apolloMatch(
     });
   } catch (error) {
     console.error(`[apollo-client] Match failed for ${params.firstName} ${params.lastName} @ ${params.organizationDomain}:`, error);
-    return null;
+    throw error;
   }
 }
 
@@ -359,6 +359,6 @@ export async function apolloEnrich(
     return result;
   } catch (error) {
     console.error(`[apollo-client] Enrich failed for personId=${personId}:`, error);
-    return null;
+    throw error;
   }
 }
