@@ -8,10 +8,6 @@ import {
   type StatusResult,
   type DeliveryStatusItem,
 } from "../lib/email-gateway-client.js";
-import {
-  fetchQualificationsByOrg,
-  classifyReply,
-} from "../lib/reply-qualification-client.js";
 
 const router = Router();
 
@@ -151,30 +147,20 @@ router.get("/leads/status", authenticate, async (req: AuthenticatedRequest, res)
 
     const statusMap = new Map<string, StatusResult>();
 
-    // Fetch delivery status + reply qualifications in parallel
-    const [, qualificationsMap] = await Promise.all([
-      Promise.all(
-        Array.from(groups.values()).map(async (group) => {
-          const response = await checkDeliveryStatus(
-            group.brandId,
-            campaignId,
-            group.items,
-            context,
-          );
-          if (!response) return;
-          for (const result of response.results) {
-            statusMap.set(result.email, result);
-          }
-        }),
-      ),
-      fetchQualificationsByOrg(orgId, {
-        runId: context.runId,
-        brandId: context.brandId,
-        campaignId: context.campaignId,
-        workflowSlug: context.workflowSlug,
-        featureSlug: context.featureSlug,
+    await Promise.all(
+      Array.from(groups.values()).map(async (group) => {
+        const response = await checkDeliveryStatus(
+          group.brandId,
+          campaignId,
+          group.items,
+          context,
+        );
+        if (!response) return;
+        for (const result of response.results) {
+          statusMap.set(result.email, result);
+        }
       }),
-    ]);
+    );
 
     // Deduplicate by email (cross-campaign can have same lead in multiple campaigns)
     const seen = new Set<string>();
@@ -192,18 +178,12 @@ router.get("/leads/status", authenticate, async (req: AuthenticatedRequest, res)
       const journalistId = (meta?.journalistId as string) ?? null;
       const outletId = (meta?.outletId as string) ?? null;
 
-      const qualification = qualificationsMap.get(row.email);
-      const replyClassification = qualification
-        ? classifyReply(qualification.classification)
-        : null;
-
       statuses.push({
         leadId: row.leadId,
         email: row.email,
         journalistId,
         outletId,
         ...flat,
-        replyClassification,
       });
     }
 
