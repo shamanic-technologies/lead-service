@@ -26,6 +26,8 @@ const TEST_ENV_VARS: Record<string, string> = {
   FEATURES_SERVICE_API_KEY: "test-features-key",
   WORKFLOW_SERVICE_URL: "http://workflows:3002",
   WORKFLOW_SERVICE_API_KEY: "test-workflows-key",
+  REPLY_QUALIFICATION_SERVICE_URL: "http://reply-qualification:3012",
+  REPLY_QUALIFICATION_SERVICE_API_KEY: "test-reply-qualification-key",
   NODE_ENV: "test",
 };
 

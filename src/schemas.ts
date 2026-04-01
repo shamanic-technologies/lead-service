@@ -396,6 +396,56 @@ const LeadStatusResponseSchema = z
   })
   .openapi("LeadStatusResponse");
 
+// --- Outreach Status (cross-campaign, brand-scoped) ---
+
+const OutreachStatusItemSchema = z
+  .object({
+    leadId: z.string().uuid(),
+    email: z.string(),
+    journalistId: z
+      .string()
+      .nullable()
+      .openapi({ description: "Journalist ID from journalists-service, if the lead is a journalist" }),
+    outletId: z
+      .string()
+      .nullable()
+      .openapi({ description: "Outlet ID from outlets-service, if the lead is a journalist" }),
+    contacted: z
+      .boolean()
+      .openapi({ description: "Whether this lead has been contacted (any campaign for this brand)" }),
+    delivered: z
+      .boolean()
+      .openapi({ description: "Whether an email was successfully delivered" }),
+    bounced: z
+      .boolean()
+      .openapi({ description: "Whether the email bounced" }),
+    replied: z
+      .boolean()
+      .openapi({ description: "Whether the lead replied (any reply, regardless of sentiment)" }),
+    replyClassification: z
+      .enum(["positive", "negative", "other"])
+      .nullable()
+      .openapi({
+        description:
+          "Simplified classification of the most recent reply. " +
+          "'positive' = willing_to_meet or interested, " +
+          "'negative' = not_interested, " +
+          "'other' = needs_more_info, out_of_office, unsubscribe, bounce, etc. " +
+          "null when no reply has been qualified.",
+      }),
+    lastDeliveredAt: z
+      .string()
+      .nullable()
+      .openapi({ description: "ISO timestamp of last delivery for this brand (cross-campaign)" }),
+  })
+  .openapi("OutreachStatusItem");
+
+const OutreachStatusResponseSchema = z
+  .object({
+    statuses: z.array(OutreachStatusItemSchema),
+  })
+  .openapi("OutreachStatusResponse");
+
 // --- Register Paths ---
 
 registry.registerPath({
@@ -668,6 +718,38 @@ registry.registerPath({
     },
     400: {
       description: "Missing campaignId",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: { description: "Unauthorized" },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/leads/outreach-status",
+  summary: "Get cross-campaign outreach status per lead for a brand",
+  description:
+    "Returns outreach status (contacted, delivered, bounced, replied, replyClassification) " +
+    "for each served lead across ALL campaigns for a given brand+org. " +
+    "Designed for outlet-level dedup in journalists-service. " +
+    "Calls email-gateway (brand-scoped) and reply-qualification-service internally.",
+  parameters: [
+    ...AuthHeaders,
+    {
+      in: "query" as const,
+      name: "brandId",
+      required: true,
+      schema: { type: "string" as const },
+      description: "Brand ID to scope outreach status (cross-campaign)",
+    },
+  ],
+  responses: {
+    200: {
+      description: "Per-lead outreach statuses across all campaigns for the brand",
+      content: { "application/json": { schema: OutreachStatusResponseSchema } },
+    },
+    400: {
+      description: "Missing brandId",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     401: { description: "Unauthorized" },
