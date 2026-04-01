@@ -299,6 +299,23 @@ describe("GET /leads/status", () => {
     expect(res.status).toBe(200);
   });
 
+  it("filters by outletId query param on metadata", async () => {
+    mockWhere.mockResolvedValue([
+      {
+        leadId: "lead-1", email: "alice@acme.com", brandIds: ["b1"],
+        metadata: { journalistId: "j1", outletId: "outlet-1" },
+      },
+    ]);
+    mockCheckDeliveryStatus.mockResolvedValue({ results: [] });
+
+    const app = createApp();
+    const res = await request(app).get("/leads/status?brandId=b1&outletId=outlet-1");
+    expect(res.status).toBe(200);
+    // The SQL condition is built — we verify the query ran and returned results
+    expect(res.body.statuses).toHaveLength(1);
+    expect(res.body.statuses[0].outletId).toBe("outlet-1");
+  });
+
   it("extracts journalistId and outletId from metadata", async () => {
     mockWhere.mockResolvedValue([
       {

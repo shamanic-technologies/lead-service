@@ -109,6 +109,7 @@ router.get("/leads/status", authenticate, async (req: AuthenticatedRequest, res)
   try {
     const campaignId = typeof req.query.campaignId === "string" ? req.query.campaignId : undefined;
     const brandId = typeof req.query.brandId === "string" ? req.query.brandId : undefined;
+    const outletId = typeof req.query.outletId === "string" ? req.query.outletId : undefined;
 
     // brandId is required when no campaignId (cross-campaign needs a brand scope)
     if (!campaignId && !brandId) {
@@ -124,6 +125,9 @@ router.get("/leads/status", authenticate, async (req: AuthenticatedRequest, res)
     }
     if (brandId) {
       conditions.push(sql`${brandId} = ANY(${servedLeads.brandIds})`);
+    }
+    if (outletId) {
+      conditions.push(sql`${servedLeads.metadata}->>'outletId' = ${outletId}`);
     }
 
     const rows = await db

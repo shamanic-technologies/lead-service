@@ -666,7 +666,7 @@ registry.registerPath({
     "Returns delivery status (contacted, delivered, bounced, replied, replyClassification) for served leads. " +
     "With campaignId: campaign-scoped status. Without campaignId: cross-campaign brand-scoped status " +
     "(requires brandId). At least one of campaignId or brandId must be provided. " +
-    "Calls email-gateway and reply-qualification-service internally.",
+    "Calls email-gateway internally.",
   parameters: [
     ...AuthHeaders,
     {
@@ -686,6 +686,15 @@ registry.registerPath({
       description:
         "Brand ID filter. Required when campaignId is absent (cross-campaign mode). " +
         "Optional additional filter when campaignId is present.",
+    },
+    {
+      in: "query" as const,
+      name: "outletId",
+      required: false,
+      schema: { type: "string" as const },
+      description:
+        "Outlet ID filter. Filters leads whose metadata.outletId matches. " +
+        "Useful for outlet-level dedup (e.g. checking if any journalist from an outlet was already contacted).",
     },
   ],
   responses: {
