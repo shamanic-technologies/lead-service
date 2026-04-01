@@ -1488,6 +1488,72 @@ describe("buffer", () => {
       expect(result.lead?.email).toBe("found@techcrunch.com");
     });
 
+    it("does not buffer journalist when no email found after apolloMatch — prevents infinite loop", async () => {
+      // Regression: when a journalist has no email and apolloMatch fails,
+      // fillBufferFromJournalists should NOT buffer the journalist. Otherwise
+      // pullNext claims it, skips it (no email), calls fillBuffer again, and
+      // the cycle repeats for every outlet — causing an infinite loop of service calls.
+      pgSqlMock.mockResolvedValue([]); // buffer always empty
+
+      vi.mocked(db.query.cursors.findFirst).mockResolvedValueOnce(undefined);
+
+      vi.mocked(fetchOutletsByCampaign).mockResolvedValueOnce([
+        { id: "outlet-1", outletName: "Expat Focus", outletUrl: "https://expatfocus.com", outletDomain: "expatfocus.com", relevanceScore: 80, outletStatus: "open", campaignId: "campaign-1" },
+      ]);
+
+      // Journalist has no valid emails
+      vi.mocked(fetchNextJournalist)
+        .mockResolvedValueOnce({
+          found: true,
+          journalist: {
+            id: "j-noemail-1",
+            journalistName: "Ghost Writer",
+            firstName: "Ghost",
+            lastName: "Writer",
+            entityType: "individual" as const,
+            relevanceScore: 0.7,
+            whyRelevant: "Writes about relocation",
+            whyNotRelevant: "",
+            emails: [],
+          },
+        })
+        .mockResolvedValueOnce({ found: false });
+
+      // apolloMatch fails — no email found
+      vi.mocked(apolloMatch).mockResolvedValueOnce({
+        enrichmentId: null,
+        person: null,
+        cached: false,
+      });
+
+      const setMock = vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(undefined),
+      });
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
+
+      const valuesMock = vi.fn().mockReturnValue({
+        onConflictDoNothing: vi.fn().mockResolvedValue(undefined),
+      });
+      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
+
+      const result = await pullNext({
+        orgId: "org-1",
+        campaignId: "campaign-1",
+        brandIds: ["brand-1"],
+        sourceType: "journalist",
+      });
+
+      expect(result.found).toBe(false);
+      // apolloMatch was tried during fillBufferFromJournalists
+      expect(vi.mocked(apolloMatch)).toHaveBeenCalledOnce();
+      // Crucially: db.insert should only be called for the cursor save, NOT for a buffer row
+      // (the journalist was not buffered because no email was found)
+      const { leadBuffer } = await import("../../src/db/schema.js");
+      const insertCalls = vi.mocked(db.insert).mock.calls;
+      const bufferInserts = insertCalls.filter(([table]) => table === leadBuffer);
+      expect(bufferInserts).toHaveLength(0);
+    });
+
     it("skips lead when markServed returns inserted: false (race condition dedup)", async () => {
       // Regression test: two concurrent pullNext calls claim different rows
       // but both have the same email. The second call's markServed returns

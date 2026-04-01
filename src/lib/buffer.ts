@@ -388,6 +388,11 @@ async function fillBufferFromJournalists(params: {
         }
       }
 
+      // No email after all enrichment attempts — skip, can't serve without email
+      if (!validEmail) {
+        continue;
+      }
+
       const data: Record<string, unknown> = {
         firstName: journalist.firstName,
         lastName: journalist.lastName,
@@ -404,7 +409,7 @@ async function fillBufferFromJournalists(params: {
       await db.insert(leadBuffer).values({
         namespace: params.campaignId,
         campaignId: params.campaignId,
-        email: validEmail ?? "",
+        email: validEmail,
         externalId,
         data,
         status: "buffered",
