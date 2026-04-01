@@ -46,12 +46,17 @@ function flattenCampaignStatus(result: StatusResult) {
     tx?.campaign.lead.replied
   );
 
+  const replyClassification =
+    bc?.campaign.lead.replyClassification ??
+    tx?.campaign.lead.replyClassification ??
+    null;
+
   const lastDeliveredAt =
     bc?.campaign.email.lastDeliveredAt ??
     tx?.campaign.email.lastDeliveredAt ??
     null;
 
-  return { contacted, delivered, bounced, replied, lastDeliveredAt };
+  return { contacted, delivered, bounced, replied, replyClassification, lastDeliveredAt };
 }
 
 /**
@@ -85,15 +90,20 @@ function flattenBrandStatus(result: StatusResult) {
     tx?.brand.lead.replied
   );
 
+  const replyClassification =
+    bc?.brand.lead.replyClassification ??
+    tx?.brand.lead.replyClassification ??
+    null;
+
   const lastDeliveredAt =
     bc?.brand.email.lastDeliveredAt ??
     tx?.brand.email.lastDeliveredAt ??
     null;
 
-  return { contacted, delivered, bounced, replied, lastDeliveredAt };
+  return { contacted, delivered, bounced, replied, replyClassification, lastDeliveredAt };
 }
 
-const DEFAULT_FLAT = { contacted: false, delivered: false, bounced: false, replied: false, lastDeliveredAt: null };
+const DEFAULT_FLAT = { contacted: false, delivered: false, bounced: false, replied: false, replyClassification: null, lastDeliveredAt: null };
 
 router.get("/leads/status", authenticate, async (req: AuthenticatedRequest, res) => {
   try {

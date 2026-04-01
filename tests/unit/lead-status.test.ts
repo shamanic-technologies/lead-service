@@ -61,7 +61,7 @@ function makeBroadcastStatus(overrides: {
   campaign?: { lead?: Record<string, unknown>; email?: Record<string, unknown> };
   brand?: { lead?: Record<string, unknown>; email?: Record<string, unknown> };
 }) {
-  const defaultLead = { contacted: false, delivered: false, replied: false, lastDeliveredAt: null };
+  const defaultLead = { contacted: false, delivered: false, replied: false, replyClassification: null, lastDeliveredAt: null };
   const defaultEmail = { contacted: false, delivered: false, bounced: false, unsubscribed: false, lastDeliveredAt: null };
   return {
     campaign: {
@@ -212,6 +212,7 @@ describe("GET /leads/status", () => {
       delivered: true,
       bounced: false,
       replied: true,
+      replyClassification: null,
       lastDeliveredAt: "2026-03-29T10:00:00Z",
     });
   });
@@ -258,6 +259,7 @@ describe("GET /leads/status", () => {
       delivered: false,
       bounced: false,
       replied: false,
+      replyClassification: null,
     });
   });
 
@@ -312,6 +314,83 @@ describe("GET /leads/status", () => {
     expect(res.body.statuses[0].outletId).toBe("o1");
   });
 
+  it("surfaces replyClassification from email-gateway (campaign-scoped)", async () => {
+    mockWhere.mockResolvedValue([
+      { leadId: "lead-1", email: "alice@acme.com", brandIds: ["b1"], metadata: null },
+    ]);
+
+    mockCheckDeliveryStatus.mockResolvedValue({
+      results: [
+        {
+          leadId: "lead-1",
+          email: "alice@acme.com",
+          broadcast: makeBroadcastStatus({
+            campaign: {
+              lead: { contacted: true, delivered: true, replied: true, replyClassification: "positive" },
+              email: { contacted: true, delivered: true, lastDeliveredAt: "2026-04-01T12:00:00Z" },
+            },
+          }),
+        },
+      ],
+    });
+
+    const app = createApp();
+    const res = await request(app).get("/leads/status?campaignId=c1");
+    expect(res.body.statuses[0].replyClassification).toBe("positive");
+    expect(res.body.statuses[0].replied).toBe(true);
+  });
+
+  it("surfaces replyClassification from email-gateway (brand-scoped)", async () => {
+    mockWhere.mockResolvedValue([
+      { leadId: "lead-1", email: "alice@acme.com", brandIds: ["b1"], metadata: null },
+    ]);
+
+    mockCheckDeliveryStatus.mockResolvedValue({
+      results: [
+        {
+          leadId: "lead-1",
+          email: "alice@acme.com",
+          broadcast: makeBroadcastStatus({
+            brand: {
+              lead: { contacted: true, delivered: true, replied: true, replyClassification: "negative" },
+              email: { contacted: true, delivered: true, lastDeliveredAt: "2026-04-01T12:00:00Z" },
+            },
+          }),
+        },
+      ],
+    });
+
+    const app = createApp();
+    const res = await request(app).get("/leads/status?brandId=b1");
+    expect(res.body.statuses[0].replyClassification).toBe("negative");
+  });
+
+  it("returns null replyClassification when no reply", async () => {
+    mockWhere.mockResolvedValue([
+      { leadId: "lead-1", email: "alice@acme.com", brandIds: ["b1"], metadata: null },
+    ]);
+
+    mockCheckDeliveryStatus.mockResolvedValue({
+      results: [
+        {
+          leadId: "lead-1",
+          email: "alice@acme.com",
+          broadcast: makeBroadcastStatus({
+            campaign: {
+              lead: { contacted: true, delivered: true },
+              email: { contacted: true, delivered: true, lastDeliveredAt: "2026-04-01T12:00:00Z" },
+            },
+          }),
+        },
+      ],
+    });
+
+    const app = createApp();
+    const res = await request(app).get("/leads/status?campaignId=c1");
+    expect(res.body.statuses[0].replyClassification).toBeNull();
+    expect(res.body.statuses[0].replied).toBe(false);
+  });
+
   it("returns null journalistId/outletId when metadata is null", async () => {
     mockWhere.mockResolvedValue([
       { leadId: "lead-1", email: "alice@acme.com", brandIds: ["b1"], metadata: null },
@@ -326,19 +405,20 @@ describe("GET /leads/status", () => {
 });
 
 describe("flattenCampaignStatus", () => {
-  it("detects replied from broadcast campaign lead", () => {
+  it("detects replied and replyClassification from broadcast campaign lead", () => {
     const result = flattenCampaignStatus({
       leadId: "l1",
       email: "a@b.com",
       broadcast: makeBroadcastStatus({
         campaign: {
-          lead: { contacted: true, delivered: true, replied: true },
+          lead: { contacted: true, delivered: true, replied: true, replyClassification: "positive" },
           email: { contacted: true, delivered: true, lastDeliveredAt: "2026-03-29T10:00:00Z" },
         },
       }),
     });
 
     expect(result.replied).toBe(true);
+    expect(result.replyClassification).toBe("positive");
     expect(result.delivered).toBe(true);
     expect(result.contacted).toBe(true);
     expect(result.lastDeliveredAt).toBe("2026-03-29T10:00:00Z");
@@ -371,7 +451,7 @@ describe("flattenCampaignStatus", () => {
   it("returns all false when no providers present", () => {
     const result = flattenCampaignStatus({ leadId: "l1", email: "a@b.com" });
     expect(result).toEqual({
-      contacted: false, delivered: false, bounced: false, replied: false, lastDeliveredAt: null,
+      contacted: false, delivered: false, bounced: false, replied: false, replyClassification: null, lastDeliveredAt: null,
     });
   });
 });
@@ -399,7 +479,7 @@ describe("flattenBrandStatus", () => {
   it("returns all false when no providers present", () => {
     const result = flattenBrandStatus({ leadId: "l1", email: "a@b.com" });
     expect(result).toEqual({
-      contacted: false, delivered: false, bounced: false, replied: false, lastDeliveredAt: null,
+      contacted: false, delivered: false, bounced: false, replied: false, replyClassification: null, lastDeliveredAt: null,
     });
   });
 });
