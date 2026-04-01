@@ -9,6 +9,7 @@ export interface LeadDeliveryStatus {
   contacted: boolean;
   delivered: boolean;
   replied: boolean;
+  replyClassification: "positive" | "negative" | "neutral" | null;
   lastDeliveredAt: string | null;
 }
 

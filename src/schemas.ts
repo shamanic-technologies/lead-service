@@ -395,10 +395,17 @@ const LeadStatusItemSchema = z
     bounced: z.boolean(),
     replied: z
       .boolean()
+      .openapi({ description: "Whether the lead replied (any reply, regardless of sentiment)" }),
+    replyClassification: z
+      .enum(["positive", "negative", "neutral"])
+      .nullable()
       .openapi({
         description:
-          "Whether the lead replied. Currently a raw boolean from email-gateway (any reply = true). " +
-          "Reply classification (positive/negative/other) will be added once email-gateway exposes it.",
+          "Classification of the most recent reply from email-gateway. " +
+          "'positive' = interested or willing to meet, " +
+          "'negative' = not interested, " +
+          "'neutral' = ambiguous or informational. " +
+          "null when no reply detected.",
       }),
     lastDeliveredAt: z.string().nullable(),
   })
