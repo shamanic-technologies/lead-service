@@ -747,57 +747,6 @@
           "email": {
             "type": "string"
           },
-          "contacted": {
-            "type": "boolean"
-          },
-          "delivered": {
-            "type": "boolean"
-          },
-          "bounced": {
-            "type": "boolean"
-          },
-          "replied": {
-            "type": "boolean"
-          },
-          "lastDeliveredAt": {
-            "type": "string",
-            "nullable": true
-          }
-        },
-        "required": [
-          "leadId",
-          "email",
-          "contacted",
-          "delivered",
-          "bounced",
-          "replied",
-          "lastDeliveredAt"
-        ]
-      },
-      "OutreachStatusResponse": {
-        "type": "object",
-        "properties": {
-          "statuses": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/OutreachStatusItem"
-            }
-          }
-        },
-        "required": [
-          "statuses"
-        ]
-      },
-      "OutreachStatusItem": {
-        "type": "object",
-        "properties": {
-          "leadId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "email": {
-            "type": "string"
-          },
           "journalistId": {
             "type": "string",
             "nullable": true,
@@ -809,16 +758,13 @@
             "description": "Outlet ID from outlets-service, if the lead is a journalist"
           },
           "contacted": {
-            "type": "boolean",
-            "description": "Whether this lead has been contacted (any campaign for this brand)"
+            "type": "boolean"
           },
           "delivered": {
-            "type": "boolean",
-            "description": "Whether an email was successfully delivered"
+            "type": "boolean"
           },
           "bounced": {
-            "type": "boolean",
-            "description": "Whether the email bounced"
+            "type": "boolean"
           },
           "replied": {
             "type": "boolean",
@@ -833,12 +779,11 @@
               "other",
               null
             ],
-            "description": "Simplified classification of the most recent reply. 'positive' = willing_to_meet or interested, 'negative' = not_interested, 'other' = needs_more_info, out_of_office, unsubscribe, bounce, etc. null when no reply has been qualified."
+            "description": "Simplified classification of the most recent reply via reply-qualification-service. 'positive' = willing_to_meet or interested, 'negative' = not_interested, 'other' = needs_more_info, out_of_office, unsubscribe, bounce, etc. null when no reply has been qualified."
           },
           "lastDeliveredAt": {
             "type": "string",
-            "nullable": true,
-            "description": "ISO timestamp of last delivery for this brand (cross-campaign)"
+            "nullable": true
           }
         },
         "required": [
@@ -1569,8 +1514,8 @@
     },
     "/leads/status": {
       "get": {
-        "summary": "Get per-lead delivery status for a campaign",
-        "description": "Returns delivery status (contacted, delivered, bounced, replied) for each served lead in a campaign. Calls email-gateway internally to resolve status.",
+        "summary": "Get per-lead delivery and reply status",
+        "description": "Returns delivery status (contacted, delivered, bounced, replied, replyClassification) for served leads. With campaignId: campaign-scoped status. Without campaignId: cross-campaign brand-scoped status (requires brandId). At least one of campaignId or brandId must be provided. Calls email-gateway and reply-qualification-service internally.",
         "parameters": [
           {
             "in": "header",
@@ -1647,11 +1592,11 @@
           {
             "in": "query",
             "name": "campaignId",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string"
             },
-            "description": "Campaign ID to fetch lead statuses for"
+            "description": "Campaign ID filter. When provided, status is campaign-scoped. When absent, status is brand-scoped (cross-campaign) and brandId becomes required."
           },
           {
             "in": "query",
@@ -1660,12 +1605,12 @@
             "schema": {
               "type": "string"
             },
-            "description": "Optional brand ID filter"
+            "description": "Brand ID filter. Required when campaignId is absent (cross-campaign mode). Optional additional filter when campaignId is present."
           }
         ],
         "responses": {
           "200": {
-            "description": "Per-lead delivery statuses",
+            "description": "Per-lead delivery and reply statuses",
             "content": {
               "application/json": {
                 "schema": {
@@ -1675,121 +1620,7 @@
             }
           },
           "400": {
-            "description": "Missing campaignId",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          }
-        }
-      }
-    },
-    "/leads/outreach-status": {
-      "get": {
-        "summary": "Get cross-campaign outreach status per lead for a brand",
-        "description": "Returns outreach status (contacted, delivered, bounced, replied, replyClassification) for each served lead across ALL campaigns for a given brand+org. Designed for outlet-level dedup in journalists-service. Calls email-gateway (brand-scoped) and reply-qualification-service internally.",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "x-api-key",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "API key for authenticating requests"
-          },
-          {
-            "in": "header",
-            "name": "x-org-id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Internal organization UUID from client-service"
-          },
-          {
-            "in": "header",
-            "name": "x-user-id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Internal user UUID from client-service"
-          },
-          {
-            "in": "header",
-            "name": "x-run-id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "The caller's run ID (used as parentRunId when creating this service's own run)"
-          },
-          {
-            "in": "header",
-            "name": "x-campaign-id",
-            "required": false,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Campaign identifier (auto-injected by workflow-service)"
-          },
-          {
-            "in": "header",
-            "name": "x-brand-id",
-            "required": false,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Brand identifier(s), comma-separated for multi-brand campaigns (auto-injected by workflow-service). Example: uuid1,uuid2,uuid3"
-          },
-          {
-            "in": "header",
-            "name": "x-workflow-slug",
-            "required": false,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Workflow slug (auto-injected by workflow-service)"
-          },
-          {
-            "in": "header",
-            "name": "x-feature-slug",
-            "required": false,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Feature slug for tracking (propagated through the call chain)"
-          },
-          {
-            "in": "query",
-            "name": "brandId",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Brand ID to scope outreach status (cross-campaign)"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Per-lead outreach statuses across all campaigns for the brand",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OutreachStatusResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Missing brandId",
+            "description": "Missing required query parameters",
             "content": {
               "application/json": {
                 "schema": {
