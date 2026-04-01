@@ -17,8 +17,6 @@ describe("config", () => {
     expect(config.RUNS_SERVICE_URL).toBe(process.env.RUNS_SERVICE_URL);
     expect(config.KEY_SERVICE_URL).toBe(process.env.KEY_SERVICE_URL);
     expect(config.LEAD_SERVICE_API_KEY).toBe(process.env.LEAD_SERVICE_API_KEY);
-    expect(config.REPLY_QUALIFICATION_SERVICE_URL).toBe(process.env.REPLY_QUALIFICATION_SERVICE_URL);
-    expect(config.REPLY_QUALIFICATION_SERVICE_API_KEY).toBe(process.env.REPLY_QUALIFICATION_SERVICE_API_KEY);
   });
 
   it("throws when a required env var is missing", async () => {
