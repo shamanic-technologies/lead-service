@@ -8,10 +8,17 @@ import {
   type StatusResult,
   type DeliveryStatusItem,
 } from "../lib/email-gateway-client.js";
+import {
+  fetchQualificationsByOrg,
+  classifyReply,
+} from "../lib/reply-qualification-client.js";
 
 const router = Router();
 
-function flattenStatus(result: StatusResult) {
+/**
+ * Flatten status using campaign scope (when campaignId is provided).
+ */
+function flattenCampaignStatus(result: StatusResult) {
   const bc = result.broadcast;
   const tx = result.transactional;
 
@@ -51,20 +58,64 @@ function flattenStatus(result: StatusResult) {
   return { contacted, delivered, bounced, replied, lastDeliveredAt };
 }
 
+/**
+ * Flatten status using brand scope (when no campaignId — cross-campaign view).
+ */
+function flattenBrandStatus(result: StatusResult) {
+  const bc = result.broadcast;
+  const tx = result.transactional;
+
+  const contacted = !!(
+    bc?.brand.lead.contacted ||
+    bc?.brand.email.contacted ||
+    bc?.global.email.contacted ||
+    tx?.brand.lead.contacted ||
+    tx?.brand.email.contacted ||
+    tx?.global.email.contacted
+  );
+
+  const delivered = !!(
+    bc?.brand.email.delivered ||
+    tx?.brand.email.delivered
+  );
+
+  const bounced = !!(
+    bc?.brand.email.bounced ||
+    tx?.brand.email.bounced
+  );
+
+  const replied = !!(
+    bc?.brand.lead.replied ||
+    tx?.brand.lead.replied
+  );
+
+  const lastDeliveredAt =
+    bc?.brand.email.lastDeliveredAt ??
+    tx?.brand.email.lastDeliveredAt ??
+    null;
+
+  return { contacted, delivered, bounced, replied, lastDeliveredAt };
+}
+
+const DEFAULT_FLAT = { contacted: false, delivered: false, bounced: false, replied: false, lastDeliveredAt: null };
+
 router.get("/leads/status", authenticate, async (req: AuthenticatedRequest, res) => {
   try {
     const campaignId = typeof req.query.campaignId === "string" ? req.query.campaignId : undefined;
-    if (!campaignId) {
-      res.status(400).json({ error: "campaignId query parameter is required" });
+    const brandId = typeof req.query.brandId === "string" ? req.query.brandId : undefined;
+
+    // brandId is required when no campaignId (cross-campaign needs a brand scope)
+    if (!campaignId && !brandId) {
+      res.status(400).json({ error: "Either campaignId or brandId query parameter is required" });
       return;
     }
 
-    const conditions: SQL[] = [
-      eq(servedLeads.orgId, req.orgId!),
-      eq(servedLeads.campaignId, campaignId),
-    ];
+    const orgId = req.orgId!;
+    const conditions: SQL[] = [eq(servedLeads.orgId, orgId)];
 
-    const brandId = typeof req.query.brandId === "string" ? req.query.brandId : undefined;
+    if (campaignId) {
+      conditions.push(eq(servedLeads.campaignId, campaignId));
+    }
     if (brandId) {
       conditions.push(sql`${brandId} = ANY(${servedLeads.brandIds})`);
     }
@@ -74,6 +125,7 @@ router.get("/leads/status", authenticate, async (req: AuthenticatedRequest, res)
         leadId: servedLeads.leadId,
         email: servedLeads.email,
         brandIds: servedLeads.brandIds,
+        metadata: servedLeads.metadata,
       })
       .from(servedLeads)
       .where(and(...conditions));
@@ -83,7 +135,10 @@ router.get("/leads/status", authenticate, async (req: AuthenticatedRequest, res)
       return;
     }
 
-    // Group by first brandId since email-gateway scopes status per brand/campaign
+    const context = getServiceContext(req);
+    const flatten = campaignId ? flattenCampaignStatus : flattenBrandStatus;
+
+    // Group by first brandId since email-gateway scopes status per brand
     const groups = new Map<string, { brandId: string; items: DeliveryStatusItem[] }>();
     for (const row of rows) {
       if (!row.leadId) continue;
@@ -94,38 +149,63 @@ router.get("/leads/status", authenticate, async (req: AuthenticatedRequest, res)
       groups.get(primaryBrandId)!.items.push({ leadId: row.leadId, email: row.email });
     }
 
-    const context = getServiceContext(req);
     const statusMap = new Map<string, StatusResult>();
 
-    await Promise.all(
-      Array.from(groups.values()).map(async (group) => {
-        const response = await checkDeliveryStatus(
-          group.brandId,
-          campaignId,
-          group.items,
-          context,
-        );
-        if (!response) return;
-        for (const result of response.results) {
-          statusMap.set(result.email, result);
-        }
+    // Fetch delivery status + reply qualifications in parallel
+    const [, qualificationsMap] = await Promise.all([
+      Promise.all(
+        Array.from(groups.values()).map(async (group) => {
+          const response = await checkDeliveryStatus(
+            group.brandId,
+            campaignId,
+            group.items,
+            context,
+          );
+          if (!response) return;
+          for (const result of response.results) {
+            statusMap.set(result.email, result);
+          }
+        }),
+      ),
+      fetchQualificationsByOrg(orgId, {
+        runId: context.runId,
+        brandId: context.brandId,
+        campaignId: context.campaignId,
+        workflowSlug: context.workflowSlug,
+        featureSlug: context.featureSlug,
       }),
-    );
+    ]);
 
-    const statuses = rows
-      .filter((row) => row.leadId)
-      .map((row) => {
-        const result = statusMap.get(row.email);
-        const flat = result
-          ? flattenStatus(result)
-          : { contacted: false, delivered: false, bounced: false, replied: false, lastDeliveredAt: null };
+    // Deduplicate by email (cross-campaign can have same lead in multiple campaigns)
+    const seen = new Set<string>();
+    const statuses = [];
 
-        return {
-          leadId: row.leadId!,
-          email: row.email,
-          ...flat,
-        };
+    for (const row of rows) {
+      if (!row.leadId) continue;
+      if (seen.has(row.email)) continue;
+      seen.add(row.email);
+
+      const result = statusMap.get(row.email);
+      const flat = result ? flatten(result) : DEFAULT_FLAT;
+
+      const meta = row.metadata as Record<string, unknown> | null;
+      const journalistId = (meta?.journalistId as string) ?? null;
+      const outletId = (meta?.outletId as string) ?? null;
+
+      const qualification = qualificationsMap.get(row.email);
+      const replyClassification = qualification
+        ? classifyReply(qualification.classification)
+        : null;
+
+      statuses.push({
+        leadId: row.leadId,
+        email: row.email,
+        journalistId,
+        outletId,
+        ...flat,
+        replyClassification,
       });
+    }
 
     res.json({ statuses });
   } catch (error) {
@@ -134,5 +214,5 @@ router.get("/leads/status", authenticate, async (req: AuthenticatedRequest, res)
   }
 });
 
-export { flattenStatus };
+export { flattenCampaignStatus, flattenBrandStatus };
 export default router;
