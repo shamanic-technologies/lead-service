@@ -32,7 +32,7 @@ export async function fetchBrand(
     const url = new URL(`${BRAND_SERVICE_URL}/brands/${brandId}`);
     if (orgId) url.searchParams.set("orgId", orgId);
 
-    const response = await fetch(url.toString(), { headers });
+    const response = await fetch(url.toString(), { headers, signal: AbortSignal.timeout(300_000) });
 
     if (!response.ok) {
       const msg = `[brand-client] Failed to fetch brand ${brandId}: ${response.status}`;
@@ -87,6 +87,7 @@ export async function extractBrandFields(
       method: "POST",
       headers: buildHeaders(orgId, context),
       body: JSON.stringify({ fields }),
+      signal: AbortSignal.timeout(300_000),
     });
 
     if (!response.ok) {
@@ -114,6 +115,7 @@ export async function fetchExtractedFields(
   try {
     const response = await fetch(`${BRAND_SERVICE_URL}/brands/${brandId}/extracted-fields`, {
       headers: buildHeaders(orgId, context),
+      signal: AbortSignal.timeout(300_000),
     });
 
     if (!response.ok) {

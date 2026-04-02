@@ -36,6 +36,7 @@ export async function resolveFeatureDynastySlugs(
     const url = `${FEATURES_SERVICE_URL}/features/dynasty/slugs?dynastySlug=${encodeURIComponent(dynastySlug)}`;
     const response = await fetch(url, {
       headers: buildHeaders(FEATURES_SERVICE_API_KEY, context),
+      signal: AbortSignal.timeout(300_000),
     });
     if (!response.ok) {
       console.warn(`[lead-service] Failed to resolve feature dynasty slug ${dynastySlug}: ${response.status}`);
@@ -61,6 +62,7 @@ export async function resolveWorkflowDynastySlugs(
     const url = `${WORKFLOW_SERVICE_URL}/workflows/dynasty/slugs?dynastySlug=${encodeURIComponent(dynastySlug)}`;
     const response = await fetch(url, {
       headers: buildHeaders(WORKFLOW_SERVICE_API_KEY, context),
+      signal: AbortSignal.timeout(300_000),
     });
     if (!response.ok) {
       console.warn(`[lead-service] Failed to resolve workflow dynasty slug ${dynastySlug}: ${response.status}`);
@@ -84,6 +86,7 @@ export async function fetchFeatureDynastyMap(
     const url = `${FEATURES_SERVICE_URL}/features/dynasties`;
     const response = await fetch(url, {
       headers: buildHeaders(FEATURES_SERVICE_API_KEY, context),
+      signal: AbortSignal.timeout(300_000),
     });
     if (!response.ok) {
       console.warn(`[lead-service] Failed to fetch feature dynasties: ${response.status}`);
@@ -107,6 +110,7 @@ export async function fetchWorkflowDynastyMap(
     const url = `${WORKFLOW_SERVICE_URL}/workflows/dynasties`;
     const response = await fetch(url, {
       headers: buildHeaders(WORKFLOW_SERVICE_API_KEY, context),
+      signal: AbortSignal.timeout(300_000),
     });
     if (!response.ok) {
       console.warn(`[lead-service] Failed to fetch workflow dynasties: ${response.status}`);
