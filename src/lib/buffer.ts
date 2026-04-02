@@ -13,7 +13,7 @@ async function isInBuffer(orgId: string, campaignId: string, externalId: string)
   const row = await db.query.leadBuffer.findFirst({
     where: and(
       eq(leadBuffer.orgId, orgId),
-      eq(leadBuffer.namespace, campaignId),
+      eq(leadBuffer.campaignId, campaignId),
       eq(leadBuffer.externalId, externalId)
     ),
   });
@@ -193,7 +193,7 @@ async function fillBufferFromSearch(params: {
       if (email && contactedMap.get(email)) continue;
 
       await db.insert(leadBuffer).values({
-        namespace: params.campaignId,
+        namespace: "apollo",
         campaignId: params.campaignId,
         email: email ?? "",
         externalId: externalId,
@@ -407,7 +407,7 @@ async function fillBufferFromJournalists(params: {
       };
 
       await db.insert(leadBuffer).values({
-        namespace: params.campaignId,
+        namespace: "journalist",
         campaignId: params.campaignId,
         email: validEmail,
         externalId,
@@ -477,7 +477,8 @@ export async function pullNext(params: {
       WHERE id = (
         SELECT id FROM lead_buffer
         WHERE org_id = ${params.orgId}
-          AND namespace = ${params.campaignId}
+          AND campaign_id = ${params.campaignId}
+          AND namespace = ${params.sourceType}
           AND status = 'buffered'
         ORDER BY CASE WHEN email != '' THEN 0 ELSE 1 END
         LIMIT 1
@@ -710,7 +711,7 @@ export async function pullNext(params: {
 
     const { inserted } = await markServed({
       orgId: params.orgId,
-      namespace: params.campaignId,
+      namespace: params.sourceType,
       brandIds: params.brandIds,
       campaignId: params.campaignId,
       email,
