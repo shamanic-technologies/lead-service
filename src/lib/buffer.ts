@@ -311,127 +311,170 @@ async function fillBufferFromJournalists(params: {
   }
 
   let totalFilled = 0;
+  let oi = cursorState.outletIndex;
 
-  for (let oi = cursorState.outletIndex; oi < outlets.length; oi++) {
-    const outlet = outlets[oi];
-    const organizationDomain = outlet.outletDomain || extractDomain(outlet.outletUrl);
+  // Outer loop: iterate through known outlets, discovering more when exhausted.
+  // Keep going until outlet-service has no more outlets to offer.
+  const MAX_DISCOVERY_ROUNDS = 50;
+  let discoveryRounds = 0;
 
-    // Call journalists-service buffer/next in a loop for this outlet
-    // journalists-service manages its own internal buffer per (campaign, outlet)
-    const MAX_JOURNALIST_PULLS = 50;
-    for (let pull = 0; pull < MAX_JOURNALIST_PULLS; pull++) {
-      const result = await fetchNextJournalist(outlet.id, {
-        ...serviceContext,
-        campaignId: params.campaignId,
-        orgId: params.orgId,
-      });
+  while (true) {
+    // Inner loop: iterate through known outlets starting from cursor
+    for (; oi < outlets.length; oi++) {
+      const outlet = outlets[oi];
+      const organizationDomain = outlet.outletDomain || extractDomain(outlet.outletUrl);
 
-      if (!result.found || !result.journalist) {
-        // No more journalists for this outlet
-        break;
-      }
+      // Call journalists-service buffer/next in a loop for this outlet
+      // journalists-service manages its own internal buffer per (campaign, outlet)
+      const MAX_JOURNALIST_PULLS = 50;
+      for (let pull = 0; pull < MAX_JOURNALIST_PULLS; pull++) {
+        const result = await fetchNextJournalist(outlet.id, {
+          ...serviceContext,
+          campaignId: params.campaignId,
+          orgId: params.orgId,
+        });
 
-      const journalist = result.journalist;
-
-      // Skip organization-type entities (we need individual people)
-      if (journalist.entityType === "organization") continue;
-
-      const externalId = journalist.id;
-
-      if (await isInBuffer(params.orgId, params.campaignId, externalId)) continue;
-
-      // Try email from buffer/next response first
-      let validEmail = journalist.emails
-        ?.filter(e => e.isValid)
-        ?.sort((a, b) => b.confidence - a.confidence)
-        ?.[0]?.email ?? null;
-
-      let enrichedData: Record<string, unknown> | null = null;
-
-      // No email — proactively match via Apollo Service
-      if (!validEmail && journalist.firstName && journalist.lastName && organizationDomain) {
-        const matchResult = await apolloMatch(
-          {
-            firstName: journalist.firstName,
-            lastName: journalist.lastName,
-            organizationDomain,
-          },
-          {
-            runId: params.pushRunId,
-            orgId: params.orgId,
-            userId: params.userId,
-            brandId: brandIdCsv,
-            campaignId: params.campaignId,
-            workflowSlug: params.workflowSlug,
-            featureSlug: params.featureSlug,
-          }
-        );
-
-        if (matchResult?.person?.email) {
-          validEmail = matchResult.person.email;
-          enrichedData = matchResult.person;
-
-          // Cache enrichment for later lookups
-          await db.insert(enrichments).values({
-            email: validEmail,
-            apolloPersonId: matchResult.person.id ?? null,
-            firstName: matchResult.person.firstName ?? null,
-            lastName: matchResult.person.lastName ?? null,
-            title: matchResult.person.title ?? null,
-            linkedinUrl: matchResult.person.linkedinUrl ?? null,
-            organizationName: matchResult.person.organizationName ?? null,
-            organizationDomain: matchResult.person.organizationDomain ?? null,
-            organizationIndustry: matchResult.person.organizationIndustry ?? null,
-            organizationSize: matchResult.person.organizationSize ?? null,
-            responseRaw: matchResult.person,
-          }).onConflictDoNothing();
+        if (!result.found || !result.journalist) {
+          // No more journalists for this outlet
+          break;
         }
+
+        const journalist = result.journalist;
+
+        // Skip organization-type entities (we need individual people)
+        if (journalist.entityType === "organization") continue;
+
+        const externalId = journalist.id;
+
+        if (await isInBuffer(params.orgId, params.campaignId, externalId)) continue;
+
+        // Try email from buffer/next response first
+        let validEmail = journalist.emails
+          ?.filter(e => e.isValid)
+          ?.sort((a, b) => b.confidence - a.confidence)
+          ?.[0]?.email ?? null;
+
+        let enrichedData: Record<string, unknown> | null = null;
+
+        // No email — proactively match via Apollo Service
+        if (!validEmail && journalist.firstName && journalist.lastName && organizationDomain) {
+          const matchResult = await apolloMatch(
+            {
+              firstName: journalist.firstName,
+              lastName: journalist.lastName,
+              organizationDomain,
+            },
+            {
+              runId: params.pushRunId,
+              orgId: params.orgId,
+              userId: params.userId,
+              brandId: brandIdCsv,
+              campaignId: params.campaignId,
+              workflowSlug: params.workflowSlug,
+              featureSlug: params.featureSlug,
+            }
+          );
+
+          if (matchResult?.person?.email) {
+            validEmail = matchResult.person.email;
+            enrichedData = matchResult.person;
+
+            // Cache enrichment for later lookups
+            await db.insert(enrichments).values({
+              email: validEmail,
+              apolloPersonId: matchResult.person.id ?? null,
+              firstName: matchResult.person.firstName ?? null,
+              lastName: matchResult.person.lastName ?? null,
+              title: matchResult.person.title ?? null,
+              linkedinUrl: matchResult.person.linkedinUrl ?? null,
+              organizationName: matchResult.person.organizationName ?? null,
+              organizationDomain: matchResult.person.organizationDomain ?? null,
+              organizationIndustry: matchResult.person.organizationIndustry ?? null,
+              organizationSize: matchResult.person.organizationSize ?? null,
+              responseRaw: matchResult.person,
+            }).onConflictDoNothing();
+          }
+        }
+
+        // No email after all enrichment attempts — skip, can't serve without email
+        if (!validEmail) {
+          continue;
+        }
+
+        const data: Record<string, unknown> = {
+          firstName: journalist.firstName,
+          lastName: journalist.lastName,
+          journalistName: journalist.journalistName,
+          organizationDomain,
+          organizationName: outlet.outletName,
+          outletUrl: outlet.outletUrl,
+          outletId: outlet.id,
+          journalistId: journalist.id,
+          sourceType: "journalist",
+          ...(enrichedData ?? {}),
+        };
+
+        await db.insert(leadBuffer).values({
+          namespace: "journalist",
+          campaignId: params.campaignId,
+          email: validEmail,
+          externalId,
+          data,
+          status: "buffered",
+          pushRunId: params.pushRunId ?? null,
+          brandIds: params.brandIds,
+          orgId: params.orgId,
+          userId: params.userId ?? null,
+          workflowSlug: params.workflowSlug ?? null,
+          featureSlug: params.featureSlug ?? null,
+        });
+        totalFilled++;
       }
 
-      // No email after all enrichment attempts — skip, can't serve without email
-      if (!validEmail) {
-        continue;
+      // Save cursor after each outlet
+      if (totalFilled > 0) {
+        await saveCursor(params.orgId, cursorNamespace, { outletIndex: oi + 1 });
+        console.log(`[fillBufferFromJournalists] Buffered ${totalFilled} journalists from outlet ${outlet.outletName}`);
+        return { filled: totalFilled };
       }
-
-      const data: Record<string, unknown> = {
-        firstName: journalist.firstName,
-        lastName: journalist.lastName,
-        journalistName: journalist.journalistName,
-        organizationDomain,
-        organizationName: outlet.outletName,
-        outletUrl: outlet.outletUrl,
-        outletId: outlet.id,
-        journalistId: journalist.id,
-        sourceType: "journalist",
-        ...(enrichedData ?? {}),
-      };
-
-      await db.insert(leadBuffer).values({
-        namespace: "journalist",
-        campaignId: params.campaignId,
-        email: validEmail,
-        externalId,
-        data,
-        status: "buffered",
-        pushRunId: params.pushRunId ?? null,
-        brandIds: params.brandIds,
-        orgId: params.orgId,
-        userId: params.userId ?? null,
-        workflowSlug: params.workflowSlug ?? null,
-        featureSlug: params.featureSlug ?? null,
-      });
-      totalFilled++;
     }
 
-    // Save cursor after each outlet
-    if (totalFilled > 0) {
-      await saveCursor(params.orgId, cursorNamespace, { outletIndex: oi + 1 });
-      console.log(`[fillBufferFromJournalists] Buffered ${totalFilled} journalists from outlet ${outlet.outletName}`);
-      return { filled: totalFilled };
+    // All known outlets exhausted — ask outlet-service for more via buffer/next
+    discoveryRounds++;
+    if (discoveryRounds > MAX_DISCOVERY_ROUNDS) {
+      console.warn(`[fillBufferFromJournalists] Hit MAX_DISCOVERY_ROUNDS (${MAX_DISCOVERY_ROUNDS}), stopping`);
+      break;
     }
+
+    console.log(`[fillBufferFromJournalists] All ${outlets.length} known outlets exhausted for campaign=${params.campaignId}, discovering more...`);
+
+    const nextResult = await fetchNextOutlet({
+      orgId: params.orgId,
+      userId: params.userId ?? undefined,
+      runId: params.pushRunId ?? undefined,
+      campaignId: params.campaignId,
+      brandId: brandIdCsv,
+      workflowSlug: params.workflowSlug,
+      featureSlug: params.featureSlug,
+    });
+
+    if (!nextResult.found) {
+      console.log(`[fillBufferFromJournalists] Outlet-service has no more outlets for campaign=${params.campaignId}`);
+      break;
+    }
+
+    // Re-fetch outlets list now that discovery added new ones
+    const newOutlets = await fetchOutletsByCampaign(params.campaignId, params.orgId, serviceContext);
+    if (!newOutlets || newOutlets.length <= oi) {
+      console.warn(`[fillBufferFromJournalists] No new outlets after discovery for campaign=${params.campaignId}`);
+      break;
+    }
+
+    outlets = newOutlets;
+    // oi stays where it was — continue from the first new outlet
   }
 
-  // All outlets exhausted
+  // All outlets truly exhausted
   await saveCursor(params.orgId, cursorNamespace, { outletIndex: outlets.length });
   return { filled: totalFilled };
 }

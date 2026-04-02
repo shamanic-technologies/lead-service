@@ -323,7 +323,7 @@ describe("service client headers", () => {
     });
 
     it("sends POST to /buffer/next with headers and optional idempotencyKey", async () => {
-      fetchSpy.mockReturnValue(jsonResponse({ found: true, outlet: { outletId: "o1", outletName: "TechCrunch" } }));
+      fetchSpy.mockReturnValue(jsonResponse({ outlets: [{ outletId: "o1", outletName: "TechCrunch" }] }));
 
       const { fetchNextOutlet } = await import("../../src/lib/outlet-client.js");
       const result = await fetchNextOutlet({
@@ -348,7 +348,7 @@ describe("service client headers", () => {
     });
 
     it("sends empty body to /buffer/next when no idempotencyKey", async () => {
-      fetchSpy.mockReturnValue(jsonResponse({ found: false }));
+      fetchSpy.mockReturnValue(jsonResponse({ outlets: [] }));
 
       const { fetchNextOutlet } = await import("../../src/lib/outlet-client.js");
       const result = await fetchNextOutlet({
@@ -389,7 +389,7 @@ describe("service client headers", () => {
     });
 
     it("sends headers to /buffer/next for outlet discovery", async () => {
-      fetchSpy.mockReturnValue(jsonResponse({ found: true, outlet: { outletId: "o1" } }));
+      fetchSpy.mockReturnValue(jsonResponse({ outlets: [{ outletId: "o1" }] }));
 
       const { fetchNextOutlet } = await import("../../src/lib/outlet-client.js");
       await fetchNextOutlet({
