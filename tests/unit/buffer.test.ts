@@ -1619,5 +1619,166 @@ describe("buffer", () => {
       expect(result.lead?.email).toBe("unique@other.com");
       expect(result.lead?.leadId).toBe("lead-next");
     });
+
+    it("sets namespace to 'apollo' (not campaignId) when filling buffer from Apollo search (regression)", async () => {
+      // First call: buffer empty → triggers fillBufferFromSearch
+      // Second call: buffer has the lead
+      pgSqlMock
+        .mockResolvedValueOnce([])  // buffer empty
+        .mockResolvedValueOnce([toClaimedRow({
+          id: "buf-ns-1",
+          namespace: "apollo",
+          campaignId: "campaign-uuid-123",
+          email: "ns-test@example.com",
+          externalId: "apollo-ns-1",
+          data: { firstName: "NsTest" },
+          brandIds: ["brand-1"],
+          orgId: "org-1",
+          userId: null,
+        })]);
+
+      vi.mocked(apolloSearchParams).mockResolvedValue({
+        searchParams: { personTitles: ["CEO"] },
+        totalResults: 1,
+        attempts: 1,
+      });
+      vi.mocked(apolloSearchNext).mockResolvedValue({
+        people: [{ id: "apollo-ns-1", email: "ns-test@example.com", firstName: "NsTest" }],
+        done: true,
+        totalEntries: 1,
+      });
+      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValueOnce(undefined);
+      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
+
+      const insertValues: unknown[] = [];
+      const valuesMock = vi.fn().mockImplementation((vals) => {
+        insertValues.push(vals);
+        return { onConflictDoNothing: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: "served-ns-1" }]) }) };
+      });
+      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
+
+      const setMock = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
+
+      await pullNext({
+        orgId: "org-1",
+        campaignId: "campaign-uuid-123",
+        brandIds: ["brand-1"],
+        sourceType: "apollo",
+      });
+
+      // The first insert call should be the buffer row with namespace="apollo"
+      const bufferInsert = insertValues[0] as Record<string, unknown>;
+      expect(bufferInsert.namespace).toBe("apollo");
+      expect(bufferInsert.namespace).not.toBe("campaign-uuid-123");
+    });
+
+    it("sets namespace to 'journalist' (not campaignId) when filling buffer from journalists (regression)", async () => {
+      pgSqlMock
+        .mockResolvedValueOnce([])  // buffer empty
+        .mockResolvedValueOnce([toClaimedRow({
+          id: "buf-jns-1",
+          namespace: "journalist",
+          campaignId: "campaign-uuid-456",
+          email: "journalist@outlet.com",
+          externalId: "journalist-id-1",
+          data: { firstName: "Jane", lastName: "Doe", sourceType: "journalist", journalistId: "journalist-id-1" },
+          brandIds: ["brand-1"],
+          orgId: "org-1",
+          userId: null,
+        })]);
+
+      // Setup outlets
+      vi.mocked(fetchOutletsByCampaign).mockResolvedValueOnce([
+        { id: "outlet-1", outletName: "TechCrunch", outletUrl: "https://techcrunch.com", outletDomain: "techcrunch.com" },
+      ] as never);
+
+      // Setup journalist
+      vi.mocked(fetchNextJournalist)
+        .mockResolvedValueOnce({
+          found: true,
+          journalist: {
+            id: "journalist-id-1",
+            firstName: "Jane",
+            lastName: "Doe",
+            journalistName: "Jane Doe",
+            entityType: "person",
+            emails: [{ email: "journalist@outlet.com", isValid: true, confidence: 0.9 }],
+          },
+        } as never)
+        .mockResolvedValueOnce({ found: false });
+
+      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValueOnce(undefined);
+      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
+
+      const insertValues: unknown[] = [];
+      const valuesMock = vi.fn().mockImplementation((vals) => {
+        insertValues.push(vals);
+        return { onConflictDoNothing: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: "served-jns-1" }]) }) };
+      });
+      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
+
+      const setMock = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
+
+      // Mock cursor
+      vi.mocked(db.query.cursors.findFirst).mockResolvedValueOnce(undefined);
+
+      await pullNext({
+        orgId: "org-1",
+        campaignId: "campaign-uuid-456",
+        brandIds: ["brand-1"],
+        sourceType: "journalist",
+      });
+
+      // The first insert call should be the buffer row with namespace="journalist"
+      const bufferInsert = insertValues[0] as Record<string, unknown>;
+      expect(bufferInsert.namespace).toBe("journalist");
+      expect(bufferInsert.namespace).not.toBe("campaign-uuid-456");
+    });
+
+    it("passes sourceType as namespace to markServed (not campaignId) (regression)", async () => {
+      pgSqlMock.mockResolvedValue([toClaimedRow({
+        id: "buf-ms-1",
+        namespace: "apollo",
+        campaignId: "campaign-uuid-789",
+        email: "served@example.com",
+        externalId: "e-ms-1",
+        data: { name: "Served" },
+        brandIds: ["brand-1"],
+        orgId: "org-1",
+        userId: null,
+      })]);
+
+      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
+      vi.mocked(resolveOrCreateLead).mockResolvedValue({ leadId: "lead-ms-1", isNew: true });
+
+      const insertValues: unknown[] = [];
+      const returningMock = vi.fn().mockResolvedValue([{ id: "served-ms-1" }]);
+      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
+      const valuesMock = vi.fn().mockImplementation((vals) => {
+        insertValues.push(vals);
+        return { onConflictDoNothing: onConflictMock };
+      });
+      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
+
+      const setMock = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
+
+      await pullNext({
+        orgId: "org-1",
+        campaignId: "campaign-uuid-789",
+        brandIds: ["brand-1"],
+        sourceType: "apollo",
+      });
+
+      // markServed inserts into servedLeads — find the insert that has namespace
+      const servedInsert = insertValues.find(
+        (v) => (v as Record<string, unknown>).namespace !== undefined
+      ) as Record<string, unknown>;
+      expect(servedInsert).toBeDefined();
+      expect(servedInsert.namespace).toBe("apollo");
+      expect(servedInsert.namespace).not.toBe("campaign-uuid-789");
+    });
   });
 });
