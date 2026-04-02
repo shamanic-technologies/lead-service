@@ -19,11 +19,12 @@ export interface BufferNextOutlet {
   outletUrl: string;
   outletDomain: string;
   campaignId: string;
-  brandId: string;
+  brandIds: string[];
   relevanceScore: number;
   whyRelevant: string;
   whyNotRelevant: string;
   overallRelevance: string | null;
+  runId: string | null;
 }
 
 function buildHeaders(context?: {
@@ -92,8 +93,9 @@ export async function fetchNextOutlet(context: {
         return { found: false };
       }
 
-      const data = (await response.json()) as { found: boolean; outlet?: BufferNextOutlet };
-      return data;
+      const data = (await response.json()) as { outlets: BufferNextOutlet[] };
+      const outlet = data.outlets?.[0];
+      return { found: !!outlet, outlet };
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       console.warn(`[outlet-client] buffer/next attempt ${attempt + 1} failed for campaign ${context.campaignId}:`, lastError.message);

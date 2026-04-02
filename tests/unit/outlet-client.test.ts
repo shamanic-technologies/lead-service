@@ -24,16 +24,28 @@ describe("outlet-client", () => {
   });
 
   describe("fetchNextOutlet", () => {
-    it("returns outlet on first success", async () => {
-      const outlet = { outletId: "o-1", outletName: "Test Outlet", found: true };
+    it("parses outlets array response and returns first outlet as found", async () => {
+      const outlet = { outletId: "o-1", outletName: "Test Outlet", outletUrl: "https://test.com", outletDomain: "test.com", campaignId: "camp-1", brandIds: ["brand-1"], relevanceScore: 0.9, whyRelevant: "good", whyNotRelevant: "", overallRelevance: "high", runId: null };
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ found: true, outlet }),
+        json: () => Promise.resolve({ outlets: [outlet] }),
       });
 
       const result = await fetchNextOutlet(baseContext);
       expect(result.found).toBe(true);
       expect(result.outlet).toEqual(outlet);
+      expect(mockFetch).toHaveBeenCalledOnce();
+    });
+
+    it("returns found=false when outlets array is empty", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ outlets: [] }),
+      });
+
+      const result = await fetchNextOutlet(baseContext);
+      expect(result.found).toBe(false);
+      expect(result.outlet).toBeUndefined();
       expect(mockFetch).toHaveBeenCalledOnce();
     });
 
@@ -44,7 +56,7 @@ describe("outlet-client", () => {
         .mockResolvedValueOnce({ ok: false, status: 500 })
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ found: true, outlet }),
+          json: () => Promise.resolve({ outlets: [outlet] }),
         });
 
       const promise = fetchNextOutlet(baseContext);
@@ -63,7 +75,7 @@ describe("outlet-client", () => {
         .mockResolvedValueOnce({ ok: false, status: 500 })
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ found: true, outlet }),
+          json: () => Promise.resolve({ outlets: [outlet] }),
         });
 
       const promise = fetchNextOutlet(baseContext);
@@ -105,7 +117,7 @@ describe("outlet-client", () => {
         .mockImplementationOnce(() => Promise.reject(new Error("fetch failed")))
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ found: true, outlet }),
+          json: () => Promise.resolve({ outlets: [outlet] }),
         });
 
       // Capture eagerly so the initial rejection doesn't go unhandled during timer wait
