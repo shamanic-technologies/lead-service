@@ -6,7 +6,7 @@ import { resolveOrCreateLead, findLeadByApolloPersonId } from "./leads-registry.
 import { apolloSearchNext, apolloEnrich, apolloMatch, apolloSearchParams } from "./apollo-client.js";
 import { fetchCampaign } from "./campaign-client.js";
 import { extractBrandFields } from "./brand-client.js";
-import { fetchOutletsByCampaign, fetchNextOutlet } from "./outlet-client.js";
+import { fetchOutletsByCampaign, fetchNextOutlet, type OutletDetails } from "./outlet-client.js";
 import { fetchNextJournalist } from "./journalist-client.js";
 
 async function isInBuffer(orgId: string, campaignId: string, externalId: string): Promise<boolean> {
