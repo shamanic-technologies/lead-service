@@ -63,6 +63,7 @@ async function checkDeliveryStatusBatch(
     method: "POST",
     headers,
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(300_000),
   });
 
   if (!response.ok) {

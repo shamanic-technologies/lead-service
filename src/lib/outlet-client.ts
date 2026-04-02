@@ -69,6 +69,7 @@ export async function fetchNextOutlet(context: {
       method: "POST",
       headers,
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(300_000),
     });
 
     if (!response.ok) {
@@ -106,7 +107,7 @@ export async function fetchOutletsByCampaign(
 
     const response = await fetch(
       `${OUTLETS_SERVICE_URL}/internal/outlets/by-campaign/${campaignId}`,
-      { headers }
+      { headers, signal: AbortSignal.timeout(300_000) }
     );
 
     if (!response.ok) {

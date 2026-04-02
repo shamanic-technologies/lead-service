@@ -27,6 +27,7 @@ export async function queryProviderRequirements(
       "X-API-Key": apiKey,
     },
     body: JSON.stringify({ endpoints }),
+    signal: AbortSignal.timeout(300_000),
   });
 
   if (!response.ok) {
@@ -52,6 +53,7 @@ export async function registerProviderRequirement(
       "x-caller-method": callerMethod,
       "x-caller-path": callerPath,
     },
+    signal: AbortSignal.timeout(300_000),
   });
 
   // We only care about the side effect (provider requirement tracking).
