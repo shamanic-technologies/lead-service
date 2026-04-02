@@ -281,12 +281,8 @@ async function fillBufferFromJournalists(params: {
   const cursorState = (existingCursor?.state as { outletIndex: number } | null)
     ?? { outletIndex: 0 };
 
-  // Fetch outlets for this campaign
-  let outlets = await fetchOutletsByCampaign(params.campaignId, params.orgId, serviceContext);
-  if (!outlets || outlets.length === 0) {
-    // No outlets yet — trigger auto-discovery via buffer/next on outlets-service
-    console.log(`[fillBufferFromJournalists] No outlets for campaign=${params.campaignId}, triggering discovery via buffer/next...`);
-
+  // Helper: call buffer/next and convert to OutletDetails format
+  const discoverNextOutlet = async (): Promise<OutletDetails | null> => {
     const nextResult = await fetchNextOutlet({
       orgId: params.orgId,
       userId: params.userId ?? undefined,
@@ -296,18 +292,33 @@ async function fillBufferFromJournalists(params: {
       workflowSlug: params.workflowSlug,
       featureSlug: params.featureSlug,
     });
+    if (!nextResult.found || !nextResult.outlet) return null;
+    const o = nextResult.outlet;
+    return {
+      id: o.outletId,
+      outletName: o.outletName,
+      outletUrl: o.outletUrl,
+      outletDomain: o.outletDomain,
+      campaignId: o.campaignId,
+      relevanceScore: o.relevanceScore,
+      whyRelevant: o.whyRelevant,
+      whyNotRelevant: o.whyNotRelevant,
+      overallRelevance: o.overallRelevance ?? "",
+      outletStatus: "open",
+    };
+  };
 
-    if (!nextResult.found) {
+  // Fetch outlets for this campaign
+  let outlets = await fetchOutletsByCampaign(params.campaignId, params.orgId, serviceContext);
+  if (!outlets || outlets.length === 0) {
+    // No outlets yet — trigger auto-discovery via buffer/next on outlets-service
+    console.log(`[fillBufferFromJournalists] No outlets for campaign=${params.campaignId}, triggering discovery via buffer/next...`);
+    const discovered = await discoverNextOutlet();
+    if (!discovered) {
       console.log(`[fillBufferFromJournalists] Outlet discovery returned 0 results for campaign=${params.campaignId}`);
       return { filled: 0 };
     }
-
-    // Re-fetch outlets now that discovery has saved them
-    outlets = await fetchOutletsByCampaign(params.campaignId, params.orgId, serviceContext);
-    if (!outlets || outlets.length === 0) {
-      console.warn(`[fillBufferFromJournalists] Outlets still empty after discovery for campaign=${params.campaignId}`);
-      return { filled: 0 };
-    }
+    outlets = [discovered];
   }
 
   let totalFilled = 0;
@@ -448,30 +459,16 @@ async function fillBufferFromJournalists(params: {
 
     console.log(`[fillBufferFromJournalists] All ${outlets.length} known outlets exhausted for campaign=${params.campaignId}, discovering more...`);
 
-    const nextResult = await fetchNextOutlet({
-      orgId: params.orgId,
-      userId: params.userId ?? undefined,
-      runId: params.pushRunId ?? undefined,
-      campaignId: params.campaignId,
-      brandId: brandIdCsv,
-      workflowSlug: params.workflowSlug,
-      featureSlug: params.featureSlug,
-    });
-
-    if (!nextResult.found) {
+    const discovered = await discoverNextOutlet();
+    if (!discovered) {
       console.log(`[fillBufferFromJournalists] Outlet-service has no more outlets for campaign=${params.campaignId}`);
       break;
     }
 
-    // Re-fetch outlets list now that discovery added new ones
-    const newOutlets = await fetchOutletsByCampaign(params.campaignId, params.orgId, serviceContext);
-    if (!newOutlets || newOutlets.length <= oi) {
-      console.warn(`[fillBufferFromJournalists] No new outlets after discovery for campaign=${params.campaignId}`);
-      break;
-    }
-
-    outlets = newOutlets;
-    // oi stays where it was — continue from the first new outlet
+    // Append discovered outlet directly — don't re-fetch the full list
+    console.log(`[fillBufferFromJournalists] Discovered new outlet "${discovered.outletName}" for campaign=${params.campaignId}`);
+    outlets.push(discovered);
+    // oi stays where it was — the for loop will pick up the new outlet
   }
 
   // All outlets truly exhausted

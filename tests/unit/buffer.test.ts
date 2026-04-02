@@ -1286,17 +1286,9 @@ describe("buffer", () => {
 
       vi.mocked(db.query.cursors.findFirst).mockResolvedValueOnce(undefined);
 
-      vi.mocked(fetchOutletsByCampaign)
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([{
-          id: "outlet-discovered",
-          outletName: "Discovered Outlet",
-          outletUrl: "https://discovered-outlet.com",
-          outletDomain: "discovered-outlet.com",
-          relevanceScore: 0.9,
-          outletStatus: "active",
-          campaignId: "campaign-1",
-        }]);
+      // Only one mock needed — after discovery, the outlet is used directly
+      // from buffer/next response without re-fetching via fetchOutletsByCampaign
+      vi.mocked(fetchOutletsByCampaign).mockResolvedValueOnce([]);
 
       // buffer/next triggers auto-discovery and finds an outlet
       vi.mocked(fetchNextOutlet).mockResolvedValueOnce({ found: true, outlet: {
