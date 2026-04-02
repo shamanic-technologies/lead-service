@@ -1097,10 +1097,22 @@ describe("buffer", () => {
             relevanceScore: 0.85,
             whyRelevant: "Covers tech",
             whyNotRelevant: "",
-            emails: [{ email: "jane@techcrunch.com", isValid: true, confidence: 0.95 }],
+            articleUrls: [],
           },
         })
         .mockResolvedValueOnce({ found: false });
+
+      // apolloMatch resolves the email (journalists no longer have emails directly)
+      vi.mocked(apolloMatch).mockResolvedValueOnce({
+        person: {
+          id: "apollo-jane",
+          email: "jane@techcrunch.com",
+          firstName: "Jane",
+          lastName: "Reporter",
+          organizationName: "TechCrunch",
+          organizationDomain: "techcrunch.com",
+        },
+      });
 
       vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
 
@@ -1316,10 +1328,22 @@ describe("buffer", () => {
             relevanceScore: 0.8,
             whyRelevant: "Covers tech",
             whyNotRelevant: "",
-            emails: [{ email: "discovered@outlet.com", isValid: true, confidence: 0.95 }],
+            articleUrls: [],
           },
         })
         .mockResolvedValueOnce({ found: false });
+
+      // apolloMatch resolves the email (journalists no longer have emails directly)
+      vi.mocked(apolloMatch).mockResolvedValueOnce({
+        person: {
+          id: "apollo-discovered",
+          email: "discovered@outlet.com",
+          firstName: "Jane",
+          lastName: "Reporter",
+          organizationName: "Discovered Outlet",
+          organizationDomain: "discovered-outlet.com",
+        },
+      });
 
       vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValueOnce(undefined);
 
@@ -1435,7 +1459,7 @@ describe("buffer", () => {
             relevanceScore: 0.8,
             whyRelevant: "Covers tech",
             whyNotRelevant: "",
-            emails: [],
+            articleUrls: [],
           },
         })
         .mockResolvedValueOnce({ found: false });
@@ -1506,7 +1530,7 @@ describe("buffer", () => {
             relevanceScore: 0.7,
             whyRelevant: "Writes about relocation",
             whyNotRelevant: "",
-            emails: [],
+            articleUrls: [],
           },
         })
         .mockResolvedValueOnce({ found: false });
@@ -1695,10 +1719,22 @@ describe("buffer", () => {
             lastName: "Doe",
             journalistName: "Jane Doe",
             entityType: "person",
-            emails: [{ email: "journalist@outlet.com", isValid: true, confidence: 0.9 }],
+            articleUrls: [],
           },
         } as never)
         .mockResolvedValueOnce({ found: false });
+
+      // apolloMatch resolves the email (journalists no longer have emails directly)
+      vi.mocked(apolloMatch).mockResolvedValueOnce({
+        person: {
+          id: "apollo-jane-doe",
+          email: "journalist@outlet.com",
+          firstName: "Jane",
+          lastName: "Doe",
+          organizationName: "TechCrunch",
+          organizationDomain: "techcrunch.com",
+        },
+      });
 
       vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValueOnce(undefined);
       vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
@@ -1723,8 +1759,11 @@ describe("buffer", () => {
         sourceType: "journalist",
       });
 
-      // The first insert call should be the buffer row with namespace="journalist"
-      const bufferInsert = insertValues[0] as Record<string, unknown>;
+      // Find the buffer row insert (has namespace field) — enrichment cache insert comes first
+      const bufferInsert = insertValues.find(
+        (v) => (v as Record<string, unknown>).namespace !== undefined
+      ) as Record<string, unknown>;
+      expect(bufferInsert).toBeDefined();
       expect(bufferInsert.namespace).toBe("journalist");
       expect(bufferInsert.namespace).not.toBe("campaign-uuid-456");
     });
