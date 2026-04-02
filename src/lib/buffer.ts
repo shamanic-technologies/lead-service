@@ -535,6 +535,7 @@ export async function pullNext(params: {
         continue; // Retry pulling from buffer
       }
 
+      console.log(`[lead-service] pullNext found=false campaign=${params.campaignId} source=${st}`);
       return { found: false };
     }
 
@@ -748,6 +749,7 @@ export async function pullNext(params: {
     const dataObj = finalData as Record<string, unknown>;
     const isJournalist = dataObj.sourceType === "journalist";
 
+    console.log(`[lead-service] pullNext found=true campaign=${params.campaignId} source=${params.sourceType} email=${email} leadId=${leadId}`);
     return {
       found: true,
       lead: {
