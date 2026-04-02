@@ -359,16 +359,11 @@ async function fillBufferFromJournalists(params: {
 
         if (await isInBuffer(params.orgId, params.campaignId, externalId)) continue;
 
-        // Try email from buffer/next response first
-        let validEmail = journalist.emails
-          ?.filter(e => e.isValid)
-          ?.sort((a, b) => b.confidence - a.confidence)
-          ?.[0]?.email ?? null;
-
+        let validEmail: string | null = null;
         let enrichedData: Record<string, unknown> | null = null;
 
-        // No email — proactively match via Apollo Service
-        if (!validEmail && journalist.firstName && journalist.lastName && organizationDomain) {
+        // journalists-service does not return emails — match via Apollo Service
+        if (journalist.firstName && journalist.lastName && organizationDomain) {
           const matchResult = await apolloMatch(
             {
               firstName: journalist.firstName,

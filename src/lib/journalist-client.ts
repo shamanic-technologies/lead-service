@@ -1,21 +1,15 @@
 import { JOURNALISTS_SERVICE_URL, JOURNALISTS_SERVICE_API_KEY } from "../config.js";
 
-export interface JournalistEmail {
-  email: string;
-  isValid: boolean;
-  confidence: number;
-}
-
-export interface JournalistWithEmails {
+export interface Journalist {
   id: string;
   journalistName: string;
-  firstName: string | null;
-  lastName: string | null;
+  firstName: string;
+  lastName: string;
   entityType: "individual" | "organization";
   relevanceScore: number;
   whyRelevant: string;
   whyNotRelevant: string;
-  emails: JournalistEmail[];
+  articleUrls: string[];
 }
 
 export async function fetchNextJournalist(
@@ -31,7 +25,7 @@ export async function fetchNextJournalist(
     idempotencyKey?: string;
     maxArticles?: number;
   }
-): Promise<{ found: boolean; journalist?: JournalistWithEmails }> {
+): Promise<{ found: boolean; journalist?: Journalist }> {
   try {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -65,7 +59,7 @@ export async function fetchNextJournalist(
       return { found: false };
     }
 
-    const data = (await response.json()) as { found: boolean; journalist?: JournalistWithEmails };
+    const data = (await response.json()) as { found: boolean; journalist?: Journalist };
     return data;
   } catch (error) {
     console.error("[journalist-client] Error fetching next journalist:", error);
