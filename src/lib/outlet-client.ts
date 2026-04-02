@@ -49,6 +49,8 @@ function buildHeaders(context?: {
   return headers;
 }
 
+const RETRY_DELAYS_MS = [5_000, 15_000];
+
 export async function fetchNextOutlet(context: {
   orgId: string;
   userId?: string;
@@ -59,34 +61,48 @@ export async function fetchNextOutlet(context: {
   featureSlug?: string;
   idempotencyKey?: string;
 }): Promise<{ found: boolean; outlet?: BufferNextOutlet }> {
-  try {
-    const headers = buildHeaders(context);
+  const headers = buildHeaders(context);
+  const body: Record<string, unknown> = {};
+  if (context.idempotencyKey) body.idempotencyKey = context.idempotencyKey;
 
-    const body: Record<string, unknown> = {};
-    if (context.idempotencyKey) body.idempotencyKey = context.idempotencyKey;
+  let lastError: Error | null = null;
 
-    const response = await fetch(`${OUTLETS_SERVICE_URL}/buffer/next`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(300_000),
-    });
-
-    if (!response.ok) {
-      const msg = `[outlet-client] buffer/next failed for campaign ${context.campaignId}: ${response.status}`;
-      if (response.status >= 500) {
-        throw new Error(msg);
-      }
-      console.warn(msg);
-      return { found: false };
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    if (attempt > 0) {
+      const delay = RETRY_DELAYS_MS[attempt - 1];
+      console.log(`[outlet-client] Retrying buffer/next for campaign ${context.campaignId} in ${delay}ms (attempt ${attempt + 1}/${RETRY_DELAYS_MS.length + 1})`);
+      await new Promise((r) => setTimeout(r, delay));
     }
 
-    const data = (await response.json()) as { found: boolean; outlet?: BufferNextOutlet };
-    return data;
-  } catch (error) {
-    console.error("[outlet-client] Error fetching next outlet:", error);
-    throw error;
+    try {
+      const response = await fetch(`${OUTLETS_SERVICE_URL}/buffer/next`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(300_000),
+      });
+
+      if (!response.ok) {
+        const msg = `[outlet-client] buffer/next failed for campaign ${context.campaignId}: ${response.status}`;
+        if (response.status >= 500) {
+          lastError = new Error(msg);
+          continue;
+        }
+        console.warn(msg);
+        return { found: false };
+      }
+
+      const data = (await response.json()) as { found: boolean; outlet?: BufferNextOutlet };
+      return data;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.warn(`[outlet-client] buffer/next attempt ${attempt + 1} failed for campaign ${context.campaignId}:`, lastError.message);
+      continue;
+    }
   }
+
+  console.error(`[outlet-client] buffer/next exhausted all ${RETRY_DELAYS_MS.length + 1} attempts for campaign ${context.campaignId}`);
+  throw lastError!;
 }
 
 export async function fetchOutletsByCampaign(

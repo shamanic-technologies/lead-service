@@ -362,12 +362,19 @@ describe("service client headers", () => {
     });
 
     it("throws on /buffer/next 5xx error", async () => {
+      vi.useFakeTimers();
       fetchSpy.mockReturnValue(jsonResponse({ error: "fail" }, 502));
 
       const { fetchNextOutlet } = await import("../../src/lib/outlet-client.js");
-      await expect(fetchNextOutlet({
+      const promise = fetchNextOutlet({
         orgId: "org-1", campaignId: "camp-1", brandId: "brand-1",
-      })).rejects.toThrow("502");
+      }).catch((e: Error) => e);
+
+      await vi.advanceTimersByTimeAsync(20_000);
+      const error = await promise;
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain("502");
+      vi.useRealTimers();
     });
 
     it("returns found: false on /buffer/next 4xx error", async () => {
