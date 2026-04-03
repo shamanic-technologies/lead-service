@@ -143,8 +143,6 @@ describe("GET /leads/status", () => {
     expect(alice.contacted).toBe(true);
     expect(alice.delivered).toBe(true);
     expect(alice.lastDeliveredAt).toBe("2026-03-29T10:00:00Z");
-    expect(alice.journalistId).toBeNull();
-
     const bob = res.body.statuses.find((s: any) => s.email === "bob@acme.com");
     expect(bob.contacted).toBe(true);
     expect(bob.bounced).toBe(true);
@@ -177,7 +175,7 @@ describe("GET /leads/status", () => {
     const servedRows = [
       {
         leadId: "lead-1", email: "alice@acme.com", brandIds: ["b1"],
-        metadata: { journalistId: "j1", outletId: "o1", sourceType: "journalist" },
+        metadata: null,
       },
     ];
     mockWhere.mockResolvedValue(servedRows);
@@ -206,8 +204,6 @@ describe("GET /leads/status", () => {
     expect(alice).toEqual({
       leadId: "lead-1",
       email: "alice@acme.com",
-      journalistId: "j1",
-      outletId: "o1",
       contacted: true,
       delivered: true,
       bounced: false,
@@ -299,38 +295,6 @@ describe("GET /leads/status", () => {
     expect(res.status).toBe(200);
   });
 
-  it("filters by outletId query param on metadata", async () => {
-    mockWhere.mockResolvedValue([
-      {
-        leadId: "lead-1", email: "alice@acme.com", brandIds: ["b1"],
-        metadata: { journalistId: "j1", outletId: "outlet-1" },
-      },
-    ]);
-    mockCheckDeliveryStatus.mockResolvedValue({ results: [] });
-
-    const app = createApp();
-    const res = await request(app).get("/leads/status?brandId=b1&outletId=outlet-1");
-    expect(res.status).toBe(200);
-    // The SQL condition is built — we verify the query ran and returned results
-    expect(res.body.statuses).toHaveLength(1);
-    expect(res.body.statuses[0].outletId).toBe("outlet-1");
-  });
-
-  it("extracts journalistId and outletId from metadata", async () => {
-    mockWhere.mockResolvedValue([
-      {
-        leadId: "lead-1", email: "alice@acme.com", brandIds: ["b1"],
-        metadata: { journalistId: "j1", outletId: "o1" },
-      },
-    ]);
-    mockCheckDeliveryStatus.mockResolvedValue({ results: [] });
-
-    const app = createApp();
-    const res = await request(app).get("/leads/status?campaignId=c1");
-    expect(res.body.statuses[0].journalistId).toBe("j1");
-    expect(res.body.statuses[0].outletId).toBe("o1");
-  });
-
   it("surfaces replyClassification from email-gateway (campaign-scoped)", async () => {
     mockWhere.mockResolvedValue([
       { leadId: "lead-1", email: "alice@acme.com", brandIds: ["b1"], metadata: null },
@@ -408,17 +372,6 @@ describe("GET /leads/status", () => {
     expect(res.body.statuses[0].replied).toBe(false);
   });
 
-  it("returns null journalistId/outletId when metadata is null", async () => {
-    mockWhere.mockResolvedValue([
-      { leadId: "lead-1", email: "alice@acme.com", brandIds: ["b1"], metadata: null },
-    ]);
-    mockCheckDeliveryStatus.mockResolvedValue({ results: [] });
-
-    const app = createApp();
-    const res = await request(app).get("/leads/status?campaignId=c1");
-    expect(res.body.statuses[0].journalistId).toBeNull();
-    expect(res.body.statuses[0].outletId).toBeNull();
-  });
 });
 
 describe("flattenCampaignStatus", () => {

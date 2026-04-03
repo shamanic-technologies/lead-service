@@ -190,9 +190,7 @@ export const ApolloPersonDataSchema = z
 // --- Buffer Next ---
 
 export const BufferNextRequestSchema = z
-  .object({
-    sourceType: z.enum(["apollo", "journalist"]),
-  })
+  .object({})
   .openapi("BufferNextRequest");
 
 const ServedLeadSchema = z.object({
@@ -210,24 +208,6 @@ const ServedLeadSchema = z.object({
       description:
         "Apollo person ID from enrichment. Present when the lead was sourced or enriched via Apollo.",
       example: "5f2a3b4c5d6e7f8a9b0c1d2e",
-    }),
-  journalistId: z
-    .string()
-    .nullable()
-    .optional()
-    .openapi({
-      description:
-        "Journalist ID from journalists-service. Present only when sourceType is 'journalist'.",
-      example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    }),
-  outletId: z
-    .string()
-    .nullable()
-    .optional()
-    .openapi({
-      description:
-        "Outlet ID from outlets-service. Present only when sourceType is 'journalist'.",
-      example: "f9e8d7c6-b5a4-3210-fedc-ba0987654321",
     }),
 });
 
@@ -258,31 +238,6 @@ const BufferNextResponseSchema = z
             orgId: "org-uuid",
             userId: "user-uuid",
             apolloPersonId: "5f2a3b4c5d6e7f8a9b0c1d2e",
-            journalistId: null,
-            outletId: null,
-          },
-        },
-      },
-      {
-        summary: "Journalist lead",
-        value: {
-          found: true,
-          lead: {
-            leadId: "d4e5f6a7-b8c9-0123-abcd-ef4567890123",
-            email: "john.writer@techcrunch.com",
-            data: {
-              firstName: "John",
-              lastName: "Writer",
-              organizationName: "TechCrunch",
-              organizationDomain: "techcrunch.com",
-              sourceType: "journalist",
-            },
-            brandIds: ["brand-uuid"],
-            orgId: "org-uuid",
-            userId: "user-uuid",
-            apolloPersonId: "7a8b9c0d1e2f3a4b5c6d7e8f",
-            journalistId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-            outletId: "f9e8d7c6-b5a4-3210-fedc-ba0987654321",
           },
         },
       },
@@ -381,14 +336,6 @@ const LeadStatusItemSchema = z
   .object({
     leadId: z.string().uuid(),
     email: z.string(),
-    journalistId: z
-      .string()
-      .nullable()
-      .openapi({ description: "Journalist ID from journalists-service, if the lead is a journalist" }),
-    outletId: z
-      .string()
-      .nullable()
-      .openapi({ description: "Outlet ID from outlets-service, if the lead is a journalist" }),
     contacted: z.boolean(),
     delivered: z.boolean(),
     bounced: z.boolean(),
@@ -685,15 +632,6 @@ registry.registerPath({
       description:
         "Brand ID filter. Required when campaignId is absent (cross-campaign mode). " +
         "Optional additional filter when campaignId is present.",
-    },
-    {
-      in: "query" as const,
-      name: "outletId",
-      required: false,
-      schema: { type: "string" as const },
-      description:
-        "Outlet ID filter. Filters leads whose metadata.outletId matches. " +
-        "Useful for outlet-level dedup (e.g. checking if any journalist from an outlet was already contacted).",
     },
   ],
   responses: {

@@ -14,10 +14,7 @@ const TEST_ENV_VARS: Record<string, string> = {
   CAMPAIGN_SERVICE_API_KEY: "test-campaign-key",
   EMAIL_GATEWAY_SERVICE_URL: "http://email-gateway:3009",
   EMAIL_GATEWAY_SERVICE_API_KEY: "test-email-gateway-key",
-  JOURNALISTS_SERVICE_URL: "http://journalists:3011",
-  JOURNALISTS_SERVICE_API_KEY: "test-journalists-key",
-  OUTLETS_SERVICE_URL: "http://outlets:3010",
-  OUTLETS_SERVICE_API_KEY: "test-outlets-key",
+
   RUNS_SERVICE_URL: "http://runs:3007",
   RUNS_SERVICE_API_KEY: "test-runs-key",
   KEY_SERVICE_URL: "http://key-service:3001",

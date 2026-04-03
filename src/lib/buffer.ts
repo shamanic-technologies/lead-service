@@ -3,11 +3,9 @@ import { db, sql as pgSql } from "../db/index.js";
 import { leadBuffer, enrichments } from "../db/schema.js";
 import { checkContacted, markServed } from "./dedup.js";
 import { resolveOrCreateLead, findLeadByApolloPersonId } from "./leads-registry.js";
-import { apolloSearchNext, apolloEnrich, apolloMatch, apolloSearchParams } from "./apollo-client.js";
+import { apolloSearchNext, apolloEnrich, apolloSearchParams } from "./apollo-client.js";
 import { fetchCampaign } from "./campaign-client.js";
 import { extractBrandFields } from "./brand-client.js";
-import { fetchNextOutlet } from "./outlet-client.js";
-import { fetchNextJournalist } from "./journalist-client.js";
 
 async function isInBuffer(orgId: string, campaignId: string, externalId: string): Promise<boolean> {
   const row = await db.query.leadBuffer.findFirst({
@@ -228,177 +226,6 @@ async function fillBufferFromSearch(params: {
   return { filled: totalFilled };
 }
 
-// --- Journalist source helpers ---
-
-async function fillBufferFromJournalists(params: {
-  orgId: string;
-  campaignId: string;
-  brandIds: string[];
-  pushRunId?: string | null;
-  userId?: string | null;
-  workflowSlug?: string;
-  featureSlug?: string;
-}): Promise<{ filled: number }> {
-  const brandIdCsv = params.brandIds.join(",");
-
-  const serviceContext = {
-    userId: params.userId ?? undefined,
-    runId: params.pushRunId ?? undefined,
-    campaignId: params.campaignId,
-    brandId: brandIdCsv,
-    workflowSlug: params.workflowSlug,
-    featureSlug: params.featureSlug,
-  };
-
-  // Delegate outlet selection entirely to outlets-service via POST /buffer/next.
-  // It handles scoring, blocking, and auto-discovery internally.
-  const MAX_OUTLET_ROUNDS = 50;
-
-  for (let round = 0; round < MAX_OUTLET_ROUNDS; round++) {
-    const nextResult = await fetchNextOutlet({
-      orgId: params.orgId,
-      userId: params.userId ?? undefined,
-      runId: params.pushRunId ?? undefined,
-      campaignId: params.campaignId,
-      brandId: brandIdCsv,
-      workflowSlug: params.workflowSlug,
-      featureSlug: params.featureSlug,
-    });
-
-    if (!nextResult.found || !nextResult.outlet) {
-      console.log(`[fillBufferFromJournalists] outlets-service has no more outlets for campaign=${params.campaignId}`);
-      return { filled: 0 };
-    }
-
-    const outlet = nextResult.outlet;
-    const organizationDomain = outlet.outletDomain;
-
-    console.log(`[fillBufferFromJournalists] Got outlet "${outlet.outletName}" from outlets-service for campaign=${params.campaignId}`);
-
-    // Pull journalists from this outlet via journalists-service.
-    // If journalists-service is temporarily unavailable (502/timeout), skip this outlet
-    // and try the next one instead of crashing the entire request.
-    const MAX_JOURNALIST_PULLS = 50;
-    let totalFilled = 0;
-    let outletFailed = false;
-
-    for (let pull = 0; pull < MAX_JOURNALIST_PULLS; pull++) {
-      let result: { found: boolean; journalist?: Awaited<ReturnType<typeof fetchNextJournalist>>["journalist"] };
-      try {
-        result = await fetchNextJournalist(outlet.outletId, {
-          ...serviceContext,
-          campaignId: params.campaignId,
-          orgId: params.orgId,
-        });
-      } catch (error) {
-        console.warn(`[fillBufferFromJournalists] journalists-service error for outlet "${outlet.outletName}" (${outlet.outletId}), skipping to next outlet:`, (error as Error).message);
-        outletFailed = true;
-        break;
-      }
-
-      if (!result.found || !result.journalist) break;
-
-      const journalist = result.journalist;
-
-      if (journalist.entityType === "organization") continue;
-
-      const externalId = journalist.id;
-
-      if (await isInBuffer(params.orgId, params.campaignId, externalId)) continue;
-
-      let validEmail: string | null = null;
-      let enrichedData: Record<string, unknown> | null = null;
-
-      if (journalist.firstName && journalist.lastName && organizationDomain) {
-        const matchResult = await apolloMatch(
-          {
-            firstName: journalist.firstName,
-            lastName: journalist.lastName,
-            organizationDomain,
-          },
-          {
-            runId: params.pushRunId,
-            orgId: params.orgId,
-            userId: params.userId,
-            brandId: brandIdCsv,
-            campaignId: params.campaignId,
-            workflowSlug: params.workflowSlug,
-            featureSlug: params.featureSlug,
-          }
-        );
-
-        if (matchResult?.person?.email) {
-          validEmail = matchResult.person.email;
-          enrichedData = matchResult.person;
-
-          await db.insert(enrichments).values({
-            email: validEmail,
-            apolloPersonId: matchResult.person.id ?? null,
-            firstName: matchResult.person.firstName ?? null,
-            lastName: matchResult.person.lastName ?? null,
-            title: matchResult.person.title ?? null,
-            linkedinUrl: matchResult.person.linkedinUrl ?? null,
-            organizationName: matchResult.person.organizationName ?? null,
-            organizationDomain: matchResult.person.organizationDomain ?? null,
-            organizationIndustry: matchResult.person.organizationIndustry ?? null,
-            organizationSize: matchResult.person.organizationSize ?? null,
-            responseRaw: matchResult.person,
-          }).onConflictDoNothing();
-        }
-      }
-
-      if (!validEmail) continue;
-
-      const data: Record<string, unknown> = {
-        firstName: journalist.firstName,
-        lastName: journalist.lastName,
-        journalistName: journalist.journalistName,
-        organizationDomain,
-        organizationName: outlet.outletName,
-        outletUrl: outlet.outletUrl,
-        outletId: outlet.outletId,
-        journalistId: journalist.id,
-        sourceType: "journalist",
-        ...(enrichedData ?? {}),
-      };
-
-      await db.insert(leadBuffer).values({
-        namespace: "journalist",
-        campaignId: params.campaignId,
-        email: validEmail,
-        externalId,
-        data,
-        status: "buffered",
-        pushRunId: params.pushRunId ?? null,
-        brandIds: params.brandIds,
-        orgId: params.orgId,
-        userId: params.userId ?? null,
-        workflowSlug: params.workflowSlug ?? null,
-        featureSlug: params.featureSlug ?? null,
-      });
-      totalFilled++;
-
-      // Got one — stop pulling from this outlet immediately.
-      // pullNext only needs a single buffered row; extra pulls waste time
-      // and trigger "outlet blocked" responses from journalists-service.
-      break;
-    }
-
-    if (totalFilled > 0) {
-      console.log(`[fillBufferFromJournalists] Buffered ${totalFilled} journalists from outlet ${outlet.outletName}`);
-      return { filled: totalFilled };
-    }
-
-    if (outletFailed) continue;
-
-    // No journalists found for this outlet — ask outlets-service for the next one
-    console.log(`[fillBufferFromJournalists] No usable journalists from outlet "${outlet.outletName}", requesting next outlet`);
-  }
-
-  console.warn(`[fillBufferFromJournalists] Hit MAX_OUTLET_ROUNDS (${MAX_OUTLET_ROUNDS}), stopping`);
-  return { filled: 0 };
-}
-
 export async function pullNext(params: {
   orgId: string;
   campaignId: string;
@@ -407,7 +234,6 @@ export async function pullNext(params: {
   userId?: string | null;
   workflowSlug?: string;
   featureSlug?: string;
-  sourceType: "apollo" | "journalist";
 }): Promise<{
   found: boolean;
   lead?: {
@@ -418,8 +244,6 @@ export async function pullNext(params: {
     orgId: string | null;
     userId: string | null;
     apolloPersonId: string | null;
-    journalistId: string | null;
-    outletId: string | null;
   };
 }> {
   const brandIdCsv = params.brandIds.join(",");
@@ -441,7 +265,7 @@ export async function pullNext(params: {
         SELECT id FROM lead_buffer
         WHERE org_id = ${params.orgId}
           AND campaign_id = ${params.campaignId}
-          AND namespace = ${params.sourceType}
+          AND namespace = 'apollo'
           AND status = 'buffered'
         ORDER BY CASE WHEN email != '' THEN 0 ELSE 1 END
         LIMIT 1
@@ -466,99 +290,30 @@ export async function pullNext(params: {
     } : null;
 
     if (!row) {
-      // Buffer empty — fill from the appropriate source
-      const st = params.sourceType;
-      let filled = 0;
+      // Buffer empty — fill from Apollo search
+      const result = await fillBufferFromSearch({
+        orgId: params.orgId,
+        campaignId: params.campaignId,
+        brandIds: params.brandIds,
+        pushRunId: params.runId,
+        userId: params.userId,
+        workflowSlug: params.workflowSlug,
+        featureSlug: params.featureSlug,
+      });
 
-      if (st === "journalist") {
-        const result = await fillBufferFromJournalists({
-          orgId: params.orgId,
-          campaignId: params.campaignId,
-          brandIds: params.brandIds,
-          pushRunId: params.runId,
-          userId: params.userId,
-          workflowSlug: params.workflowSlug,
-          featureSlug: params.featureSlug,
-        });
-        filled = result.filled;
-      } else {
-        const result = await fillBufferFromSearch({
-          orgId: params.orgId,
-          campaignId: params.campaignId,
-          brandIds: params.brandIds,
-          pushRunId: params.runId,
-          userId: params.userId,
-          workflowSlug: params.workflowSlug,
-          featureSlug: params.featureSlug,
-        });
-        filled = result.filled;
-      }
-
-      if (filled > 0) {
+      if (result.filled > 0) {
         continue; // Retry pulling from buffer
       }
 
-      console.log(`[lead-service] pullNext found=false campaign=${params.campaignId} source=${st}`);
+      console.log(`[lead-service] pullNext found=false campaign=${params.campaignId}`);
       return { found: false };
     }
 
     // Enrich if no email
     let email = row.email;
     let enrichedData = row.data;
-    const rowData = row.data as Record<string, unknown> | null;
-    const isJournalistLead = rowData?.sourceType === "journalist";
 
-    if (!email && isJournalistLead && rowData?.firstName && rowData?.lastName && rowData?.organizationDomain) {
-      // Journalist without email — try Apollo match by name + domain
-      const matchResult = await apolloMatch(
-        {
-          firstName: rowData.firstName as string,
-          lastName: rowData.lastName as string,
-          organizationDomain: rowData.organizationDomain as string,
-        },
-        {
-          runId: params.runId,
-          orgId: params.orgId,
-          userId: params.userId,
-          brandId: brandIdCsv,
-          campaignId: params.campaignId,
-          workflowSlug: params.workflowSlug,
-          featureSlug: params.featureSlug,
-        }
-      );
-
-      if (!matchResult?.person?.email) {
-        await db
-          .update(leadBuffer)
-          .set({ status: "skipped" })
-          .where(eq(leadBuffer.id, row.id));
-        continue;
-      }
-
-      email = matchResult.person.email;
-      enrichedData = { ...(rowData ?? {}), ...matchResult.person };
-
-      // Cache the enrichment result
-      await db.insert(enrichments).values({
-        email,
-        apolloPersonId: matchResult.person.id ?? null,
-        firstName: matchResult.person.firstName ?? null,
-        lastName: matchResult.person.lastName ?? null,
-        title: matchResult.person.title ?? null,
-        linkedinUrl: matchResult.person.linkedinUrl ?? null,
-        organizationName: matchResult.person.organizationName ?? null,
-        organizationDomain: matchResult.person.organizationDomain ?? null,
-        organizationIndustry: matchResult.person.organizationIndustry ?? null,
-        organizationSize: matchResult.person.organizationSize ?? null,
-        responseRaw: matchResult.person,
-      }).onConflictDoNothing();
-
-      // Update buffer row with email
-      await db
-        .update(leadBuffer)
-        .set({ email, data: enrichedData })
-        .where(eq(leadBuffer.id, row.id));
-    } else if (!email && row.externalId) {
+    if (!email && row.externalId) {
       // Check enrichment cache first to avoid duplicate Apollo API calls
       const cached = await db.query.enrichments.findFirst({
         where: eq(enrichments.apolloPersonId, row.externalId),
@@ -675,7 +430,7 @@ export async function pullNext(params: {
 
     const { inserted } = await markServed({
       orgId: params.orgId,
-      namespace: params.sourceType,
+      namespace: "apollo",
       brandIds: params.brandIds,
       campaignId: params.campaignId,
       email,
@@ -708,11 +463,9 @@ export async function pullNext(params: {
         ? { ...(enrichedData as Record<string, unknown>), email }
         : { email };
 
-    // Extract typed IDs from the data blob
     const dataObj = finalData as Record<string, unknown>;
-    const isJournalist = dataObj.sourceType === "journalist";
 
-    console.log(`[lead-service] pullNext found=true campaign=${params.campaignId} source=${params.sourceType} email=${email} leadId=${leadId}`);
+    console.log(`[lead-service] pullNext found=true campaign=${params.campaignId} email=${email} leadId=${leadId}`);
     return {
       found: true,
       lead: {
@@ -723,8 +476,6 @@ export async function pullNext(params: {
         orgId: row.orgId,
         userId: row.userId,
         apolloPersonId: (dataObj.id as string) ?? null,
-        journalistId: isJournalist ? ((dataObj.journalistId as string) ?? null) : null,
-        outletId: isJournalist ? ((dataObj.outletId as string) ?? null) : null,
       },
     };
   }

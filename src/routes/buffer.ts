@@ -38,7 +38,6 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
     return res.status(400).json({ error: "x-campaign-id and x-brand-id headers required" });
   }
 
-  const { sourceType } = parsed.data;
   const workflowSlug = req.workflowSlug;
   const runId = req.runId!;
 
@@ -83,7 +82,6 @@ router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res)
       userId: req.userId ?? null,
       workflowSlug,
       featureSlug: req.featureSlug,
-      sourceType,
     });
 
     // Cache response keyed by caller's runId for idempotency

@@ -11,8 +11,6 @@ describe("config", () => {
     expect(config.APOLLO_SERVICE_URL).toBe(process.env.APOLLO_SERVICE_URL);
     expect(config.APOLLO_SERVICE_API_KEY).toBe(process.env.APOLLO_SERVICE_API_KEY);
     expect(config.BRAND_SERVICE_URL).toBe(process.env.BRAND_SERVICE_URL);
-    expect(config.JOURNALISTS_SERVICE_URL).toBe(process.env.JOURNALISTS_SERVICE_URL);
-    expect(config.OUTLETS_SERVICE_URL).toBe(process.env.OUTLETS_SERVICE_URL);
     expect(config.EMAIL_GATEWAY_SERVICE_URL).toBe(process.env.EMAIL_GATEWAY_SERVICE_URL);
     expect(config.RUNS_SERVICE_URL).toBe(process.env.RUNS_SERVICE_URL);
     expect(config.KEY_SERVICE_URL).toBe(process.env.KEY_SERVICE_URL);
@@ -20,15 +18,15 @@ describe("config", () => {
   });
 
   it("throws when a required env var is missing", async () => {
-    const original = process.env.JOURNALISTS_SERVICE_URL;
-    delete process.env.JOURNALISTS_SERVICE_URL;
+    const original = process.env.APOLLO_SERVICE_URL;
+    delete process.env.APOLLO_SERVICE_URL;
 
     try {
       await expect(
         import("../../src/config.js")
-      ).rejects.toThrow("Missing required environment variable: JOURNALISTS_SERVICE_URL");
+      ).rejects.toThrow("Missing required environment variable: APOLLO_SERVICE_URL");
     } finally {
-      process.env.JOURNALISTS_SERVICE_URL = original;
+      process.env.APOLLO_SERVICE_URL = original;
     }
   });
 
