@@ -1,6 +1,6 @@
 # Project: lead-service
 
-Single source of truth for lead management — buffering, deduplication, enrichment caching, and lead retrieval.
+Apollo/sales-lead service — buffering, deduplication, enrichment caching, and lead retrieval. All journalist functionality has been moved to journalists-service.
 
 ## Commands
 
