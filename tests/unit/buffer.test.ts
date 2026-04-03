@@ -106,11 +106,17 @@ function toClaimedRow(row: {
 
 describe("buffer", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    // Reset default mocks
+    vi.resetAllMocks();
+    // Restore default mocks (resetAllMocks clears factory defaults too)
     pgSqlMock.mockResolvedValue([]);
     vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
     vi.mocked(resolveOrCreateLead).mockResolvedValue({ leadId: "lead-uuid-1", isNew: true });
+    vi.mocked(fetchNextOutlet).mockResolvedValue({ found: false });
+    vi.mocked(fetchNextJournalist).mockResolvedValue({ found: false });
+    vi.mocked(fetchCampaign).mockResolvedValue(null);
+    vi.mocked(extractBrandFields).mockResolvedValue(null);
+    vi.mocked(apolloSearchParams).mockResolvedValue({ searchParams: {} });
+    vi.mocked(apolloSearchNext).mockResolvedValue({ people: [], done: true });
   });
 
   describe("pullNext", () => {
@@ -1092,8 +1098,7 @@ describe("buffer", () => {
             whyNotRelevant: "",
             articleUrls: [],
           },
-        })
-        .mockResolvedValueOnce({ found: false });
+        });
 
       // apolloMatch resolves the email (journalists no longer have emails directly)
       vi.mocked(apolloMatch).mockResolvedValueOnce({
@@ -1134,6 +1139,9 @@ describe("buffer", () => {
       expect(vi.mocked(fetchNextJournalist)).toHaveBeenCalledWith(
         "outlet-1", expect.objectContaining({ campaignId: "campaign-1" })
       );
+      // After buffering one journalist, should NOT call fetchNextJournalist again
+      // for the same outlet (regression: extra call caused "outlet blocked" + timeouts)
+      expect(vi.mocked(fetchNextJournalist)).toHaveBeenCalledTimes(1);
     });
 
     it("uses apolloMatch for journalist leads without email", async () => {
@@ -1315,8 +1323,7 @@ describe("buffer", () => {
             whyNotRelevant: "",
             articleUrls: [],
           },
-        })
-        .mockResolvedValueOnce({ found: false });
+        });
 
       // apolloMatch resolves the email (journalists no longer have emails directly)
       vi.mocked(apolloMatch).mockResolvedValueOnce({
@@ -1445,8 +1452,7 @@ describe("buffer", () => {
             whyNotRelevant: "",
             articleUrls: [],
           },
-        })
-        .mockResolvedValueOnce({ found: false });
+        });
 
       vi.mocked(apolloMatch).mockResolvedValueOnce({
         person: {
@@ -1531,8 +1537,7 @@ describe("buffer", () => {
             whyNotRelevant: "",
             articleUrls: [],
           },
-        })
-        .mockResolvedValueOnce({ found: false });
+        });
 
       // apolloMatch finds the email
       vi.mocked(apolloMatch).mockResolvedValueOnce({
@@ -1792,8 +1797,7 @@ describe("buffer", () => {
             entityType: "person",
             articleUrls: [],
           },
-        } as never)
-        .mockResolvedValueOnce({ found: false });
+        } as never);
 
       // apolloMatch resolves the email (journalists no longer have emails directly)
       vi.mocked(apolloMatch).mockResolvedValueOnce({

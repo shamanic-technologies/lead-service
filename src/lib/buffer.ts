@@ -377,6 +377,11 @@ async function fillBufferFromJournalists(params: {
         featureSlug: params.featureSlug ?? null,
       });
       totalFilled++;
+
+      // Got one — stop pulling from this outlet immediately.
+      // pullNext only needs a single buffered row; extra pulls waste time
+      // and trigger "outlet blocked" responses from journalists-service.
+      break;
     }
 
     if (totalFilled > 0) {
