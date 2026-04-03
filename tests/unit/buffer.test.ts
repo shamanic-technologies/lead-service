@@ -1492,6 +1492,94 @@ describe("buffer", () => {
       expect(vi.mocked(fetchNextOutlet)).toHaveBeenCalledTimes(2);
     });
 
+    it("skips outlet and tries next when journalists-service socket closes mid-request (regression)", async () => {
+      const journalistRow = toClaimedRow({
+        id: "buf-j-socket",
+        namespace: "journalist",
+        campaignId: "campaign-1",
+        email: "fallback@outlet2.com",
+        externalId: "j-fallback-socket",
+        data: {
+          firstName: "Jane",
+          lastName: "Fallback",
+          organizationName: "Outlet Two",
+          sourceType: "journalist",
+        },
+        brandIds: ["brand-1"],
+        orgId: "org-1",
+        userId: null,
+      });
+
+      pgSqlMock
+        .mockResolvedValueOnce([])              // pullNext: buffer empty
+        .mockResolvedValueOnce([journalistRow]); // pullNext retry: claimed journalist lead
+
+      vi.mocked(fetchNextOutlet)
+        .mockResolvedValueOnce({ found: true, outlet: {
+          outletId: "outlet-socket-fail", outletName: "Restarting Outlet", outletUrl: "https://restarting.com", outletDomain: "restarting.com", campaignId: "campaign-1", brandIds: ["brand-1"], relevanceScore: 90, whyRelevant: "Relevant", whyNotRelevant: "", overallRelevance: null, runId: null,
+        }})
+        .mockResolvedValueOnce({ found: true, outlet: {
+          outletId: "outlet-ok-2", outletName: "Outlet Two", outletUrl: "https://outlet2.com", outletDomain: "outlet2.com", campaignId: "campaign-1", brandIds: ["brand-1"], relevanceScore: 80, whyRelevant: "Also relevant", whyNotRelevant: "", overallRelevance: null, runId: null,
+        }});
+
+      // Outlet 1: socket error (container restart / "other side closed")
+      const socketError = new TypeError("fetch failed");
+      (socketError as unknown as { cause: Error }).cause = new Error("other side closed");
+      vi.mocked(fetchNextJournalist)
+        .mockRejectedValueOnce(socketError)
+        // Outlet 2: success
+        .mockResolvedValueOnce({
+          found: true,
+          journalist: {
+            id: "j-fallback-socket",
+            journalistName: "Jane Fallback",
+            firstName: "Jane",
+            lastName: "Fallback",
+            entityType: "individual" as const,
+            relevanceScore: 0.8,
+            whyRelevant: "Covers topic",
+            whyNotRelevant: "",
+            articleUrls: [],
+          },
+        });
+
+      vi.mocked(apolloMatch).mockResolvedValueOnce({
+        person: {
+          id: "apollo-fallback-socket",
+          email: "fallback@outlet2.com",
+          firstName: "Jane",
+          lastName: "Fallback",
+          organizationName: "Outlet Two",
+          organizationDomain: "outlet2.com",
+        },
+      });
+
+      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValueOnce(undefined);
+      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
+
+      const returningMock = vi.fn().mockResolvedValue([{ id: "served-socket" }]);
+      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
+      const valuesMock = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictMock });
+      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
+
+      const setMock = vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(undefined),
+      });
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
+
+      const result = await pullNext({
+        orgId: "org-1",
+        campaignId: "campaign-1",
+        brandIds: ["brand-1"],
+        sourceType: "journalist",
+      });
+
+      // Should NOT crash — should skip the socket-error outlet and serve from outlet 2
+      expect(result.found).toBe(true);
+      expect(result.lead?.email).toBe("fallback@outlet2.com");
+      expect(vi.mocked(fetchNextOutlet)).toHaveBeenCalledTimes(2);
+    });
+
     it("uses apolloMatch proactively when resolve returns journalists without emails", async () => {
       const journalistRow = toClaimedRow({
         id: "buf-j-noemail",
