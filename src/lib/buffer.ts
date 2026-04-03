@@ -275,16 +275,26 @@ async function fillBufferFromJournalists(params: {
 
     console.log(`[fillBufferFromJournalists] Got outlet "${outlet.outletName}" from outlets-service for campaign=${params.campaignId}`);
 
-    // Pull journalists from this outlet via journalists-service
+    // Pull journalists from this outlet via journalists-service.
+    // If journalists-service is temporarily unavailable (502/timeout), skip this outlet
+    // and try the next one instead of crashing the entire request.
     const MAX_JOURNALIST_PULLS = 50;
     let totalFilled = 0;
+    let outletFailed = false;
 
     for (let pull = 0; pull < MAX_JOURNALIST_PULLS; pull++) {
-      const result = await fetchNextJournalist(outlet.outletId, {
-        ...serviceContext,
-        campaignId: params.campaignId,
-        orgId: params.orgId,
-      });
+      let result: { found: boolean; journalist?: Awaited<ReturnType<typeof fetchNextJournalist>>["journalist"] };
+      try {
+        result = await fetchNextJournalist(outlet.outletId, {
+          ...serviceContext,
+          campaignId: params.campaignId,
+          orgId: params.orgId,
+        });
+      } catch (error) {
+        console.warn(`[fillBufferFromJournalists] journalists-service error for outlet "${outlet.outletName}" (${outlet.outletId}), skipping to next outlet:`, (error as Error).message);
+        outletFailed = true;
+        break;
+      }
 
       if (!result.found || !result.journalist) break;
 
@@ -373,6 +383,8 @@ async function fillBufferFromJournalists(params: {
       console.log(`[fillBufferFromJournalists] Buffered ${totalFilled} journalists from outlet ${outlet.outletName}`);
       return { filled: totalFilled };
     }
+
+    if (outletFailed) continue;
 
     // No journalists found for this outlet — ask outlets-service for the next one
     console.log(`[fillBufferFromJournalists] No usable journalists from outlet "${outlet.outletName}", requesting next outlet`);
