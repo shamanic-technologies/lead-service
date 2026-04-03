@@ -109,7 +109,6 @@ router.get("/leads/status", authenticate, async (req: AuthenticatedRequest, res)
   try {
     const campaignId = typeof req.query.campaignId === "string" ? req.query.campaignId : undefined;
     const brandId = typeof req.query.brandId === "string" ? req.query.brandId : undefined;
-    const outletId = typeof req.query.outletId === "string" ? req.query.outletId : undefined;
 
     // brandId is required when no campaignId (cross-campaign needs a brand scope)
     if (!campaignId && !brandId) {
@@ -126,10 +125,6 @@ router.get("/leads/status", authenticate, async (req: AuthenticatedRequest, res)
     if (brandId) {
       conditions.push(sql`${brandId} = ANY(${servedLeads.brandIds})`);
     }
-    if (outletId) {
-      conditions.push(sql`${servedLeads.metadata}->>'outletId' = ${outletId}`);
-    }
-
     const rows = await db
       .select({
         leadId: servedLeads.leadId,
@@ -188,15 +183,9 @@ router.get("/leads/status", authenticate, async (req: AuthenticatedRequest, res)
       const result = statusMap.get(row.email);
       const flat = result ? flatten(result) : DEFAULT_FLAT;
 
-      const meta = row.metadata as Record<string, unknown> | null;
-      const journalistId = (meta?.journalistId as string) ?? null;
-      const outletId = (meta?.outletId as string) ?? null;
-
       statuses.push({
         leadId: row.leadId,
         email: row.email,
-        journalistId,
-        outletId,
         ...flat,
       });
     }

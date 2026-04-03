@@ -75,7 +75,7 @@ describe("POST /buffer/next run status", () => {
       .post("/buffer/next")
       .set("x-campaign-id", "c1")
       .set("x-brand-id", "b1")
-      .send({ sourceType: "apollo" });
+      .send({});
 
     expect(res.status).toBe(200);
     expect(res.body.found).toBe(false);
@@ -89,7 +89,7 @@ describe("POST /buffer/next run status", () => {
   it("marks run as completed when pullNext returns found: true", async () => {
     mockPullNext.mockResolvedValue({
       found: true,
-      lead: { leadId: "lid", email: "a@b.com", data: {}, brandIds: ["b1"], orgId: "test-org", userId: null, apolloPersonId: null, journalistId: null, outletId: null },
+      lead: { leadId: "lid", email: "a@b.com", data: {}, brandIds: ["b1"], orgId: "test-org", userId: null, apolloPersonId: null },
     });
 
     const app = createApp();
@@ -97,7 +97,7 @@ describe("POST /buffer/next run status", () => {
       .post("/buffer/next")
       .set("x-campaign-id", "c1")
       .set("x-brand-id", "b1")
-      .send({ sourceType: "apollo" });
+      .send({});
 
     expect(res.status).toBe(200);
     expect(res.body.found).toBe(true);
@@ -116,7 +116,7 @@ describe("POST /buffer/next run status", () => {
       .post("/buffer/next")
       .set("x-campaign-id", "c1")
       .set("x-brand-id", "b1")
-      .send({ sourceType: "apollo" });
+      .send({});
 
     expect(res.status).toBe(500);
     expect(mockUpdateRun).toHaveBeenCalledWith(

@@ -30,16 +30,6 @@ vi.mock("../../src/lib/apollo-client.js", () => ({
   apolloMatch: vi.fn(),
 }));
 
-// Mock outlet-client
-vi.mock("../../src/lib/outlet-client.js", () => ({
-  fetchNextOutlet: vi.fn().mockResolvedValue({ found: false }),
-}));
-
-// Mock journalist-client
-vi.mock("../../src/lib/journalist-client.js", () => ({
-  fetchNextJournalist: vi.fn().mockResolvedValue({ found: false }),
-}));
-
 // Mock campaign-client
 vi.mock("../../src/lib/campaign-client.js", () => ({
   fetchCampaign: vi.fn().mockResolvedValue(null),
@@ -68,10 +58,8 @@ import { pullNext } from "../../src/lib/buffer.js";
 import { apolloSearchNext, apolloSearchParams, apolloEnrich, apolloMatch } from "../../src/lib/apollo-client.js";
 import { checkDeliveryStatus } from "../../src/lib/email-gateway-client.js";
 import { resolveOrCreateLead } from "../../src/lib/leads-registry.js";
-import { fetchNextOutlet } from "../../src/lib/outlet-client.js";
 import { fetchCampaign } from "../../src/lib/campaign-client.js";
 import { extractBrandFields } from "../../src/lib/brand-client.js";
-import { fetchNextJournalist } from "../../src/lib/journalist-client.js";
 
 /** Helper: convert camelCase buffer row to snake_case raw SQL row (as returned by pgSql) */
 function toClaimedRow(row: {
@@ -111,8 +99,6 @@ describe("buffer", () => {
     pgSqlMock.mockResolvedValue([]);
     vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
     vi.mocked(resolveOrCreateLead).mockResolvedValue({ leadId: "lead-uuid-1", isNew: true });
-    vi.mocked(fetchNextOutlet).mockResolvedValue({ found: false });
-    vi.mocked(fetchNextJournalist).mockResolvedValue({ found: false });
     vi.mocked(fetchCampaign).mockResolvedValue(null);
     vi.mocked(extractBrandFields).mockResolvedValue(null);
     vi.mocked(apolloSearchParams).mockResolvedValue({ searchParams: {} });
@@ -139,7 +125,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandIds: ["brand-1"],
-        sourceType: "apollo",
+
       });
 
       expect(result.found).toBe(false);
@@ -200,7 +186,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandIds: ["brand-1"],
-        sourceType: "apollo",
+
         // No searchParams!
       });
 
@@ -243,7 +229,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandIds: ["brand-1"],
-        sourceType: "apollo",
+
         runId: "child-run-1",
       });
 
@@ -290,7 +276,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandIds: ["brand-1"],
-        sourceType: "apollo",
+
       });
 
       expect(result.found).toBe(true);
@@ -362,7 +348,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandIds: ["brand-1"],
-        sourceType: "apollo",
+
       });
 
       expect(result.found).toBe(true);
@@ -416,7 +402,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandIds: ["brand-1"],
-        sourceType: "apollo",
+
 
       });
 
@@ -483,7 +469,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandIds: ["brand-1"],
-        sourceType: "apollo",
+
       });
 
       expect(result.found).toBe(true);
@@ -558,7 +544,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandIds: ["brand-1"],
-        sourceType: "apollo",
+
       });
 
       expect(result.found).toBe(true);
@@ -662,7 +648,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandIds: ["brand-1"],
-        sourceType: "apollo",
+
 
       });
 
@@ -693,7 +679,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandIds: ["brand-1"],
-        sourceType: "apollo",
+
 
       });
 
@@ -746,7 +732,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandIds: ["brand-1"],
-        sourceType: "apollo",
+
         runId: "run-1",
       });
 
@@ -805,7 +791,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandIds: ["brand-1"],
-        sourceType: "apollo",
+
       });
 
       expect(result.found).toBe(true);
@@ -865,7 +851,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandIds: ["brand-1"],
-        sourceType: "apollo",
+
 
         workflowSlug: "cold-email-outreach",
       });
@@ -914,7 +900,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandIds: ["brand-1"],
-        sourceType: "apollo",
+
       });
 
       expect(result.found).toBe(true);
@@ -950,7 +936,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandIds: ["brand-1"],
-        sourceType: "apollo",
+
       });
 
       expect(result.found).toBe(false);
@@ -1005,7 +991,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandIds: ["brand-1"],
-        sourceType: "apollo",
+
       });
 
       expect(result.found).toBe(true);
@@ -1042,7 +1028,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandIds: ["brand-1"],
-        sourceType: "apollo",
+
       });
 
       // Should still serve the lead (fallback: not delivered)
@@ -1050,688 +1036,10 @@ describe("buffer", () => {
       expect(result.lead?.email).toBe("alice@acme.com");
     });
 
-    it("fills buffer from journalists when sourceType=journalist and buffer empty", async () => {
-      // First pullNext: buffer empty → fills from journalists
-      // Second pullNext: serves the buffered journalist lead
-      const journalistRow = toClaimedRow({
-        id: "buf-j1",
-        namespace: "campaign-1",
-        campaignId: "campaign-1",
-        email: "jane@techcrunch.com",
-        externalId: "j-uuid-1",
-        data: {
-          firstName: "Jane",
-          lastName: "Reporter",
-          organizationDomain: "techcrunch.com",
-          organizationName: "TechCrunch",
-          sourceType: "journalist",
-        },
-        brandIds: ["brand-1"],
-        orgId: "org-1",
-        userId: null,
-      });
-
-      pgSqlMock
-        .mockResolvedValueOnce([])             // pullNext: buffer empty
-        .mockResolvedValueOnce([journalistRow]); // pullNext retry: claimed journalist lead
-
-      // isInBuffer → not in buffer
-      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValueOnce(undefined);
-
-      // Outlet service returns outlet via buffer/next
-      vi.mocked(fetchNextOutlet).mockResolvedValueOnce({ found: true, outlet: {
-        outletId: "outlet-1", outletName: "TechCrunch", outletUrl: "https://techcrunch.com", outletDomain: "techcrunch.com", campaignId: "campaign-1", brandIds: ["brand-1"], relevanceScore: 85, whyRelevant: "Top tech outlet", whyNotRelevant: "", overallRelevance: null, runId: null,
-      }});
-
-      // Journalist service returns journalist via buffer/next, then exhausted
-      vi.mocked(fetchNextJournalist)
-        .mockResolvedValueOnce({
-          found: true,
-          journalist: {
-            id: "j-uuid-1",
-            journalistName: "Jane Reporter",
-            firstName: "Jane",
-            lastName: "Reporter",
-            entityType: "individual" as const,
-            relevanceScore: 0.85,
-            whyRelevant: "Covers tech",
-            whyNotRelevant: "",
-            articleUrls: [],
-          },
-        });
-
-      // apolloMatch resolves the email (journalists no longer have emails directly)
-      vi.mocked(apolloMatch).mockResolvedValueOnce({
-        person: {
-          id: "apollo-jane",
-          email: "jane@techcrunch.com",
-          firstName: "Jane",
-          lastName: "Reporter",
-          organizationName: "TechCrunch",
-          organizationDomain: "techcrunch.com",
-        },
-      });
-
-      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
-
-      const returningMock = vi.fn().mockResolvedValue([{ id: "served-1" }]);
-      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
-      const valuesMock = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictMock });
-      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
-
-      const setMock = vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue(undefined),
-      });
-      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
-
-      const result = await pullNext({
-        orgId: "org-1",
-        campaignId: "campaign-1",
-        brandIds: ["brand-1"],
-        sourceType: "journalist",
-      });
-
-      expect(result.found).toBe(true);
-      expect(result.lead?.email).toBe("jane@techcrunch.com");
-      expect(vi.mocked(fetchNextOutlet)).toHaveBeenCalledWith(
-        expect.objectContaining({ campaignId: "campaign-1", orgId: "org-1" })
-      );
-      expect(vi.mocked(fetchNextJournalist)).toHaveBeenCalledWith(
-        "outlet-1", expect.objectContaining({ campaignId: "campaign-1" })
-      );
-      // After buffering one journalist, should NOT call fetchNextJournalist again
-      // for the same outlet (regression: extra call caused "outlet blocked" + timeouts)
-      expect(vi.mocked(fetchNextJournalist)).toHaveBeenCalledTimes(1);
-    });
-
-    it("uses apolloMatch for journalist leads without email", async () => {
-      pgSqlMock.mockResolvedValue([toClaimedRow({
-        id: "buf-j-noemail",
-        namespace: "campaign-1",
-        campaignId: "campaign-1",
-        email: "",
-        externalId: "j-uuid-2",
-        data: {
-          firstName: "John",
-          lastName: "Writer",
-          organizationDomain: "theverge.com",
-          organizationName: "The Verge",
-          sourceType: "journalist",
-        },
-        brandIds: ["brand-1"],
-        orgId: "org-1",
-        userId: null,
-      })]);
-
-      vi.mocked(apolloMatch).mockResolvedValueOnce({
-        enrichmentId: "enr-1",
-        person: {
-          id: "apollo-matched-1",
-          email: "john.writer@theverge.com",
-          firstName: "John",
-          lastName: "Writer",
-          organizationName: "The Verge",
-          organizationDomain: "theverge.com",
-        },
-        cached: false,
-      });
-
-      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
-
-      const returningMock = vi.fn().mockResolvedValue([{ id: "served-1" }]);
-      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
-      const valuesMock = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictMock });
-      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
-
-      const setMock = vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue(undefined),
-      });
-      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
-
-      const result = await pullNext({
-        orgId: "org-1",
-        campaignId: "campaign-1",
-        brandIds: ["brand-1"],
-        sourceType: "apollo",
-      });
-
-      expect(result.found).toBe(true);
-      expect(result.lead?.email).toBe("john.writer@theverge.com");
-      expect(vi.mocked(apolloMatch)).toHaveBeenCalledWith(
-        { firstName: "John", lastName: "Writer", organizationDomain: "theverge.com" },
-        expect.objectContaining({ orgId: "org-1" })
-      );
-      // Should NOT call apolloEnrich (journalist path uses apolloMatch)
-      expect(vi.mocked(apolloEnrich)).not.toHaveBeenCalled();
-    });
-
-    it("skips journalist lead when apolloMatch returns no email", async () => {
-      pgSqlMock
-        .mockResolvedValueOnce([toClaimedRow({
-          id: "buf-j-fail",
-          namespace: "campaign-1",
-          campaignId: "campaign-1",
-          email: "",
-          externalId: "j-uuid-3",
-          data: {
-            firstName: "Ghost",
-            lastName: "Journalist",
-            organizationDomain: "unknown.com",
-            sourceType: "journalist",
-          },
-          brandIds: ["brand-1"],
-          orgId: "org-1",
-          userId: null,
-        })])
-        .mockResolvedValueOnce([]); // no more rows
-
-      vi.mocked(apolloMatch).mockResolvedValueOnce({
-        enrichmentId: null,
-        person: null,
-        cached: false,
-      });
-
-      const setMock = vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue(undefined),
-      });
-      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
-
-      const result = await pullNext({
-        orgId: "org-1",
-        campaignId: "campaign-1",
-        brandIds: ["brand-1"],
-        sourceType: "apollo",
-      });
-
-      expect(result.found).toBe(false);
-      expect(vi.mocked(apolloMatch)).toHaveBeenCalled();
-    });
-
-    it("returns found: false when no outlets exist and discovery finds none", async () => {
-      pgSqlMock.mockResolvedValue([]);
-
-      // buffer/next finds nothing
-      vi.mocked(fetchNextOutlet).mockResolvedValueOnce({ found: false });
-
-      const result = await pullNext({
-        orgId: "org-1",
-        campaignId: "campaign-1",
-        brandIds: ["brand-1"],
-        sourceType: "journalist",
-        featureInput: { companyContext: "A test brand" },
-      });
-
-      expect(result.found).toBe(false);
-      expect(vi.mocked(fetchNextOutlet)).toHaveBeenCalledOnce();
-      expect(vi.mocked(fetchNextOutlet)).toHaveBeenCalledWith(
-        expect.objectContaining({
-          campaignId: "campaign-1",
-          brandId: "brand-1",
-          orgId: "org-1",
-        }),
-      );
-    });
-
-    it("discovers outlets and fills buffer — passes featureInput through as-is", async () => {
-      const journalistRow = toClaimedRow({
-        id: "buf-j-discover",
-        namespace: "campaign-1",
-        campaignId: "campaign-1",
-        email: "discovered@outlet.com",
-        externalId: "j-discovered",
-        data: {
-          firstName: "Jane",
-          lastName: "Reporter",
-          organizationName: "Discovered Outlet",
-          sourceType: "journalist",
-        },
-        brandIds: ["brand-1"],
-        orgId: "org-1",
-        userId: null,
-      });
-
-      pgSqlMock
-        .mockResolvedValueOnce([])              // pullNext: buffer empty
-        .mockResolvedValueOnce([journalistRow]); // pullNext retry: claimed journalist lead
-
-      // buffer/next returns an outlet
-      vi.mocked(fetchNextOutlet).mockResolvedValueOnce({ found: true, outlet: {
-        outletId: "outlet-discovered",
-        outletName: "Discovered Outlet",
-        outletUrl: "https://discovered-outlet.com",
-        outletDomain: "discovered-outlet.com",
-        campaignId: "campaign-1",
-        brandIds: ["brand-1"],
-        relevanceScore: 0.9,
-        whyRelevant: "Relevant outlet",
-        whyNotRelevant: "",
-        overallRelevance: null,
-        runId: null,
-      }});
-
-      vi.mocked(fetchNextJournalist)
-        .mockResolvedValueOnce({
-          found: true,
-          journalist: {
-            id: "j-discovered",
-            journalistName: "Jane Reporter",
-            firstName: "Jane",
-            lastName: "Reporter",
-            entityType: "individual" as const,
-            relevanceScore: 0.8,
-            whyRelevant: "Covers tech",
-            whyNotRelevant: "",
-            articleUrls: [],
-          },
-        });
-
-      // apolloMatch resolves the email (journalists no longer have emails directly)
-      vi.mocked(apolloMatch).mockResolvedValueOnce({
-        person: {
-          id: "apollo-discovered",
-          email: "discovered@outlet.com",
-          firstName: "Jane",
-          lastName: "Reporter",
-          organizationName: "Discovered Outlet",
-          organizationDomain: "discovered-outlet.com",
-        },
-      });
-
-      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValueOnce(undefined);
-
-      const returningMock = vi.fn().mockResolvedValue([{ id: "served-1" }]);
-      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
-      const valuesMock = vi.fn().mockReturnValue({
-        onConflictDoNothing: onConflictMock,
-      });
-      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
-
-      const setMock = vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue(undefined),
-      });
-      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
-
-      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
-
-      const featureInput = {
-        companyContext: "AI-powered PR distribution platform",
-        prAngle: "Launch of the Stripe for Distribution",
-        targetOutlets: "Top-tier tech blogs, SaaS publications",
-      };
-
-      const result = await pullNext({
-        orgId: "org-1",
-        campaignId: "campaign-1",
-        brandIds: ["brand-1"],
-        sourceType: "journalist",
-        featureInput,
-      });
-
-      // fetchNextOutlet triggers auto-discovery on outlets-service
-      expect(vi.mocked(fetchNextOutlet)).toHaveBeenCalledOnce();
-      expect(vi.mocked(fetchNextOutlet)).toHaveBeenCalledWith(
-        expect.objectContaining({
-          campaignId: "campaign-1",
-          brandId: "brand-1",
-          orgId: "org-1",
-        }),
-      );
-      expect(result.found).toBe(true);
-      expect(result.lead?.email).toBe("discovered@outlet.com");
-    });
-
-    it("calls fetchNextOutlet even without featureInput", async () => {
-      pgSqlMock.mockResolvedValue([]);
-
-      // buffer/next finds nothing
-      vi.mocked(fetchNextOutlet).mockResolvedValueOnce({ found: false });
-
-      const result = await pullNext({
-        orgId: "org-1",
-        campaignId: "campaign-1",
-        brandIds: ["brand-1"],
-        sourceType: "journalist",
-      });
-
-      expect(result.found).toBe(false);
-      // fetchNextOutlet is always called — outlets-service handles discovery internally
-      expect(vi.mocked(fetchNextOutlet)).toHaveBeenCalledOnce();
-      expect(vi.mocked(fetchNextOutlet)).toHaveBeenCalledWith(
-        expect.objectContaining({
-          campaignId: "campaign-1",
-          brandId: "brand-1",
-        }),
-      );
-    });
-
-    it("skips outlet and tries next when journalists-service returns 502 (regression)", async () => {
-      const journalistRow = toClaimedRow({
-        id: "buf-j-502",
-        namespace: "journalist",
-        campaignId: "campaign-1",
-        email: "fallback@outlet2.com",
-        externalId: "j-fallback",
-        data: {
-          firstName: "Jane",
-          lastName: "Fallback",
-          organizationName: "Outlet Two",
-          sourceType: "journalist",
-        },
-        brandIds: ["brand-1"],
-        orgId: "org-1",
-        userId: null,
-      });
-
-      pgSqlMock
-        .mockResolvedValueOnce([])              // pullNext: buffer empty
-        .mockResolvedValueOnce([journalistRow]); // pullNext retry: claimed journalist lead
-
-      // Outlet 1 returned, then outlet 2
-      vi.mocked(fetchNextOutlet)
-        .mockResolvedValueOnce({ found: true, outlet: {
-          outletId: "outlet-fail", outletName: "Failing Outlet", outletUrl: "https://failing.com", outletDomain: "failing.com", campaignId: "campaign-1", brandIds: ["brand-1"], relevanceScore: 90, whyRelevant: "Relevant", whyNotRelevant: "", overallRelevance: null, runId: null,
-        }})
-        .mockResolvedValueOnce({ found: true, outlet: {
-          outletId: "outlet-ok", outletName: "Outlet Two", outletUrl: "https://outlet2.com", outletDomain: "outlet2.com", campaignId: "campaign-1", brandIds: ["brand-1"], relevanceScore: 80, whyRelevant: "Also relevant", whyNotRelevant: "", overallRelevance: null, runId: null,
-        }});
-
-      // Outlet 1: journalists-service 502
-      vi.mocked(fetchNextJournalist)
-        .mockRejectedValueOnce(new Error("[journalist-client] buffer/next failed for outlet outlet-fail: 502"))
-        // Outlet 2: success
-        .mockResolvedValueOnce({
-          found: true,
-          journalist: {
-            id: "j-fallback",
-            journalistName: "Jane Fallback",
-            firstName: "Jane",
-            lastName: "Fallback",
-            entityType: "individual" as const,
-            relevanceScore: 0.8,
-            whyRelevant: "Covers topic",
-            whyNotRelevant: "",
-            articleUrls: [],
-          },
-        });
-
-      vi.mocked(apolloMatch).mockResolvedValueOnce({
-        person: {
-          id: "apollo-fallback",
-          email: "fallback@outlet2.com",
-          firstName: "Jane",
-          lastName: "Fallback",
-          organizationName: "Outlet Two",
-          organizationDomain: "outlet2.com",
-        },
-      });
-
-      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValueOnce(undefined);
-      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
-
-      const returningMock = vi.fn().mockResolvedValue([{ id: "served-1" }]);
-      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
-      const valuesMock = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictMock });
-      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
-
-      const setMock = vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue(undefined),
-      });
-      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
-
-      const result = await pullNext({
-        orgId: "org-1",
-        campaignId: "campaign-1",
-        brandIds: ["brand-1"],
-        sourceType: "journalist",
-      });
-
-      // Should NOT crash — should skip the failing outlet and serve from outlet 2
-      expect(result.found).toBe(true);
-      expect(result.lead?.email).toBe("fallback@outlet2.com");
-      // Both outlets were requested
-      expect(vi.mocked(fetchNextOutlet)).toHaveBeenCalledTimes(2);
-    });
-
-    it("skips outlet and tries next when journalists-service socket closes mid-request (regression)", async () => {
-      const journalistRow = toClaimedRow({
-        id: "buf-j-socket",
-        namespace: "journalist",
-        campaignId: "campaign-1",
-        email: "fallback@outlet2.com",
-        externalId: "j-fallback-socket",
-        data: {
-          firstName: "Jane",
-          lastName: "Fallback",
-          organizationName: "Outlet Two",
-          sourceType: "journalist",
-        },
-        brandIds: ["brand-1"],
-        orgId: "org-1",
-        userId: null,
-      });
-
-      pgSqlMock
-        .mockResolvedValueOnce([])              // pullNext: buffer empty
-        .mockResolvedValueOnce([journalistRow]); // pullNext retry: claimed journalist lead
-
-      vi.mocked(fetchNextOutlet)
-        .mockResolvedValueOnce({ found: true, outlet: {
-          outletId: "outlet-socket-fail", outletName: "Restarting Outlet", outletUrl: "https://restarting.com", outletDomain: "restarting.com", campaignId: "campaign-1", brandIds: ["brand-1"], relevanceScore: 90, whyRelevant: "Relevant", whyNotRelevant: "", overallRelevance: null, runId: null,
-        }})
-        .mockResolvedValueOnce({ found: true, outlet: {
-          outletId: "outlet-ok-2", outletName: "Outlet Two", outletUrl: "https://outlet2.com", outletDomain: "outlet2.com", campaignId: "campaign-1", brandIds: ["brand-1"], relevanceScore: 80, whyRelevant: "Also relevant", whyNotRelevant: "", overallRelevance: null, runId: null,
-        }});
-
-      // Outlet 1: socket error (container restart / "other side closed")
-      const socketError = new TypeError("fetch failed");
-      (socketError as unknown as { cause: Error }).cause = new Error("other side closed");
-      vi.mocked(fetchNextJournalist)
-        .mockRejectedValueOnce(socketError)
-        // Outlet 2: success
-        .mockResolvedValueOnce({
-          found: true,
-          journalist: {
-            id: "j-fallback-socket",
-            journalistName: "Jane Fallback",
-            firstName: "Jane",
-            lastName: "Fallback",
-            entityType: "individual" as const,
-            relevanceScore: 0.8,
-            whyRelevant: "Covers topic",
-            whyNotRelevant: "",
-            articleUrls: [],
-          },
-        });
-
-      vi.mocked(apolloMatch).mockResolvedValueOnce({
-        person: {
-          id: "apollo-fallback-socket",
-          email: "fallback@outlet2.com",
-          firstName: "Jane",
-          lastName: "Fallback",
-          organizationName: "Outlet Two",
-          organizationDomain: "outlet2.com",
-        },
-      });
-
-      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValueOnce(undefined);
-      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
-
-      const returningMock = vi.fn().mockResolvedValue([{ id: "served-socket" }]);
-      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
-      const valuesMock = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictMock });
-      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
-
-      const setMock = vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue(undefined),
-      });
-      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
-
-      const result = await pullNext({
-        orgId: "org-1",
-        campaignId: "campaign-1",
-        brandIds: ["brand-1"],
-        sourceType: "journalist",
-      });
-
-      // Should NOT crash — should skip the socket-error outlet and serve from outlet 2
-      expect(result.found).toBe(true);
-      expect(result.lead?.email).toBe("fallback@outlet2.com");
-      expect(vi.mocked(fetchNextOutlet)).toHaveBeenCalledTimes(2);
-    });
-
-    it("uses apolloMatch proactively when resolve returns journalists without emails", async () => {
-      const journalistRow = toClaimedRow({
-        id: "buf-j-noemail",
-        namespace: "campaign-1",
-        campaignId: "campaign-1",
-        email: "found@techcrunch.com",
-        externalId: "j-noemail",
-        data: {
-          firstName: "Bob",
-          lastName: "Writer",
-          organizationDomain: "techcrunch.com",
-          organizationName: "TechCrunch",
-          sourceType: "journalist",
-        },
-        brandIds: ["brand-1"],
-        orgId: "org-1",
-        userId: null,
-      });
-
-      pgSqlMock
-        .mockResolvedValueOnce([])              // pullNext: buffer empty
-        .mockResolvedValueOnce([journalistRow]); // pullNext retry: claimed lead
-
-      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValueOnce(undefined);
-
-      // Outlet service returns outlet via buffer/next
-      vi.mocked(fetchNextOutlet).mockResolvedValueOnce({ found: true, outlet: {
-        outletId: "outlet-1", outletName: "TechCrunch", outletUrl: "https://techcrunch.com", outletDomain: "techcrunch.com", campaignId: "campaign-1", brandIds: ["brand-1"], relevanceScore: 85, whyRelevant: "Top tech outlet", whyNotRelevant: "", overallRelevance: null, runId: null,
-      }});
-
-      // buffer/next returns journalist WITHOUT emails, then exhausted
-      vi.mocked(fetchNextJournalist)
-        .mockResolvedValueOnce({
-          found: true,
-          journalist: {
-            id: "j-noemail",
-            journalistName: "Bob Writer",
-            firstName: "Bob",
-            lastName: "Writer",
-            entityType: "individual" as const,
-            relevanceScore: 0.8,
-            whyRelevant: "Covers tech",
-            whyNotRelevant: "",
-            articleUrls: [],
-          },
-        });
-
-      // apolloMatch finds the email
-      vi.mocked(apolloMatch).mockResolvedValueOnce({
-        person: {
-          id: "apollo-bob",
-          email: "found@techcrunch.com",
-          firstName: "Bob",
-          lastName: "Writer",
-          organizationName: "TechCrunch",
-          organizationDomain: "techcrunch.com",
-        },
-      });
-
-      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
-
-      const returningMock = vi.fn().mockResolvedValue([{ id: "served-1" }]);
-      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
-      const valuesMock = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictMock });
-      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
-
-      const setMock = vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue(undefined),
-      });
-      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
-
-      const result = await pullNext({
-        orgId: "org-1",
-        campaignId: "campaign-1",
-        brandIds: ["brand-1"],
-        sourceType: "journalist",
-      });
-
-      // apolloMatch should have been called during fillBufferFromJournalists
-      expect(vi.mocked(apolloMatch)).toHaveBeenCalledWith(
-        { firstName: "Bob", lastName: "Writer", organizationDomain: "techcrunch.com" },
-        expect.objectContaining({ campaignId: "campaign-1", brandId: "brand-1" }),
-      );
-      expect(result.found).toBe(true);
-      expect(result.lead?.email).toBe("found@techcrunch.com");
-    });
-
-    it("does not buffer journalist when no email found after apolloMatch — prevents infinite loop", async () => {
-      // Regression: when a journalist has no email and apolloMatch fails,
-      // fillBufferFromJournalists should NOT buffer the journalist. Otherwise
-      // pullNext claims it, skips it (no email), calls fillBuffer again, and
-      // the cycle repeats for every outlet — causing an infinite loop of service calls.
-      pgSqlMock.mockResolvedValue([]); // buffer always empty
-
-      // Outlet service returns outlet, then no more
-      vi.mocked(fetchNextOutlet)
-        .mockResolvedValueOnce({ found: true, outlet: {
-          outletId: "outlet-1", outletName: "Expat Focus", outletUrl: "https://expatfocus.com", outletDomain: "expatfocus.com", campaignId: "campaign-1", brandIds: ["brand-1"], relevanceScore: 80, whyRelevant: "Expat outlet", whyNotRelevant: "", overallRelevance: null, runId: null,
-        }})
-        .mockResolvedValueOnce({ found: false });
-
-      // Journalist has no valid emails
-      vi.mocked(fetchNextJournalist)
-        .mockResolvedValueOnce({
-          found: true,
-          journalist: {
-            id: "j-noemail-1",
-            journalistName: "Ghost Writer",
-            firstName: "Ghost",
-            lastName: "Writer",
-            entityType: "individual" as const,
-            relevanceScore: 0.7,
-            whyRelevant: "Writes about relocation",
-            whyNotRelevant: "",
-            articleUrls: [],
-          },
-        })
-        .mockResolvedValueOnce({ found: false });
-
-      // apolloMatch fails — no email found
-      vi.mocked(apolloMatch).mockResolvedValueOnce({
-        enrichmentId: null,
-        person: null,
-        cached: false,
-      });
-
-      const setMock = vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue(undefined),
-      });
-      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
-
-      const valuesMock = vi.fn().mockReturnValue({
-        onConflictDoNothing: vi.fn().mockResolvedValue(undefined),
-      });
-      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
-
-      const result = await pullNext({
-        orgId: "org-1",
-        campaignId: "campaign-1",
-        brandIds: ["brand-1"],
-        sourceType: "journalist",
-      });
-
-      expect(result.found).toBe(false);
-      // apolloMatch was tried during fillBufferFromJournalists
-      expect(vi.mocked(apolloMatch)).toHaveBeenCalledOnce();
-      // Crucially: db.insert should only be called for the cursor save, NOT for a buffer row
-      // (the journalist was not buffered because no email was found)
-      const { leadBuffer } = await import("../../src/db/schema.js");
-      const insertCalls = vi.mocked(db.insert).mock.calls;
-      const bufferInserts = insertCalls.filter(([table]) => table === leadBuffer);
-      expect(bufferInserts).toHaveLength(0);
+    it("REMOVED journalist tests — journalist pipeline moved to journalists-service", () => {
+      // All journalist-related tests removed: journalist discovery, outlet iteration,
+      // apolloMatch for journalist leads, etc. are now handled by journalists-service.
+      expect(true).toBe(true);
     });
 
     it("skips lead when markServed returns inserted: false (race condition dedup)", async () => {
@@ -1791,7 +1099,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-1",
         brandIds: ["brand-1"],
-        sourceType: "apollo",
+
       });
 
       // Should skip the duplicate and serve the next lead
@@ -1844,7 +1152,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-uuid-123",
         brandIds: ["brand-1"],
-        sourceType: "apollo",
+
       });
 
       // The first insert call should be the buffer row with namespace="apollo"
@@ -1853,82 +1161,8 @@ describe("buffer", () => {
       expect(bufferInsert.namespace).not.toBe("campaign-uuid-123");
     });
 
-    it("sets namespace to 'journalist' (not campaignId) when filling buffer from journalists (regression)", async () => {
-      pgSqlMock
-        .mockResolvedValueOnce([])  // buffer empty
-        .mockResolvedValueOnce([toClaimedRow({
-          id: "buf-jns-1",
-          namespace: "journalist",
-          campaignId: "campaign-uuid-456",
-          email: "journalist@outlet.com",
-          externalId: "journalist-id-1",
-          data: { firstName: "Jane", lastName: "Doe", sourceType: "journalist", journalistId: "journalist-id-1" },
-          brandIds: ["brand-1"],
-          orgId: "org-1",
-          userId: null,
-        })]);
 
-      // Setup outlet via buffer/next
-      vi.mocked(fetchNextOutlet).mockResolvedValueOnce({ found: true, outlet: {
-        outletId: "outlet-1", outletName: "TechCrunch", outletUrl: "https://techcrunch.com", outletDomain: "techcrunch.com", campaignId: "campaign-uuid-456", brandIds: ["brand-1"], relevanceScore: 85, whyRelevant: "Top tech outlet", whyNotRelevant: "", overallRelevance: null, runId: null,
-      }});
-
-      // Setup journalist
-      vi.mocked(fetchNextJournalist)
-        .mockResolvedValueOnce({
-          found: true,
-          journalist: {
-            id: "journalist-id-1",
-            firstName: "Jane",
-            lastName: "Doe",
-            journalistName: "Jane Doe",
-            entityType: "person",
-            articleUrls: [],
-          },
-        } as never);
-
-      // apolloMatch resolves the email (journalists no longer have emails directly)
-      vi.mocked(apolloMatch).mockResolvedValueOnce({
-        person: {
-          id: "apollo-jane-doe",
-          email: "journalist@outlet.com",
-          firstName: "Jane",
-          lastName: "Doe",
-          organizationName: "TechCrunch",
-          organizationDomain: "techcrunch.com",
-        },
-      });
-
-      vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValueOnce(undefined);
-      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
-
-      const insertValues: unknown[] = [];
-      const valuesMock = vi.fn().mockImplementation((vals) => {
-        insertValues.push(vals);
-        return { onConflictDoNothing: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: "served-jns-1" }]) }) };
-      });
-      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
-
-      const setMock = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
-      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
-
-      await pullNext({
-        orgId: "org-1",
-        campaignId: "campaign-uuid-456",
-        brandIds: ["brand-1"],
-        sourceType: "journalist",
-      });
-
-      // Find the buffer row insert (has namespace field) — enrichment cache insert comes first
-      const bufferInsert = insertValues.find(
-        (v) => (v as Record<string, unknown>).namespace !== undefined
-      ) as Record<string, unknown>;
-      expect(bufferInsert).toBeDefined();
-      expect(bufferInsert.namespace).toBe("journalist");
-      expect(bufferInsert.namespace).not.toBe("campaign-uuid-456");
-    });
-
-    it("passes sourceType as namespace to markServed (not campaignId) (regression)", async () => {
+    it("passes 'apollo' as namespace to markServed (not campaignId) (regression)", async () => {
       pgSqlMock.mockResolvedValue([toClaimedRow({
         id: "buf-ms-1",
         namespace: "apollo",
@@ -1960,7 +1194,7 @@ describe("buffer", () => {
         orgId: "org-1",
         campaignId: "campaign-uuid-789",
         brandIds: ["brand-1"],
-        sourceType: "apollo",
+
       });
 
       // markServed inserts into servedLeads — find the insert that has namespace
