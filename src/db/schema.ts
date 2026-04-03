@@ -80,7 +80,8 @@ export const leadBuffer = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index("idx_buffer_org_ns_status").on(table.orgId, table.namespace, table.status),
+    index("idx_buffer_org_campaign_ns_status").on(table.orgId, table.campaignId, table.namespace, table.status),
+    index("idx_buffer_org_campaign_extid").on(table.orgId, table.campaignId, table.externalId),
   ]
 );
 
