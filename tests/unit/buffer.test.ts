@@ -15,9 +15,6 @@ vi.mock("../../src/db/index.js", () => ({
       enrichments: {
         findFirst: vi.fn(),
       },
-      cursors: {
-        findFirst: vi.fn(),
-      },
     },
     insert: vi.fn(),
     update: vi.fn(),
@@ -35,7 +32,6 @@ vi.mock("../../src/lib/apollo-client.js", () => ({
 
 // Mock outlet-client
 vi.mock("../../src/lib/outlet-client.js", () => ({
-  fetchOutletsByCampaign: vi.fn().mockResolvedValue(null),
   fetchNextOutlet: vi.fn().mockResolvedValue({ found: false }),
 }));
 
@@ -72,7 +68,7 @@ import { pullNext } from "../../src/lib/buffer.js";
 import { apolloSearchNext, apolloSearchParams, apolloEnrich, apolloMatch } from "../../src/lib/apollo-client.js";
 import { checkDeliveryStatus } from "../../src/lib/email-gateway-client.js";
 import { resolveOrCreateLead } from "../../src/lib/leads-registry.js";
-import { fetchOutletsByCampaign, fetchNextOutlet } from "../../src/lib/outlet-client.js";
+import { fetchNextOutlet } from "../../src/lib/outlet-client.js";
 import { fetchCampaign } from "../../src/lib/campaign-client.js";
 import { extractBrandFields } from "../../src/lib/brand-client.js";
 import { fetchNextJournalist } from "../../src/lib/journalist-client.js";
@@ -1073,16 +1069,13 @@ describe("buffer", () => {
         .mockResolvedValueOnce([])             // pullNext: buffer empty
         .mockResolvedValueOnce([journalistRow]); // pullNext retry: claimed journalist lead
 
-      // Cursor: no existing cursor
-      vi.mocked(db.query.cursors.findFirst).mockResolvedValueOnce(undefined);
-
       // isInBuffer → not in buffer
       vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValueOnce(undefined);
 
-      // Outlet service returns outlets
-      vi.mocked(fetchOutletsByCampaign).mockResolvedValueOnce([
-        { id: "outlet-1", outletName: "TechCrunch", outletUrl: "https://techcrunch.com", outletDomain: "techcrunch.com", relevanceScore: 85, outletStatus: "open", campaignId: "campaign-1" },
-      ]);
+      // Outlet service returns outlet via buffer/next
+      vi.mocked(fetchNextOutlet).mockResolvedValueOnce({ found: true, outlet: {
+        outletId: "outlet-1", outletName: "TechCrunch", outletUrl: "https://techcrunch.com", outletDomain: "techcrunch.com", campaignId: "campaign-1", brandIds: ["brand-1"], relevanceScore: 85, whyRelevant: "Top tech outlet", whyNotRelevant: "", overallRelevance: null, runId: null,
+      }});
 
       // Journalist service returns journalist via buffer/next, then exhausted
       vi.mocked(fetchNextJournalist)
@@ -1135,8 +1128,8 @@ describe("buffer", () => {
 
       expect(result.found).toBe(true);
       expect(result.lead?.email).toBe("jane@techcrunch.com");
-      expect(vi.mocked(fetchOutletsByCampaign)).toHaveBeenCalledWith(
-        "campaign-1", "org-1", expect.objectContaining({ campaignId: "campaign-1" })
+      expect(vi.mocked(fetchNextOutlet)).toHaveBeenCalledWith(
+        expect.objectContaining({ campaignId: "campaign-1", orgId: "org-1" })
       );
       expect(vi.mocked(fetchNextJournalist)).toHaveBeenCalledWith(
         "outlet-1", expect.objectContaining({ campaignId: "campaign-1" })
@@ -1249,10 +1242,7 @@ describe("buffer", () => {
     it("returns found: false when no outlets exist and discovery finds none", async () => {
       pgSqlMock.mockResolvedValue([]);
 
-      vi.mocked(db.query.cursors.findFirst).mockResolvedValueOnce(undefined);
-      vi.mocked(fetchOutletsByCampaign).mockResolvedValueOnce([]);
-
-      // buffer/next triggers auto-discovery but finds nothing
+      // buffer/next finds nothing
       vi.mocked(fetchNextOutlet).mockResolvedValueOnce({ found: false });
 
       const result = await pullNext({
@@ -1296,13 +1286,7 @@ describe("buffer", () => {
         .mockResolvedValueOnce([])              // pullNext: buffer empty
         .mockResolvedValueOnce([journalistRow]); // pullNext retry: claimed journalist lead
 
-      vi.mocked(db.query.cursors.findFirst).mockResolvedValueOnce(undefined);
-
-      // Only one mock needed — after discovery, the outlet is used directly
-      // from buffer/next response without re-fetching via fetchOutletsByCampaign
-      vi.mocked(fetchOutletsByCampaign).mockResolvedValueOnce([]);
-
-      // buffer/next triggers auto-discovery and finds an outlet
+      // buffer/next returns an outlet
       vi.mocked(fetchNextOutlet).mockResolvedValueOnce({ found: true, outlet: {
         outletId: "outlet-discovered",
         outletName: "Discovered Outlet",
@@ -1314,6 +1298,7 @@ describe("buffer", () => {
         whyRelevant: "Relevant outlet",
         whyNotRelevant: "",
         overallRelevance: null,
+        runId: null,
       }});
 
       vi.mocked(fetchNextJournalist)
@@ -1391,10 +1376,7 @@ describe("buffer", () => {
     it("calls fetchNextOutlet even without featureInput", async () => {
       pgSqlMock.mockResolvedValue([]);
 
-      vi.mocked(db.query.cursors.findFirst).mockResolvedValueOnce(undefined);
-      vi.mocked(fetchOutletsByCampaign).mockResolvedValueOnce([]);
-
-      // buffer/next triggers auto-discovery but finds nothing
+      // buffer/next finds nothing
       vi.mocked(fetchNextOutlet).mockResolvedValueOnce({ found: false });
 
       const result = await pullNext({
@@ -1438,13 +1420,12 @@ describe("buffer", () => {
         .mockResolvedValueOnce([])              // pullNext: buffer empty
         .mockResolvedValueOnce([journalistRow]); // pullNext retry: claimed lead
 
-      vi.mocked(db.query.cursors.findFirst).mockResolvedValueOnce(undefined);
       vi.mocked(db.query.leadBuffer.findFirst).mockResolvedValueOnce(undefined);
 
-      // Outlets exist
-      vi.mocked(fetchOutletsByCampaign).mockResolvedValueOnce([
-        { id: "outlet-1", outletName: "TechCrunch", outletUrl: "https://techcrunch.com", outletDomain: "techcrunch.com", relevanceScore: 85, outletStatus: "open", campaignId: "campaign-1" },
-      ]);
+      // Outlet service returns outlet via buffer/next
+      vi.mocked(fetchNextOutlet).mockResolvedValueOnce({ found: true, outlet: {
+        outletId: "outlet-1", outletName: "TechCrunch", outletUrl: "https://techcrunch.com", outletDomain: "techcrunch.com", campaignId: "campaign-1", brandIds: ["brand-1"], relevanceScore: 85, whyRelevant: "Top tech outlet", whyNotRelevant: "", overallRelevance: null, runId: null,
+      }});
 
       // buffer/next returns journalist WITHOUT emails, then exhausted
       vi.mocked(fetchNextJournalist)
@@ -1511,11 +1492,12 @@ describe("buffer", () => {
       // the cycle repeats for every outlet — causing an infinite loop of service calls.
       pgSqlMock.mockResolvedValue([]); // buffer always empty
 
-      vi.mocked(db.query.cursors.findFirst).mockResolvedValueOnce(undefined);
-
-      vi.mocked(fetchOutletsByCampaign).mockResolvedValueOnce([
-        { id: "outlet-1", outletName: "Expat Focus", outletUrl: "https://expatfocus.com", outletDomain: "expatfocus.com", relevanceScore: 80, outletStatus: "open", campaignId: "campaign-1" },
-      ]);
+      // Outlet service returns outlet, then no more
+      vi.mocked(fetchNextOutlet)
+        .mockResolvedValueOnce({ found: true, outlet: {
+          outletId: "outlet-1", outletName: "Expat Focus", outletUrl: "https://expatfocus.com", outletDomain: "expatfocus.com", campaignId: "campaign-1", brandIds: ["brand-1"], relevanceScore: 80, whyRelevant: "Expat outlet", whyNotRelevant: "", overallRelevance: null, runId: null,
+        }})
+        .mockResolvedValueOnce({ found: false });
 
       // Journalist has no valid emails
       vi.mocked(fetchNextJournalist)
@@ -1704,10 +1686,10 @@ describe("buffer", () => {
           userId: null,
         })]);
 
-      // Setup outlets
-      vi.mocked(fetchOutletsByCampaign).mockResolvedValueOnce([
-        { id: "outlet-1", outletName: "TechCrunch", outletUrl: "https://techcrunch.com", outletDomain: "techcrunch.com" },
-      ] as never);
+      // Setup outlet via buffer/next
+      vi.mocked(fetchNextOutlet).mockResolvedValueOnce({ found: true, outlet: {
+        outletId: "outlet-1", outletName: "TechCrunch", outletUrl: "https://techcrunch.com", outletDomain: "techcrunch.com", campaignId: "campaign-uuid-456", brandIds: ["brand-1"], relevanceScore: 85, whyRelevant: "Top tech outlet", whyNotRelevant: "", overallRelevance: null, runId: null,
+      }});
 
       // Setup journalist
       vi.mocked(fetchNextJournalist)
@@ -1748,9 +1730,6 @@ describe("buffer", () => {
 
       const setMock = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
       vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
-
-      // Mock cursor
-      vi.mocked(db.query.cursors.findFirst).mockResolvedValueOnce(undefined);
 
       await pullNext({
         orgId: "org-1",
