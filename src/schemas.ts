@@ -180,12 +180,11 @@ export const ApolloPersonDataSchema = z
     organizationRetailLocationCount: z.number().nullable().optional(),
     organizationAlexaRanking: z.number().nullable().optional(),
   })
-  .passthrough()
   .openapi("ApolloPersonData", {
     description:
       "Apollo person + organization data in flat camelCase format. " +
       "Organization fields are prefixed with 'organization' (e.g. organizationDomain, organizationName) — " +
-      "there is NO nested 'organization' object. Additional fields from Apollo may be present.",
+      "there is NO nested 'organization' object.",
   });
 
 // --- Buffer Next ---
