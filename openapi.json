@@ -493,10 +493,7 @@
           "lastName",
           "organizationName"
         ],
-        "additionalProperties": {
-          "nullable": true
-        },
-        "description": "Apollo person + organization data in flat camelCase format. Organization fields are prefixed with 'organization' (e.g. organizationDomain, organizationName) — there is NO nested 'organization' object. Additional fields from Apollo may be present."
+        "description": "Apollo person + organization data in flat camelCase format. Organization fields are prefixed with 'organization' (e.g. organizationDomain, organizationName) — there is NO nested 'organization' object."
       },
       "ErrorResponse": {
         "type": "object",
