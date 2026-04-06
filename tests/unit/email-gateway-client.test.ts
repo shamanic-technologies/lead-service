@@ -54,7 +54,7 @@ describe("email-gateway-client", () => {
       expect(result).toEqual(responseBody);
       expect(mockFetch).toHaveBeenCalledOnce();
       const [url, opts] = mockFetch.mock.calls[0];
-      expect(url).toContain("/status");
+      expect(url).toContain("/orgs/status");
       expect(opts.method).toBe("POST");
       expect(opts.headers["x-brand-id"]).toBe("brand-1");
       const body = JSON.parse(opts.body);

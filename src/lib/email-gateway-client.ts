@@ -59,7 +59,7 @@ async function checkDeliveryStatusBatch(
   const body: Record<string, unknown> = { items };
   if (campaignId) body.campaignId = campaignId;
 
-  const response = await fetch(`${EMAIL_GATEWAY_SERVICE_URL}/status`, {
+  const response = await fetch(`${EMAIL_GATEWAY_SERVICE_URL}/orgs/status`, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
