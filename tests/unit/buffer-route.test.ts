@@ -34,7 +34,8 @@ vi.mock("../../src/db/index.js", () => ({
 }));
 
 vi.mock("../../src/middleware/auth.js", () => ({
-  authenticate: (_req: any, _res: any, next: any) => {
+  apiKeyAuth: (_req: any, _res: any, next: any) => next(),
+  requireOrgId: (_req: any, _res: any, next: any) => {
     _req.orgId = "test-org";
     _req.userId = "test-user";
     _req.runId = "parent-run";
@@ -72,7 +73,7 @@ describe("POST /buffer/next run status", () => {
 
     const app = createApp();
     const res = await request(app)
-      .post("/buffer/next")
+      .post("/orgs/buffer/next")
       .set("x-campaign-id", "c1")
       .set("x-brand-id", "b1")
       .send({});
@@ -94,7 +95,7 @@ describe("POST /buffer/next run status", () => {
 
     const app = createApp();
     const res = await request(app)
-      .post("/buffer/next")
+      .post("/orgs/buffer/next")
       .set("x-campaign-id", "c1")
       .set("x-brand-id", "b1")
       .send({});
@@ -113,7 +114,7 @@ describe("POST /buffer/next run status", () => {
 
     const app = createApp();
     const res = await request(app)
-      .post("/buffer/next")
+      .post("/orgs/buffer/next")
       .set("x-campaign-id", "c1")
       .set("x-brand-id", "b1")
       .send({});

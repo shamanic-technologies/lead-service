@@ -34,12 +34,6 @@ describe("API Integration Tests", () => {
   });
 
   describe("Health check", () => {
-    it("GET / returns 200 with service status", async () => {
-      const res = await request(app).get("/");
-      expect(res.status).toBe(200);
-      expect(res.body).toEqual({ status: "ok", service: "lead-service" });
-    });
-
     it("GET /health returns 200 with service status", async () => {
       const res = await request(app).get("/health");
       expect(res.status).toBe(200);
@@ -50,7 +44,7 @@ describe("API Integration Tests", () => {
   describe("Authentication", () => {
     it("rejects requests without API key", async () => {
       const res = await request(app)
-        .post("/buffer/next")
+        .post("/orgs/buffer/next")
         .send({ campaignId: "c1", brandId: "b1" });
 
       expect(res.status).toBe(401);
@@ -58,33 +52,18 @@ describe("API Integration Tests", () => {
 
     it("rejects requests with invalid API key", async () => {
       const res = await request(app)
-        .post("/buffer/next")
+        .post("/orgs/buffer/next")
         .set("x-api-key", "wrong-key")
         .set("x-org-id", "test")
-        .set("x-user-id", "test")
-        .set("x-run-id", "test")
         .send({ campaignId: "c1", brandId: "b1" });
 
       expect(res.status).toBe(401);
     });
 
-    it("rejects requests without x-user-id header", async () => {
+    it("rejects requests without x-org-id header", async () => {
       const res = await request(app)
-        .post("/buffer/next")
+        .post("/orgs/buffer/next")
         .set("x-api-key", TEST_API_KEY)
-        .set("x-org-id", "test")
-        .set("x-run-id", "test")
-        .send({ campaignId: "c1", brandId: "b1" });
-
-      expect(res.status).toBe(400);
-    });
-
-    it("rejects requests without x-run-id header", async () => {
-      const res = await request(app)
-        .post("/buffer/next")
-        .set("x-api-key", TEST_API_KEY)
-        .set("x-org-id", "test")
-        .set("x-user-id", "test")
         .send({ campaignId: "c1", brandId: "b1" });
 
       expect(res.status).toBe(400);
@@ -100,7 +79,7 @@ describe("API Integration Tests", () => {
       });
 
       const res = await request(app)
-        .post("/buffer/next")
+        .post("/orgs/buffer/next")
         .set(getAuthHeaders())
         .send({ campaignId: "campaign-b", brandId: "brand-b" });
 
@@ -112,7 +91,7 @@ describe("API Integration Tests", () => {
 
     it("returns found: false when buffer empty", async () => {
       const res = await request(app)
-        .post("/buffer/next")
+        .post("/orgs/buffer/next")
         .set(getAuthHeaders())
         .send({ campaignId: "campaign-empty", brandId: "brand-empty" });
 
@@ -122,7 +101,7 @@ describe("API Integration Tests", () => {
 
     it("returns 400 when brandId is empty string", async () => {
       const res = await request(app)
-        .post("/buffer/next")
+        .post("/orgs/buffer/next")
         .set(getAuthHeaders())
         .send({ campaignId: "campaign-x", brandId: "" });
 
@@ -140,7 +119,7 @@ describe("API Integration Tests", () => {
       vi.mocked(createRun).mockClear();
 
       await request(app)
-        .post("/buffer/next")
+        .post("/orgs/buffer/next")
         .set(getAuthHeaders())
         .send({
           campaignId: "campaign-wf-next",
@@ -186,7 +165,7 @@ describe("API Integration Tests", () => {
         .mockReturnValue(false);
 
       const res = await request(app)
-        .post("/buffer/next")
+        .post("/orgs/buffer/next")
         .set(getAuthHeaders())
         .send({ campaignId: "campaign-c", brandId: "brand-c" });
 
@@ -209,7 +188,7 @@ describe("API Integration Tests", () => {
 
       // First pull with idempotencyKey
       const first = await request(app)
-        .post("/buffer/next")
+        .post("/orgs/buffer/next")
         .set(getAuthHeaders())
         .send({
           campaignId: "campaign-idem-1",
@@ -224,7 +203,7 @@ describe("API Integration Tests", () => {
 
       // Retry with same idempotencyKey — should return cached result
       const retry = await request(app)
-        .post("/buffer/next")
+        .post("/orgs/buffer/next")
         .set(getAuthHeaders())
         .send({
           campaignId: "campaign-idem-1",
@@ -249,7 +228,7 @@ describe("API Integration Tests", () => {
 
       // Pull with idempotencyKey
       const first = await request(app)
-        .post("/buffer/next")
+        .post("/orgs/buffer/next")
         .set(getAuthHeaders())
         .send({
           campaignId: "campaign-idem-2",
@@ -262,7 +241,7 @@ describe("API Integration Tests", () => {
 
       // Retry with same key — should NOT consume second lead
       await request(app)
-        .post("/buffer/next")
+        .post("/orgs/buffer/next")
         .set(getAuthHeaders())
         .send({
           campaignId: "campaign-idem-2",
@@ -272,7 +251,7 @@ describe("API Integration Tests", () => {
 
       // Pull with different key — should get the other lead
       const second = await request(app)
-        .post("/buffer/next")
+        .post("/orgs/buffer/next")
         .set(getAuthHeaders())
         .send({
           campaignId: "campaign-idem-2",
@@ -287,7 +266,7 @@ describe("API Integration Tests", () => {
     it("caches found: false responses too", async () => {
       // Pull from empty buffer with idempotencyKey
       const first = await request(app)
-        .post("/buffer/next")
+        .post("/orgs/buffer/next")
         .set(getAuthHeaders())
         .send({
           campaignId: "campaign-idem-empty",
@@ -306,7 +285,7 @@ describe("API Integration Tests", () => {
 
       // Retry with same key — should still return cached found: false
       const retry = await request(app)
-        .post("/buffer/next")
+        .post("/orgs/buffer/next")
         .set(getAuthHeaders())
         .send({
           campaignId: "campaign-idem-empty",
@@ -325,7 +304,7 @@ describe("API Integration Tests", () => {
       });
 
       const res = await request(app)
-        .post("/buffer/next")
+        .post("/orgs/buffer/next")
         .set(getAuthHeaders())
         .send({
           campaignId: "campaign-idem-compat",
@@ -370,13 +349,13 @@ describe("API Integration Tests", () => {
 
       // Pull it to move to served_leads
       await request(app)
-        .post("/buffer/next")
+        .post("/orgs/buffer/next")
         .set(getAuthHeaders())
         .send({ campaignId: "campaign-leads", brandId: "brand-leads" });
 
       // Query GET /leads
       const res = await request(app)
-        .get("/leads?brandId=brand-leads&campaignId=campaign-leads")
+        .get("/orgs/leads?brandId=brand-leads&campaignId=campaign-leads")
         .set(getAuthHeaders());
 
       expect(res.status).toBe(200);
@@ -410,12 +389,12 @@ describe("API Integration Tests", () => {
       });
 
       await request(app)
-        .post("/buffer/next")
+        .post("/orgs/buffer/next")
         .set(getAuthHeaders())
         .send({ campaignId: "campaign-leads-empty", brandId: "brand-leads-empty" });
 
       const res = await request(app)
-        .get("/leads?brandId=brand-leads-empty&campaignId=campaign-leads-empty")
+        .get("/orgs/leads?brandId=brand-leads-empty&campaignId=campaign-leads-empty")
         .set(getAuthHeaders());
 
       expect(res.status).toBe(200);
@@ -428,7 +407,7 @@ describe("API Integration Tests", () => {
   describe("Cursor endpoints", () => {
     it("GET returns null for non-existent cursor", async () => {
       const res = await request(app)
-        .get("/cursor/new-namespace")
+        .get("/orgs/cursor/new-namespace")
         .set(getAuthHeaders());
 
       expect(res.status).toBe(200);
@@ -439,7 +418,7 @@ describe("API Integration Tests", () => {
       const state = { page: 5, lastId: "abc123" };
 
       const putRes = await request(app)
-        .put("/cursor/my-namespace")
+        .put("/orgs/cursor/my-namespace")
         .set(getAuthHeaders())
         .send({ state });
 
@@ -447,7 +426,7 @@ describe("API Integration Tests", () => {
       expect(putRes.body.ok).toBe(true);
 
       const getRes = await request(app)
-        .get("/cursor/my-namespace")
+        .get("/orgs/cursor/my-namespace")
         .set(getAuthHeaders());
 
       expect(getRes.status).toBe(200);
@@ -456,17 +435,17 @@ describe("API Integration Tests", () => {
 
     it("PUT updates existing cursor", async () => {
       await request(app)
-        .put("/cursor/update-test")
+        .put("/orgs/cursor/update-test")
         .set(getAuthHeaders())
         .send({ state: { v: 1 } });
 
       await request(app)
-        .put("/cursor/update-test")
+        .put("/orgs/cursor/update-test")
         .set(getAuthHeaders())
         .send({ state: { v: 2 } });
 
       const res = await request(app)
-        .get("/cursor/update-test")
+        .get("/orgs/cursor/update-test")
         .set(getAuthHeaders());
 
       expect(res.body.state).toEqual({ v: 2 });

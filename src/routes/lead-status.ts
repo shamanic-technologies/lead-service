@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, and, sql, type SQL } from "drizzle-orm";
-import { type AuthenticatedRequest, authenticate, getServiceContext } from "../middleware/auth.js";
+import { type AuthenticatedRequest, apiKeyAuth, requireOrgId, getServiceContext } from "../middleware/auth.js";
 import { db } from "../db/index.js";
 import { servedLeads } from "../db/schema.js";
 import {
@@ -99,7 +99,7 @@ function flattenBrandStatus(result: StatusResult) {
 
 const DEFAULT_FLAT = { contacted: false, delivered: false, bounced: false, replied: false, replyClassification: null, lastDeliveredAt: null };
 
-router.get("/leads/status", authenticate, async (req: AuthenticatedRequest, res) => {
+router.get("/orgs/leads/status", apiKeyAuth, requireOrgId, async (req: AuthenticatedRequest, res) => {
   try {
     const campaignId = typeof req.query.campaignId === "string" ? req.query.campaignId : undefined;
     const brandId = typeof req.query.brandId === "string" ? req.query.brandId : undefined;

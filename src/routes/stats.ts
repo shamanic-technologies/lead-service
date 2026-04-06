@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, and, count, inArray, or, sql, type SQL } from "drizzle-orm";
-import { type AuthenticatedRequest, type ServiceContext, authenticate, getServiceContext } from "../middleware/auth.js";
+import { type AuthenticatedRequest, type ServiceContext, apiKeyAuth, requireOrgId, getServiceContext } from "../middleware/auth.js";
 import { db } from "../db/index.js";
 import { servedLeads, leadBuffer } from "../db/schema.js";
 import { fetchApolloStats } from "../lib/apollo-client.js";
@@ -339,7 +339,7 @@ async function countContactedGroupedByBrand(
 
 const ZERO_STATS = { groups: [] };
 
-router.get("/stats", authenticate, async (req: AuthenticatedRequest, res) => {
+router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedRequest, res) => {
   try {
     const groupByParam =
       typeof req.query.groupBy === "string" ? req.query.groupBy : undefined;

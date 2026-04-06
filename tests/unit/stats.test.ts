@@ -54,7 +54,8 @@ vi.mock("../../src/lib/dynasty-client.js", () => ({
 }));
 
 vi.mock("../../src/middleware/auth.js", () => ({
-  authenticate: (_req: unknown, _res: unknown, next: () => void) => next(),
+  apiKeyAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
+  requireOrgId: (_req: unknown, _res: unknown, next: () => void) => next(),
   getServiceContext: (req: any) => ({
     orgId: req.orgId,
     userId: req.userId,
@@ -106,14 +107,14 @@ describe("GET /stats", () => {
 
   it("returns 400 for invalid groupBy value", async () => {
     const app = createApp();
-    const res = await request(app).get("/stats?groupBy=invalid");
+    const res = await request(app).get("/orgs/stats?groupBy=invalid");
     expect(res.status).toBe(400);
     expect(res.body.error).toContain("Invalid groupBy");
   });
 
   it("accepts groupBy=campaignId", async () => {
     const app = createApp();
-    const res = await request(app).get("/stats?groupBy=campaignId");
+    const res = await request(app).get("/orgs/stats?groupBy=campaignId");
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty("groups");
     expect(Array.isArray(res.body.groups)).toBe(true);
@@ -121,28 +122,28 @@ describe("GET /stats", () => {
 
   it("accepts groupBy=brandId", async () => {
     const app = createApp();
-    const res = await request(app).get("/stats?groupBy=brandId");
+    const res = await request(app).get("/orgs/stats?groupBy=brandId");
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty("groups");
   });
 
   it("accepts groupBy=workflowSlug", async () => {
     const app = createApp();
-    const res = await request(app).get("/stats?groupBy=workflowSlug");
+    const res = await request(app).get("/orgs/stats?groupBy=workflowSlug");
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty("groups");
   });
 
   it("accepts groupBy=featureSlug", async () => {
     const app = createApp();
-    const res = await request(app).get("/stats?groupBy=featureSlug");
+    const res = await request(app).get("/orgs/stats?groupBy=featureSlug");
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty("groups");
   });
 
   it("returns flat response without groupBy including contacted=0", async () => {
     const app = createApp();
-    const res = await request(app).get("/stats");
+    const res = await request(app).get("/orgs/stats");
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty("served");
     expect(res.body).toHaveProperty("contacted");
@@ -197,7 +198,7 @@ describe("GET /stats", () => {
       ],
     });
 
-    const res = await request(app).get("/stats");
+    const res = await request(app).get("/orgs/stats");
     expect(res.status).toBe(200);
     expect(res.body.served).toBe(2);
     expect(res.body.contacted).toBe(1);
@@ -225,7 +226,7 @@ describe("GET /stats", () => {
 
     mockCheckDeliveryStatus.mockResolvedValue(null);
 
-    const res = await request(app).get("/stats");
+    const res = await request(app).get("/orgs/stats");
     expect(res.status).toBe(200);
     expect(res.body.served).toBe(1);
     expect(res.body.contacted).toBe(0);
@@ -235,7 +236,7 @@ describe("GET /stats", () => {
 
   it("filters by workflowSlug query param", async () => {
     const app = createApp();
-    const res = await request(app).get("/stats?workflowSlug=cold-email-v2");
+    const res = await request(app).get("/orgs/stats?workflowSlug=cold-email-v2");
     expect(res.status).toBe(200);
     // Verify dynasty resolver was NOT called (exact slug, not dynasty)
     expect(mockResolveWorkflowDynastySlugs).not.toHaveBeenCalled();
@@ -243,7 +244,7 @@ describe("GET /stats", () => {
 
   it("filters by featureSlug query param", async () => {
     const app = createApp();
-    const res = await request(app).get("/stats?featureSlug=feat-alpha");
+    const res = await request(app).get("/orgs/stats?featureSlug=feat-alpha");
     expect(res.status).toBe(200);
     expect(mockResolveFeatureDynastySlugs).not.toHaveBeenCalled();
   });
@@ -252,7 +253,7 @@ describe("GET /stats", () => {
     mockResolveWorkflowDynastySlugs.mockResolvedValue(["cold-email", "cold-email-v2"]);
 
     const app = createApp();
-    const res = await request(app).get("/stats?workflowDynastySlug=cold-email");
+    const res = await request(app).get("/orgs/stats?workflowDynastySlug=cold-email");
     expect(res.status).toBe(200);
     expect(mockResolveWorkflowDynastySlugs).toHaveBeenCalledWith("cold-email", expect.any(Object));
   });
@@ -261,7 +262,7 @@ describe("GET /stats", () => {
     mockResolveFeatureDynastySlugs.mockResolvedValue(["feat-alpha", "feat-alpha-v2"]);
 
     const app = createApp();
-    const res = await request(app).get("/stats?featureDynastySlug=feat-alpha");
+    const res = await request(app).get("/orgs/stats?featureDynastySlug=feat-alpha");
     expect(res.status).toBe(200);
     expect(mockResolveFeatureDynastySlugs).toHaveBeenCalledWith("feat-alpha", expect.any(Object));
   });
@@ -270,7 +271,7 @@ describe("GET /stats", () => {
     mockResolveWorkflowDynastySlugs.mockResolvedValue([]);
 
     const app = createApp();
-    const res = await request(app).get("/stats?workflowDynastySlug=nonexistent");
+    const res = await request(app).get("/orgs/stats?workflowDynastySlug=nonexistent");
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
       served: 0,
@@ -287,7 +288,7 @@ describe("GET /stats", () => {
     mockResolveFeatureDynastySlugs.mockResolvedValue([]);
 
     const app = createApp();
-    const res = await request(app).get("/stats?featureDynastySlug=nonexistent");
+    const res = await request(app).get("/orgs/stats?featureDynastySlug=nonexistent");
     expect(res.status).toBe(200);
     expect(res.body.served).toBe(0);
     expect(mockWhere).not.toHaveBeenCalled();
@@ -297,7 +298,7 @@ describe("GET /stats", () => {
     mockResolveWorkflowDynastySlugs.mockResolvedValue([]);
 
     const app = createApp();
-    const res = await request(app).get("/stats?workflowDynastySlug=nonexistent&groupBy=campaignId");
+    const res = await request(app).get("/orgs/stats?workflowDynastySlug=nonexistent&groupBy=campaignId");
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ groups: [] });
   });
@@ -306,7 +307,7 @@ describe("GET /stats", () => {
 
   it("filters by comma-separated workflowSlugs", async () => {
     const app = createApp();
-    const res = await request(app).get("/stats?workflowSlugs=cold-email-v1,cold-email-v2");
+    const res = await request(app).get("/orgs/stats?workflowSlugs=cold-email-v1,cold-email-v2");
     expect(res.status).toBe(200);
     // Dynasty resolver should NOT be called
     expect(mockResolveWorkflowDynastySlugs).not.toHaveBeenCalled();
@@ -314,14 +315,14 @@ describe("GET /stats", () => {
 
   it("filters by comma-separated featureSlugs", async () => {
     const app = createApp();
-    const res = await request(app).get("/stats?featureSlugs=feat-a,feat-b");
+    const res = await request(app).get("/orgs/stats?featureSlugs=feat-a,feat-b");
     expect(res.status).toBe(200);
     expect(mockResolveFeatureDynastySlugs).not.toHaveBeenCalled();
   });
 
   it("workflowSlugs takes priority over workflowSlug", async () => {
     const app = createApp();
-    const res = await request(app).get("/stats?workflowSlugs=v1,v2&workflowSlug=v3");
+    const res = await request(app).get("/orgs/stats?workflowSlugs=v1,v2&workflowSlug=v3");
     expect(res.status).toBe(200);
     // Should use the plural param, not the singular
     expect(mockResolveWorkflowDynastySlugs).not.toHaveBeenCalled();
@@ -331,14 +332,14 @@ describe("GET /stats", () => {
     mockResolveWorkflowDynastySlugs.mockResolvedValue(["cold-email", "cold-email-v2"]);
 
     const app = createApp();
-    const res = await request(app).get("/stats?workflowDynastySlug=cold-email&workflowSlugs=v1,v2");
+    const res = await request(app).get("/orgs/stats?workflowDynastySlug=cold-email&workflowSlugs=v1,v2");
     expect(res.status).toBe(200);
     expect(mockResolveWorkflowDynastySlugs).toHaveBeenCalledWith("cold-email", expect.any(Object));
   });
 
   it("groupBy=workflowSlug with workflowSlugs filter returns grouped stats", async () => {
     const app = createApp();
-    const res = await request(app).get("/stats?groupBy=workflowSlug&workflowSlugs=slug1,slug2");
+    const res = await request(app).get("/orgs/stats?groupBy=workflowSlug&workflowSlugs=slug1,slug2");
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty("groups");
   });
@@ -347,7 +348,7 @@ describe("GET /stats", () => {
     mockResolveWorkflowDynastySlugs.mockResolvedValue(["cold-email", "cold-email-v2"]);
 
     const app = createApp();
-    const res = await request(app).get("/stats?workflowDynastySlug=cold-email&workflowSlug=cold-email-v2");
+    const res = await request(app).get("/orgs/stats?workflowDynastySlug=cold-email&workflowSlug=cold-email-v2");
     expect(res.status).toBe(200);
     // Dynasty resolver should be called (takes priority)
     expect(mockResolveWorkflowDynastySlugs).toHaveBeenCalledWith("cold-email", expect.any(Object));
@@ -364,7 +365,7 @@ describe("GET /stats", () => {
     );
 
     const app = createApp();
-    const res = await request(app).get("/stats?groupBy=workflowDynastySlug");
+    const res = await request(app).get("/orgs/stats?groupBy=workflowDynastySlug");
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty("groups");
     expect(mockFetchWorkflowDynastyMap).toHaveBeenCalled();
@@ -379,7 +380,7 @@ describe("GET /stats", () => {
     );
 
     const app = createApp();
-    const res = await request(app).get("/stats?groupBy=featureDynastySlug");
+    const res = await request(app).get("/orgs/stats?groupBy=featureDynastySlug");
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty("groups");
     expect(mockFetchFeatureDynastyMap).toHaveBeenCalled();
@@ -389,7 +390,7 @@ describe("GET /stats", () => {
     mockResolveWorkflowDynastySlugs.mockResolvedValue(["cold-email", "cold-email-v2"]);
 
     const app = createApp();
-    const res = await request(app).get("/stats?workflowDynastySlug=cold-email&brandId=b1&campaignId=c1");
+    const res = await request(app).get("/orgs/stats?workflowDynastySlug=cold-email&brandId=b1&campaignId=c1");
     expect(res.status).toBe(200);
     expect(mockResolveWorkflowDynastySlugs).toHaveBeenCalled();
   });
