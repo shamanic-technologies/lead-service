@@ -27,9 +27,9 @@ export interface GlobalStatus {
 }
 
 export interface ProviderStatus {
-  campaign: ScopedStatus;
-  brand: ScopedStatus;
-  global: GlobalStatus;
+  campaign?: ScopedStatus;
+  brand?: ScopedStatus;
+  global?: GlobalStatus;
 }
 
 export interface StatusResult {
@@ -136,11 +136,11 @@ export function isContacted(result: StatusResult): boolean {
   const bc = result.broadcast;
   const tx = result.transactional;
   return !!(
-    bc?.campaign.contacted ||
-    bc?.brand.contacted ||
-    bc?.global.email.contacted ||
-    tx?.campaign.contacted ||
-    tx?.brand.contacted ||
-    tx?.global.email.contacted
+    bc?.campaign?.contacted ||
+    bc?.brand?.contacted ||
+    bc?.global?.email.contacted ||
+    tx?.campaign?.contacted ||
+    tx?.brand?.contacted ||
+    tx?.global?.email.contacted
   );
 }
