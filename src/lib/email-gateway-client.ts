@@ -138,9 +138,9 @@ export function isContacted(result: StatusResult): boolean {
   return !!(
     bc?.campaign?.contacted ||
     bc?.brand?.contacted ||
-    bc?.global?.email.contacted ||
+    bc?.global?.email?.contacted ||
     tx?.campaign?.contacted ||
     tx?.brand?.contacted ||
-    tx?.global?.email.contacted
+    tx?.global?.email?.contacted
   );
 }
