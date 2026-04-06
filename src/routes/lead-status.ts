@@ -175,10 +175,6 @@ router.get("/orgs/leads/status", apiKeyAuth, requireOrgId, async (req: Authentic
       seen.add(row.email);
 
       const result = statusMap.get(row.email);
-      if (result && !seen.has("__debug_logged__")) {
-        seen.add("__debug_logged__");
-        console.log("[lead-service] DEBUG email-gateway result sample:", JSON.stringify(result).slice(0, 500));
-      }
       const flat = result ? flatten(result) : DEFAULT_FLAT;
 
       statuses.push({
