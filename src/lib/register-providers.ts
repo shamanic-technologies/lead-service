@@ -7,7 +7,7 @@ const ENDPOINT_MAPPING: Array<{
   downstream: Array<{ service: string; method: string; path: string }>;
 }> = [
   {
-    lead: { method: "POST", path: "/buffer/next" },
+    lead: { method: "POST", path: "/orgs/buffer/next" },
     downstream: [
       { service: "apollo", method: "POST", path: "/search" },
       { service: "apollo", method: "POST", path: "/search/next" },
@@ -16,7 +16,7 @@ const ENDPOINT_MAPPING: Array<{
     ],
   },
   {
-    lead: { method: "GET", path: "/stats" },
+    lead: { method: "GET", path: "/orgs/stats" },
     downstream: [
       { service: "apollo", method: "POST", path: "/stats" },
     ],

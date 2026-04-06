@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { eq, lt } from "drizzle-orm";
-import { type AuthenticatedRequest, authenticate } from "../middleware/auth.js";
+import { type AuthenticatedRequest, apiKeyAuth, requireOrgId } from "../middleware/auth.js";
 import { pullNext } from "../lib/buffer.js";
 import { createRun, updateRun } from "../lib/runs-client.js";
 import { BufferNextRequestSchema } from "../schemas.js";
@@ -25,7 +25,7 @@ function pruneExpiredIdempotencyCache(): void {
     });
 }
 
-router.post("/buffer/next", authenticate, async (req: AuthenticatedRequest, res) => {
+router.post("/orgs/buffer/next", apiKeyAuth, requireOrgId, async (req: AuthenticatedRequest, res) => {
   const parsed = BufferNextRequestSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });

@@ -65,7 +65,7 @@ describe("key-service-client", () => {
         json: () => Promise.resolve({ provider: "apollo", key: "ak_123" }),
       });
 
-      await registerProviderRequirement("apollo", "lead", "POST", "/buffer/next");
+      await registerProviderRequirement("apollo", "lead", "POST", "/orgs/buffer/next");
 
       expect(mockFetch).toHaveBeenCalledOnce();
       const [url, opts] = mockFetch.mock.calls[0];
@@ -73,7 +73,7 @@ describe("key-service-client", () => {
       expect(opts.method).toBe("GET");
       expect(opts.headers["x-caller-service"]).toBe("lead");
       expect(opts.headers["x-caller-method"]).toBe("POST");
-      expect(opts.headers["x-caller-path"]).toBe("/buffer/next");
+      expect(opts.headers["x-caller-path"]).toBe("/orgs/buffer/next");
     });
 
     it("tolerates 404 (key not configured)", async () => {
@@ -84,7 +84,7 @@ describe("key-service-client", () => {
       });
 
       await expect(
-        registerProviderRequirement("apollo", "lead", "POST", "/buffer/next")
+        registerProviderRequirement("apollo", "lead", "POST", "/orgs/buffer/next")
       ).resolves.toBeUndefined();
     });
 
@@ -96,7 +96,7 @@ describe("key-service-client", () => {
       });
 
       await expect(
-        registerProviderRequirement("apollo", "lead", "POST", "/buffer/next")
+        registerProviderRequirement("apollo", "lead", "POST", "/orgs/buffer/next")
       ).rejects.toThrow("Key service registration failed: 500");
     });
   });
@@ -161,8 +161,8 @@ describe("registerProviders", () => {
       service: opts.headers["x-caller-service"],
     }));
 
-    expect(registeredPairs).toContainEqual({ provider: "apollo", method: "POST", path: "/buffer/next", service: "lead" });
-    expect(registeredPairs).toContainEqual({ provider: "anthropic", method: "POST", path: "/buffer/next", service: "lead" });
+    expect(registeredPairs).toContainEqual({ provider: "apollo", method: "POST", path: "/orgs/buffer/next", service: "lead" });
+    expect(registeredPairs).toContainEqual({ provider: "anthropic", method: "POST", path: "/orgs/buffer/next", service: "lead" });
 
     logSpy.mockRestore();
   });
@@ -215,7 +215,7 @@ describe("registerProviders", () => {
     // 1 query + 2 registration attempts
     expect(mockFetch).toHaveBeenCalledTimes(3);
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Failed to register lead POST /buffer/next"),
+      expect.stringContaining("Failed to register lead POST /orgs/buffer/next"),
       expect.any(Error)
     );
 

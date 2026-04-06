@@ -763,7 +763,7 @@
         }
       }
     },
-    "/buffer/next": {
+    "/orgs/buffer/next": {
       "post": {
         "summary": "Pull the next lead from the buffer",
         "parameters": [
@@ -876,7 +876,7 @@
         }
       }
     },
-    "/cursor/{namespace}": {
+    "/orgs/cursor/{namespace}": {
       "get": {
         "summary": "Get cursor state for a namespace",
         "parameters": [
@@ -1097,7 +1097,7 @@
         }
       }
     },
-    "/leads": {
+    "/orgs/leads": {
       "get": {
         "summary": "List served leads with enrichment data",
         "parameters": [
@@ -1223,7 +1223,7 @@
         }
       }
     },
-    "/stats": {
+    "/orgs/stats": {
       "get": {
         "summary": "Get lead stats by status",
         "description": "Returns counts of leads by status: served (delivered with verified email), contacted (unique leads with at least one successful email send), buffered (awaiting enrichment), and skipped (no email found).",
@@ -1447,7 +1447,7 @@
         }
       }
     },
-    "/leads/status": {
+    "/orgs/leads/status": {
       "get": {
         "summary": "Get per-lead delivery and reply status",
         "description": "Returns delivery status (contacted, delivered, bounced, replied, replyClassification) for served leads. With campaignId: campaign-scoped status. Without campaignId: cross-campaign brand-scoped status (requires brandId). At least one of campaignId or brandId must be provided. Calls email-gateway internally.",

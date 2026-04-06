@@ -379,7 +379,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: "post",
-  path: "/buffer/next",
+  path: "/orgs/buffer/next",
   summary: "Pull the next lead from the buffer",
   request: {
     params: z.object({}),
@@ -403,7 +403,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: "get",
-  path: "/cursor/{namespace}",
+  path: "/orgs/cursor/{namespace}",
   summary: "Get cursor state for a namespace",
   request: {
     params: z.object({ namespace: z.string() }),
@@ -420,7 +420,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: "put",
-  path: "/cursor/{namespace}",
+  path: "/orgs/cursor/{namespace}",
   summary: "Set cursor state for a namespace",
   request: {
     params: z.object({ namespace: z.string() }),
@@ -444,7 +444,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: "get",
-  path: "/leads",
+  path: "/orgs/leads",
   summary: "List served leads with enrichment data",
   parameters: [
     ...AuthHeaders,
@@ -484,7 +484,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: "get",
-  path: "/stats",
+  path: "/orgs/stats",
   summary: "Get lead stats by status",
   description:
     "Returns counts of leads by status: served (delivered with verified email), contacted (unique leads with at least one successful email send), buffered (awaiting enrichment), and skipped (no email found).",
@@ -606,7 +606,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: "get",
-  path: "/leads/status",
+  path: "/orgs/leads/status",
   summary: "Get per-lead delivery and reply status",
   description:
     "Returns delivery status (contacted, delivered, bounced, replied, replyClassification) for served leads. " +

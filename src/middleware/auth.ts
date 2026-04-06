@@ -42,46 +42,56 @@ function parseBrandIds(header: string | undefined): string[] {
   return String(header).split(",").map(s => s.trim()).filter(Boolean);
 }
 
-export async function authenticate(
+/**
+ * Validates x-api-key header. Used on /public/*, /internal/*, and /orgs/* tiers.
+ */
+export function apiKeyAuth(
   req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
 ) {
-  try {
-    const apiKey = req.headers["x-api-key"] as string;
-    if (!apiKey || apiKey !== LEAD_SERVICE_API_KEY) {
-      return res.status(401).json({ error: "Invalid API key" });
-    }
-
-    const orgId = req.headers["x-org-id"] as string;
-    const userId = req.headers["x-user-id"] as string;
-    const runId = req.headers["x-run-id"] as string;
-
-    if (!orgId || !userId || !runId) {
-      return res.status(400).json({ error: "x-org-id, x-user-id, and x-run-id headers required" });
-    }
-
-    const campaignId = req.headers["x-campaign-id"] as string | undefined;
-    const brandIdRaw = req.headers["x-brand-id"] as string | undefined;
-    const workflowSlug = req.headers["x-workflow-slug"] as string | undefined;
-    const featureSlug = req.headers["x-feature-slug"] as string | undefined;
-
-    req.orgId = orgId;
-    req.userId = userId;
-    req.runId = runId;
-    if (campaignId) req.campaignId = campaignId;
-    if (brandIdRaw) {
-      req.brandId = brandIdRaw;
-      req.brandIds = parseBrandIds(brandIdRaw);
-    } else {
-      req.brandIds = [];
-    }
-    if (workflowSlug) req.workflowSlug = workflowSlug;
-    if (featureSlug) req.featureSlug = featureSlug;
-
-    next();
-  } catch (error) {
-    console.error("[auth] Error:", error);
-    return res.status(401).json({ error: "Authentication failed" });
+  const apiKey = req.headers["x-api-key"] as string;
+  if (!apiKey || apiKey !== LEAD_SERVICE_API_KEY) {
+    res.status(401).json({ error: "Invalid API key" });
+    return;
   }
+  next();
+}
+
+/**
+ * Parses all 7 identity headers, requires only x-org-id.
+ * Must be used after apiKeyAuth. Used on /orgs/* tier.
+ */
+export function requireOrgId(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+) {
+  const orgId = req.headers["x-org-id"] as string;
+  if (!orgId) {
+    res.status(400).json({ error: "x-org-id header required" });
+    return;
+  }
+
+  const userId = req.headers["x-user-id"] as string | undefined;
+  const runId = req.headers["x-run-id"] as string | undefined;
+  const campaignId = req.headers["x-campaign-id"] as string | undefined;
+  const brandIdRaw = req.headers["x-brand-id"] as string | undefined;
+  const workflowSlug = req.headers["x-workflow-slug"] as string | undefined;
+  const featureSlug = req.headers["x-feature-slug"] as string | undefined;
+
+  req.orgId = orgId;
+  if (userId) req.userId = userId;
+  if (runId) req.runId = runId;
+  if (campaignId) req.campaignId = campaignId;
+  if (brandIdRaw) {
+    req.brandId = brandIdRaw;
+    req.brandIds = parseBrandIds(brandIdRaw);
+  } else {
+    req.brandIds = [];
+  }
+  if (workflowSlug) req.workflowSlug = workflowSlug;
+  if (featureSlug) req.featureSlug = featureSlug;
+
+  next();
 }

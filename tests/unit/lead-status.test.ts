@@ -28,7 +28,8 @@ vi.mock("../../src/lib/email-gateway-client.js", () => ({
 }));
 
 vi.mock("../../src/middleware/auth.js", () => ({
-  authenticate: (_req: unknown, _res: unknown, next: () => void) => next(),
+  apiKeyAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
+  requireOrgId: (_req: unknown, _res: unknown, next: () => void) => next(),
   getServiceContext: (req: any) => ({
     orgId: req.orgId,
     userId: req.userId,
@@ -81,7 +82,7 @@ describe("GET /leads/status", () => {
 
   it("returns 400 when neither campaignId nor brandId is provided", async () => {
     const app = createApp();
-    const res = await request(app).get("/leads/status");
+    const res = await request(app).get("/orgs/leads/status");
     expect(res.status).toBe(400);
     expect(res.body.error).toContain("campaignId or brandId");
   });
@@ -90,7 +91,7 @@ describe("GET /leads/status", () => {
     mockWhere.mockResolvedValue([]);
 
     const app = createApp();
-    const res = await request(app).get("/leads/status?campaignId=c1");
+    const res = await request(app).get("/orgs/leads/status?campaignId=c1");
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ statuses: [] });
     expect(mockCheckDeliveryStatus).not.toHaveBeenCalled();
@@ -125,7 +126,7 @@ describe("GET /leads/status", () => {
     });
 
     const app = createApp();
-    const res = await request(app).get("/leads/status?campaignId=c1");
+    const res = await request(app).get("/orgs/leads/status?campaignId=c1");
     expect(res.status).toBe(200);
     expect(res.body.statuses).toHaveLength(2);
 
@@ -152,7 +153,7 @@ describe("GET /leads/status", () => {
     mockCheckDeliveryStatus.mockResolvedValue({ results: [] });
 
     const app = createApp();
-    await request(app).get("/leads/status?campaignId=c1");
+    await request(app).get("/orgs/leads/status?campaignId=c1");
 
     expect(mockCheckDeliveryStatus).toHaveBeenCalledWith(
       "b1", "c1", expect.any(Array), expect.any(Object),
@@ -183,7 +184,7 @@ describe("GET /leads/status", () => {
     });
 
     const app = createApp();
-    const res = await request(app).get("/leads/status?brandId=b1");
+    const res = await request(app).get("/orgs/leads/status?brandId=b1");
     expect(res.status).toBe(200);
     expect(res.body.statuses).toHaveLength(1);
 
@@ -207,7 +208,7 @@ describe("GET /leads/status", () => {
     mockCheckDeliveryStatus.mockResolvedValue({ results: [] });
 
     const app = createApp();
-    await request(app).get("/leads/status?brandId=b1");
+    await request(app).get("/orgs/leads/status?brandId=b1");
 
     expect(mockCheckDeliveryStatus).toHaveBeenCalledWith(
       "b1", undefined, expect.any(Array), expect.any(Object),
@@ -222,7 +223,7 @@ describe("GET /leads/status", () => {
     mockCheckDeliveryStatus.mockResolvedValue({ results: [] });
 
     const app = createApp();
-    const res = await request(app).get("/leads/status?brandId=b1");
+    const res = await request(app).get("/orgs/leads/status?brandId=b1");
     expect(res.body.statuses).toHaveLength(1);
   });
 
@@ -235,7 +236,7 @@ describe("GET /leads/status", () => {
     mockCheckDeliveryStatus.mockResolvedValue(null);
 
     const app = createApp();
-    const res = await request(app).get("/leads/status?campaignId=c1");
+    const res = await request(app).get("/orgs/leads/status?campaignId=c1");
     expect(res.status).toBe(200);
     expect(res.body.statuses[0]).toMatchObject({
       contacted: false,
@@ -254,7 +255,7 @@ describe("GET /leads/status", () => {
     mockCheckDeliveryStatus.mockResolvedValue(null);
 
     const app = createApp();
-    const res = await request(app).get("/leads/status?campaignId=c1");
+    const res = await request(app).get("/orgs/leads/status?campaignId=c1");
     expect(res.body.statuses).toHaveLength(1);
     expect(res.body.statuses[0].leadId).toBe("lead-1");
   });
@@ -267,7 +268,7 @@ describe("GET /leads/status", () => {
     mockCheckDeliveryStatus.mockResolvedValue({ results: [] });
 
     const app = createApp();
-    await request(app).get("/leads/status?campaignId=c1");
+    await request(app).get("/orgs/leads/status?campaignId=c1");
 
     expect(mockCheckDeliveryStatus).toHaveBeenCalledTimes(2);
     expect(mockCheckDeliveryStatus).toHaveBeenCalledWith("b1", "c1", expect.any(Array), expect.any(Object));
@@ -278,7 +279,7 @@ describe("GET /leads/status", () => {
     mockWhere.mockResolvedValue([]);
 
     const app = createApp();
-    const res = await request(app).get("/leads/status?campaignId=c1&brandId=b1");
+    const res = await request(app).get("/orgs/leads/status?campaignId=c1&brandId=b1");
     expect(res.status).toBe(200);
   });
 
@@ -300,7 +301,7 @@ describe("GET /leads/status", () => {
     });
 
     const app = createApp();
-    const res = await request(app).get("/leads/status?campaignId=c1");
+    const res = await request(app).get("/orgs/leads/status?campaignId=c1");
     expect(res.body.statuses[0].replyClassification).toBe("positive");
     expect(res.body.statuses[0].replied).toBe(true);
   });
@@ -323,7 +324,7 @@ describe("GET /leads/status", () => {
     });
 
     const app = createApp();
-    const res = await request(app).get("/leads/status?brandId=b1");
+    const res = await request(app).get("/orgs/leads/status?brandId=b1");
     expect(res.body.statuses[0].replyClassification).toBe("negative");
   });
 
@@ -345,7 +346,7 @@ describe("GET /leads/status", () => {
     });
 
     const app = createApp();
-    const res = await request(app).get("/leads/status?campaignId=c1");
+    const res = await request(app).get("/orgs/leads/status?campaignId=c1");
     expect(res.body.statuses[0].replyClassification).toBeNull();
     expect(res.body.statuses[0].replied).toBe(false);
   });

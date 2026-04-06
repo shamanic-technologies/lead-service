@@ -1,13 +1,13 @@
 import { Router } from "express";
 import { eq, and } from "drizzle-orm";
-import { type AuthenticatedRequest, authenticate } from "../middleware/auth.js";
+import { type AuthenticatedRequest, apiKeyAuth, requireOrgId } from "../middleware/auth.js";
 import { db } from "../db/index.js";
 import { cursors } from "../db/schema.js";
 import { CursorSetRequestSchema } from "../schemas.js";
 
 const router = Router();
 
-router.get("/cursor/:namespace", authenticate, async (req: AuthenticatedRequest, res) => {
+router.get("/orgs/cursor/:namespace", apiKeyAuth, requireOrgId, async (req: AuthenticatedRequest, res) => {
   try {
     const { namespace } = req.params;
 
@@ -25,7 +25,7 @@ router.get("/cursor/:namespace", authenticate, async (req: AuthenticatedRequest,
   }
 });
 
-router.put("/cursor/:namespace", authenticate, async (req: AuthenticatedRequest, res) => {
+router.put("/orgs/cursor/:namespace", apiKeyAuth, requireOrgId, async (req: AuthenticatedRequest, res) => {
   const parsed = CursorSetRequestSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
