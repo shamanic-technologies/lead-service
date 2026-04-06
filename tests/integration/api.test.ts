@@ -168,7 +168,7 @@ describe("API Integration Tests", () => {
       vi.mocked(checkDeliveryStatus)
         .mockResolvedValueOnce({
           results: [{
-            leadIds: [],
+            leadId: null,
             email: "dedup@example.com",
             broadcast: {
               campaign: { contacted: true, delivered: true, opened: false, replied: false, replyClassification: null, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },

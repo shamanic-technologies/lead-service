@@ -177,7 +177,7 @@ describe("GET /stats", () => {
     mockCheckDeliveryStatus.mockResolvedValue({
       results: [
         {
-          leadIds: ["lead-1"],
+          leadId: "lead-1",
           email: "alice@acme.com",
           broadcast: {
             campaign: { contacted: true },
@@ -186,7 +186,7 @@ describe("GET /stats", () => {
           },
         },
         {
-          leadIds: ["lead-2"],
+          leadId: "lead-2",
           email: "bob@acme.com",
           broadcast: {
             campaign: { contacted: false },

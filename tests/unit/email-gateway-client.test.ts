@@ -24,7 +24,7 @@ describe("email-gateway-client", () => {
       const responseBody = {
         results: [
           {
-            leadIds: ["lead-1"],
+            leadId: "lead-1",
             email: "alice@acme.com",
             broadcast: {
               campaign: { contacted: true, delivered: true, opened: false, replied: false, replyClassification: null, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
@@ -206,7 +206,7 @@ describe("email-gateway-client", () => {
 
     it("returns false when nothing is contacted", () => {
       const result: StatusResult = {
-        leadIds: ["lead-1"],
+        leadId: "lead-1",
         email: "alice@acme.com",
         broadcast: emptyProvider,
         transactional: emptyProvider,
@@ -215,13 +215,13 @@ describe("email-gateway-client", () => {
     });
 
     it("returns false when no providers present", () => {
-      const result: StatusResult = { leadIds: ["lead-1"], email: "alice@acme.com" };
+      const result: StatusResult = { leadId: "lead-1", email: "alice@acme.com" };
       expect(isContacted(result)).toBe(false);
     });
 
     it("returns true when broadcast campaign is contacted", () => {
       const result: StatusResult = {
-        leadIds: ["lead-1"],
+        leadId: "lead-1",
         email: "alice@acme.com",
         broadcast: {
           ...emptyProvider,
@@ -233,7 +233,7 @@ describe("email-gateway-client", () => {
 
     it("returns true when broadcast brand is contacted", () => {
       const result: StatusResult = {
-        leadIds: ["lead-1"],
+        leadId: "lead-1",
         email: "alice@acme.com",
         broadcast: {
           ...emptyProvider,
@@ -245,7 +245,7 @@ describe("email-gateway-client", () => {
 
     it("returns true when transactional global email is contacted", () => {
       const result: StatusResult = {
-        leadIds: ["lead-1"],
+        leadId: "lead-1",
         email: "alice@acme.com",
         transactional: {
           ...emptyProvider,
@@ -259,7 +259,7 @@ describe("email-gateway-client", () => {
 
     it("returns true when broadcast global email is contacted", () => {
       const result: StatusResult = {
-        leadIds: ["lead-1"],
+        leadId: "lead-1",
         email: "alice@acme.com",
         broadcast: {
           ...emptyProvider,
