@@ -415,6 +415,16 @@ describe("flattenBrandStatus", () => {
     expect(result.lastDeliveredAt).toBe("2026-03-29T10:00:00Z");
   });
 
+  it("handles missing scopes in provider (partial response)", () => {
+    const result = flattenBrandStatus({
+      leadId: "l1",
+      email: "a@b.com",
+      broadcast: { global: { email: { contacted: true, delivered: true, bounced: false, unsubscribed: false, lastDeliveredAt: null } } } as any,
+    });
+    expect(result.contacted).toBe(true);
+    expect(result.delivered).toBe(false);
+  });
+
   it("returns all false when no providers present", () => {
     const result = flattenBrandStatus({ leadId: "l1", email: "a@b.com" });
     expect(result).toEqual({
