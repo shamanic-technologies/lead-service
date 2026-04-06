@@ -312,15 +312,10 @@ describe("buffer", () => {
       // First lead: delivered, second lead: not delivered
       vi.mocked(checkDeliveryStatus)
         .mockResolvedValueOnce({
-          results: [{ email: "alice@acme.com", broadcast: {
-            campaign: {
-              lead: { contacted: true, delivered: true, replied: false, lastDeliveredAt: "2024-01-01" },
-              email: { contacted: true, delivered: true, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
-            },
-            global: {
-              lead: { contacted: true, delivered: true, replied: false, lastDeliveredAt: "2024-01-01" },
-              email: { contacted: true, delivered: true, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
-            },
+          results: [{ leadIds: [], email: "alice@acme.com", broadcast: {
+            campaign: { contacted: true, delivered: true, opened: false, replied: false, replyClassification: null, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
+            brand: { contacted: false, delivered: false, opened: false, replied: false, replyClassification: null, bounced: false, unsubscribed: false, lastDeliveredAt: null },
+            global: { email: { contacted: true, delivered: true, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" } },
           }}],
         })
         .mockResolvedValueOnce({ results: [] });

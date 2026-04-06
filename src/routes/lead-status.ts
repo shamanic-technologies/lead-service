@@ -19,41 +19,37 @@ function flattenCampaignStatus(result: StatusResult) {
   const tx = result.transactional;
 
   const contacted = !!(
-    bc?.campaign.lead.contacted ||
-    bc?.campaign.email.contacted ||
-    bc?.brand.lead.contacted ||
-    bc?.brand.email.contacted ||
+    bc?.campaign.contacted ||
+    bc?.brand.contacted ||
     bc?.global.email.contacted ||
-    tx?.campaign.lead.contacted ||
-    tx?.campaign.email.contacted ||
-    tx?.brand.lead.contacted ||
-    tx?.brand.email.contacted ||
+    tx?.campaign.contacted ||
+    tx?.brand.contacted ||
     tx?.global.email.contacted
   );
 
   const delivered = !!(
-    bc?.campaign.email.delivered ||
-    tx?.campaign.email.delivered
+    bc?.campaign.delivered ||
+    tx?.campaign.delivered
   );
 
   const bounced = !!(
-    bc?.campaign.email.bounced ||
-    tx?.campaign.email.bounced
+    bc?.campaign.bounced ||
+    tx?.campaign.bounced
   );
 
   const replied = !!(
-    bc?.campaign.lead.replied ||
-    tx?.campaign.lead.replied
+    bc?.campaign.replied ||
+    tx?.campaign.replied
   );
 
   const replyClassification =
-    bc?.campaign.lead.replyClassification ??
-    tx?.campaign.lead.replyClassification ??
+    bc?.campaign.replyClassification ??
+    tx?.campaign.replyClassification ??
     null;
 
   const lastDeliveredAt =
-    bc?.campaign.email.lastDeliveredAt ??
-    tx?.campaign.email.lastDeliveredAt ??
+    bc?.campaign.lastDeliveredAt ??
+    tx?.campaign.lastDeliveredAt ??
     null;
 
   return { contacted, delivered, bounced, replied, replyClassification, lastDeliveredAt };
@@ -67,37 +63,35 @@ function flattenBrandStatus(result: StatusResult) {
   const tx = result.transactional;
 
   const contacted = !!(
-    bc?.brand.lead.contacted ||
-    bc?.brand.email.contacted ||
+    bc?.brand.contacted ||
     bc?.global.email.contacted ||
-    tx?.brand.lead.contacted ||
-    tx?.brand.email.contacted ||
+    tx?.brand.contacted ||
     tx?.global.email.contacted
   );
 
   const delivered = !!(
-    bc?.brand.email.delivered ||
-    tx?.brand.email.delivered
+    bc?.brand.delivered ||
+    tx?.brand.delivered
   );
 
   const bounced = !!(
-    bc?.brand.email.bounced ||
-    tx?.brand.email.bounced
+    bc?.brand.bounced ||
+    tx?.brand.bounced
   );
 
   const replied = !!(
-    bc?.brand.lead.replied ||
-    tx?.brand.lead.replied
+    bc?.brand.replied ||
+    tx?.brand.replied
   );
 
   const replyClassification =
-    bc?.brand.lead.replyClassification ??
-    tx?.brand.lead.replyClassification ??
+    bc?.brand.replyClassification ??
+    tx?.brand.replyClassification ??
     null;
 
   const lastDeliveredAt =
-    bc?.brand.email.lastDeliveredAt ??
-    tx?.brand.email.lastDeliveredAt ??
+    bc?.brand.lastDeliveredAt ??
+    tx?.brand.lastDeliveredAt ??
     null;
 
   return { contacted, delivered, bounced, replied, replyClassification, lastDeliveredAt };

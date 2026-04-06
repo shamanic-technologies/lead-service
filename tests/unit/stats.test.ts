@@ -37,8 +37,8 @@ vi.mock("../../src/lib/apollo-client.js", () => ({
 const mockCheckDeliveryStatus = vi.fn();
 vi.mock("../../src/lib/email-gateway-client.js", () => ({
   checkDeliveryStatus: (...args: unknown[]) => mockCheckDeliveryStatus(...args),
-  isContacted: (result: { broadcast?: { campaign: { lead: { contacted: boolean } } } }) =>
-    !!(result.broadcast?.campaign.lead.contacted),
+  isContacted: (result: { broadcast?: { campaign: { contacted: boolean } } }) =>
+    !!(result.broadcast?.campaign.contacted),
 }));
 
 const mockResolveFeatureDynastySlugs = vi.fn();
@@ -177,20 +177,20 @@ describe("GET /stats", () => {
     mockCheckDeliveryStatus.mockResolvedValue({
       results: [
         {
-          leadId: "lead-1",
+          leadIds: ["lead-1"],
           email: "alice@acme.com",
           broadcast: {
-            campaign: { lead: { contacted: true }, email: { contacted: true } },
-            brand: { lead: { contacted: false }, email: { contacted: false } },
+            campaign: { contacted: true },
+            brand: { contacted: false },
             global: { email: { contacted: false } },
           },
         },
         {
-          leadId: "lead-2",
+          leadIds: ["lead-2"],
           email: "bob@acme.com",
           broadcast: {
-            campaign: { lead: { contacted: false }, email: { contacted: false } },
-            brand: { lead: { contacted: false }, email: { contacted: false } },
+            campaign: { contacted: false },
+            brand: { contacted: false },
             global: { email: { contacted: false } },
           },
         },

@@ -4,6 +4,7 @@ import {
   isContacted,
   type StatusResult,
   type ProviderStatus,
+  type ScopedStatus,
 } from "../../src/lib/email-gateway-client.js";
 
 const mockFetch = vi.fn();
@@ -23,17 +24,11 @@ describe("email-gateway-client", () => {
       const responseBody = {
         results: [
           {
-            leadId: "lead-1",
+            leadIds: ["lead-1"],
             email: "alice@acme.com",
             broadcast: {
-              campaign: {
-                lead: { contacted: true, delivered: true, replied: false, lastDeliveredAt: "2024-01-01" },
-                email: { contacted: true, delivered: true, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
-              },
-              brand: {
-                lead: { contacted: true, delivered: true, replied: false, lastDeliveredAt: "2024-01-01" },
-                email: { contacted: true, delivered: true, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
-              },
+              campaign: { contacted: true, delivered: true, opened: false, replied: false, replyClassification: null, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
+              brand: { contacted: true, delivered: true, opened: false, replied: false, replyClassification: null, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
               global: {
                 email: { contacted: true, delivered: true, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
               },
@@ -194,9 +189,9 @@ describe("email-gateway-client", () => {
   });
 
   describe("isContacted", () => {
-    const emptyScoped = {
-      lead: { contacted: false, delivered: false, replied: false, lastDeliveredAt: null },
-      email: { contacted: false, delivered: false, bounced: false, unsubscribed: false, lastDeliveredAt: null },
+    const emptyScoped: ScopedStatus = {
+      contacted: false, delivered: false, opened: false, replied: false,
+      replyClassification: null, bounced: false, unsubscribed: false, lastDeliveredAt: null,
     };
 
     const emptyGlobal = {
@@ -211,7 +206,7 @@ describe("email-gateway-client", () => {
 
     it("returns false when nothing is contacted", () => {
       const result: StatusResult = {
-        leadId: "lead-1",
+        leadIds: ["lead-1"],
         email: "alice@acme.com",
         broadcast: emptyProvider,
         transactional: emptyProvider,
@@ -220,35 +215,29 @@ describe("email-gateway-client", () => {
     });
 
     it("returns false when no providers present", () => {
-      const result: StatusResult = { leadId: "lead-1", email: "alice@acme.com" };
+      const result: StatusResult = { leadIds: ["lead-1"], email: "alice@acme.com" };
       expect(isContacted(result)).toBe(false);
     });
 
-    it("returns true when broadcast campaign lead is contacted", () => {
+    it("returns true when broadcast campaign is contacted", () => {
       const result: StatusResult = {
-        leadId: "lead-1",
+        leadIds: ["lead-1"],
         email: "alice@acme.com",
         broadcast: {
           ...emptyProvider,
-          campaign: {
-            ...emptyScoped,
-            lead: { contacted: true, delivered: true, replied: false, lastDeliveredAt: "2024-01-01" },
-          },
+          campaign: { ...emptyScoped, contacted: true, delivered: true },
         },
       };
       expect(isContacted(result)).toBe(true);
     });
 
-    it("returns true when broadcast brand lead is contacted", () => {
+    it("returns true when broadcast brand is contacted", () => {
       const result: StatusResult = {
-        leadId: "lead-1",
+        leadIds: ["lead-1"],
         email: "alice@acme.com",
         broadcast: {
           ...emptyProvider,
-          brand: {
-            ...emptyScoped,
-            lead: { contacted: true, delivered: true, replied: false, lastDeliveredAt: "2024-01-01" },
-          },
+          brand: { ...emptyScoped, contacted: true, delivered: true },
         },
       };
       expect(isContacted(result)).toBe(true);
@@ -256,7 +245,7 @@ describe("email-gateway-client", () => {
 
     it("returns true when transactional global email is contacted", () => {
       const result: StatusResult = {
-        leadId: "lead-1",
+        leadIds: ["lead-1"],
         email: "alice@acme.com",
         transactional: {
           ...emptyProvider,
@@ -270,7 +259,7 @@ describe("email-gateway-client", () => {
 
     it("returns true when broadcast global email is contacted", () => {
       const result: StatusResult = {
-        leadId: "lead-1",
+        leadIds: ["lead-1"],
         email: "alice@acme.com",
         broadcast: {
           ...emptyProvider,

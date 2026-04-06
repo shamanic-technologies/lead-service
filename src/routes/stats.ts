@@ -184,7 +184,7 @@ async function countContacted(
         if (isContacted(result)) {
           // Find the leadId for this email
           const item = group.items.find((i) => i.email === result.email);
-          if (item) contactedLeadIds.add(item.leadId);
+          if (item?.leadId) contactedLeadIds.add(item.leadId);
         }
       }
     }),
@@ -252,7 +252,7 @@ async function countContactedGrouped(
             if (!contactedPerGroup.has(item.groupKey)) {
               contactedPerGroup.set(item.groupKey, new Set());
             }
-            contactedPerGroup.get(item.groupKey)!.add(item.leadId);
+            contactedPerGroup.get(item.groupKey)!.add(item.leadId!);
           }
         }
       }
@@ -322,7 +322,7 @@ async function countContactedGroupedByBrand(
               if (!contactedPerBrand.has(bid)) {
                 contactedPerBrand.set(bid, new Set());
               }
-              contactedPerBrand.get(bid)!.add(item.leadId);
+              contactedPerBrand.get(bid)!.add(item.leadId!);
             }
           }
         }

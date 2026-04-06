@@ -1,33 +1,29 @@
 import { EMAIL_GATEWAY_SERVICE_URL, EMAIL_GATEWAY_SERVICE_API_KEY } from "../config.js";
 
 export interface DeliveryStatusItem {
-  leadId: string;
+  leadId?: string;
   email: string;
 }
 
-export interface LeadDeliveryStatus {
+export interface ScopedStatus {
   contacted: boolean;
   delivered: boolean;
+  opened: boolean;
   replied: boolean;
   replyClassification: "positive" | "negative" | "neutral" | null;
-  lastDeliveredAt: string | null;
-}
-
-export interface EmailDeliveryStatus {
-  contacted: boolean;
-  delivered: boolean;
   bounced: boolean;
   unsubscribed: boolean;
   lastDeliveredAt: string | null;
 }
 
-export interface ScopedStatus {
-  lead: LeadDeliveryStatus;
-  email: EmailDeliveryStatus;
-}
-
 export interface GlobalStatus {
-  email: EmailDeliveryStatus;
+  email: {
+    contacted: boolean;
+    delivered: boolean;
+    bounced: boolean;
+    unsubscribed: boolean;
+    lastDeliveredAt: string | null;
+  };
 }
 
 export interface ProviderStatus {
@@ -37,7 +33,7 @@ export interface ProviderStatus {
 }
 
 export interface StatusResult {
-  leadId: string;
+  leadIds: string[];
   email: string;
   broadcast?: ProviderStatus;
   transactional?: ProviderStatus;
@@ -140,15 +136,11 @@ export function isContacted(result: StatusResult): boolean {
   const bc = result.broadcast;
   const tx = result.transactional;
   return !!(
-    bc?.campaign.lead.contacted ||
-    bc?.campaign.email.contacted ||
-    bc?.brand.lead.contacted ||
-    bc?.brand.email.contacted ||
+    bc?.campaign.contacted ||
+    bc?.brand.contacted ||
     bc?.global.email.contacted ||
-    tx?.campaign.lead.contacted ||
-    tx?.campaign.email.contacted ||
-    tx?.brand.lead.contacted ||
-    tx?.brand.email.contacted ||
+    tx?.campaign.contacted ||
+    tx?.brand.contacted ||
     tx?.global.email.contacted
   );
 }
