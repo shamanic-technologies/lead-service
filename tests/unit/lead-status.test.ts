@@ -108,14 +108,14 @@ describe("GET /leads/status", () => {
     mockCheckDeliveryStatus.mockResolvedValue({
       results: [
         {
-          leadIds: ["lead-1"],
+          leadId: "lead-1",
           email: "alice@acme.com",
           broadcast: makeBroadcastStatus({
             campaign: { contacted: true, delivered: true, lastDeliveredAt: "2026-03-29T10:00:00Z" },
           }),
         },
         {
-          leadIds: ["lead-2"],
+          leadId: "lead-2",
           email: "bob@acme.com",
           broadcast: makeBroadcastStatus({
             campaign: { contacted: true, bounced: true },
@@ -173,7 +173,7 @@ describe("GET /leads/status", () => {
     mockCheckDeliveryStatus.mockResolvedValue({
       results: [
         {
-          leadIds: ["lead-1"],
+          leadId: "lead-1",
           email: "alice@acme.com",
           broadcast: makeBroadcastStatus({
             brand: { contacted: true, delivered: true, replied: true, lastDeliveredAt: "2026-03-29T10:00:00Z" },
@@ -290,7 +290,7 @@ describe("GET /leads/status", () => {
     mockCheckDeliveryStatus.mockResolvedValue({
       results: [
         {
-          leadIds: ["lead-1"],
+          leadId: "lead-1",
           email: "alice@acme.com",
           broadcast: makeBroadcastStatus({
             campaign: { contacted: true, delivered: true, replied: true, replyClassification: "positive", lastDeliveredAt: "2026-04-01T12:00:00Z" },
@@ -313,7 +313,7 @@ describe("GET /leads/status", () => {
     mockCheckDeliveryStatus.mockResolvedValue({
       results: [
         {
-          leadIds: ["lead-1"],
+          leadId: "lead-1",
           email: "alice@acme.com",
           broadcast: makeBroadcastStatus({
             brand: { contacted: true, delivered: true, replied: true, replyClassification: "negative", lastDeliveredAt: "2026-04-01T12:00:00Z" },
@@ -335,7 +335,7 @@ describe("GET /leads/status", () => {
     mockCheckDeliveryStatus.mockResolvedValue({
       results: [
         {
-          leadIds: ["lead-1"],
+          leadId: "lead-1",
           email: "alice@acme.com",
           broadcast: makeBroadcastStatus({
             campaign: { contacted: true, delivered: true, lastDeliveredAt: "2026-04-01T12:00:00Z" },
@@ -355,7 +355,7 @@ describe("GET /leads/status", () => {
 describe("flattenCampaignStatus", () => {
   it("detects replied and replyClassification from broadcast campaign", () => {
     const result = flattenCampaignStatus({
-      leadIds: ["l1"],
+      leadId: "l1",
       email: "a@b.com",
       broadcast: makeBroadcastStatus({
         campaign: { contacted: true, delivered: true, replied: true, replyClassification: "positive", lastDeliveredAt: "2026-03-29T10:00:00Z" },
@@ -375,7 +375,7 @@ describe("flattenCampaignStatus", () => {
       replyClassification: null, bounced: false, unsubscribed: false, lastDeliveredAt: null,
     };
     const result = flattenCampaignStatus({
-      leadIds: ["l1"],
+      leadId: "l1",
       email: "a@b.com",
       transactional: {
         campaign: { ...defaultScoped, contacted: true, delivered: true, lastDeliveredAt: "2026-03-28T08:00:00Z" },
@@ -392,7 +392,7 @@ describe("flattenCampaignStatus", () => {
   });
 
   it("returns all false when no providers present", () => {
-    const result = flattenCampaignStatus({ leadIds: ["l1"], email: "a@b.com" });
+    const result = flattenCampaignStatus({ leadId: "l1", email: "a@b.com" });
     expect(result).toEqual({
       contacted: false, delivered: false, bounced: false, replied: false, replyClassification: null, lastDeliveredAt: null,
     });
@@ -402,7 +402,7 @@ describe("flattenCampaignStatus", () => {
 describe("flattenBrandStatus", () => {
   it("uses brand scope for cross-campaign status", () => {
     const result = flattenBrandStatus({
-      leadIds: ["l1"],
+      leadId: "l1",
       email: "a@b.com",
       broadcast: makeBroadcastStatus({
         brand: { contacted: true, delivered: true, replied: true, lastDeliveredAt: "2026-03-29T10:00:00Z" },
@@ -416,7 +416,7 @@ describe("flattenBrandStatus", () => {
   });
 
   it("returns all false when no providers present", () => {
-    const result = flattenBrandStatus({ leadIds: ["l1"], email: "a@b.com" });
+    const result = flattenBrandStatus({ leadId: "l1", email: "a@b.com" });
     expect(result).toEqual({
       contacted: false, delivered: false, bounced: false, replied: false, replyClassification: null, lastDeliveredAt: null,
     });

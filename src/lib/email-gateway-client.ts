@@ -33,7 +33,7 @@ export interface ProviderStatus {
 }
 
 export interface StatusResult {
-  leadIds: string[];
+  leadId: string | null;
   email: string;
   broadcast?: ProviderStatus;
   transactional?: ProviderStatus;
