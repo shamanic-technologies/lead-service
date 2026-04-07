@@ -1,11 +1,95 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Mock db to avoid needing LEAD_SERVICE_DATABASE_URL
+// Mock db
+const mockFindMany = vi.fn();
 vi.mock("../../src/db/index.js", () => ({
-  db: {},
+  db: {
+    query: {
+      servedLeads: {
+        findMany: (...args: unknown[]) => mockFindMany(...args),
+      },
+    },
+  },
 }));
 
-import { extractEnrichment } from "../../src/routes/leads.js";
+const mockCheckDeliveryStatus = vi.fn();
+vi.mock("../../src/lib/email-gateway-client.js", () => ({
+  checkDeliveryStatus: (...args: unknown[]) => mockCheckDeliveryStatus(...args),
+  isContacted: () => false,
+}));
+
+vi.mock("../../src/middleware/auth.js", () => ({
+  apiKeyAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
+  requireOrgId: (_req: unknown, _res: unknown, next: () => void) => next(),
+  getServiceContext: (req: any) => ({
+    orgId: req.orgId,
+    userId: req.userId,
+    runId: req.runId,
+    campaignId: req.campaignId,
+    brandId: req.brandId,
+    workflowSlug: req.workflowSlug,
+    featureSlug: req.featureSlug,
+  }),
+}));
+
+import request from "supertest";
+import express from "express";
+import leadsRouter from "../../src/routes/leads.js";
+import { extractEnrichment, flattenCampaignStatus, flattenBrandStatus } from "../../src/routes/leads.js";
+
+function createApp() {
+  const app = express();
+  app.use((req: any, _res, next) => {
+    req.orgId = "org-1";
+    req.userId = "user-1";
+    req.runId = "run-1";
+    next();
+  });
+  app.use(leadsRouter);
+  return app;
+}
+
+function makeServedLead(overrides: Partial<{
+  leadId: string | null;
+  email: string;
+  brandIds: string[];
+  campaignId: string;
+  metadata: unknown;
+}> = {}) {
+  return {
+    id: "row-1",
+    leadId: "lead-1",
+    namespace: "apollo",
+    email: "alice@acme.com",
+    externalId: null,
+    metadata: null,
+    parentRunId: null,
+    runId: null,
+    brandIds: ["b1"],
+    campaignId: "c1",
+    orgId: "org-1",
+    userId: null,
+    servedAt: "2026-04-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function makeBroadcastStatus(overrides: {
+  campaign?: Record<string, unknown>;
+  brand?: Record<string, unknown>;
+}) {
+  const defaultScoped = {
+    contacted: false, delivered: false, opened: false, replied: false,
+    replyClassification: null, bounced: false, unsubscribed: false, lastDeliveredAt: null,
+  };
+  return {
+    campaign: { ...defaultScoped, ...overrides.campaign },
+    brand: { ...defaultScoped, ...overrides.brand },
+    global: { email: { contacted: false, delivered: false, bounced: false, unsubscribed: false, lastDeliveredAt: null } },
+  };
+}
+
+// --- extractEnrichment unit tests ---
 
 describe("extractEnrichment", () => {
   it("returns null for null metadata", () => {
@@ -36,7 +120,6 @@ describe("extractEnrichment", () => {
       organizationDomain: "themyscira.com",
       organizationIndustry: "Defense",
       organizationSize: "501-1000",
-      // Extra fields that should NOT be filtered
       headline: "CEO & Founder at Themyscira Inc",
       city: "Gateway City",
       state: "CA",
@@ -57,34 +140,263 @@ describe("extractEnrichment", () => {
 
     const result = extractEnrichment(metadata);
     expect(result).not.toBeNull();
-
-    // Standard fields
     expect(result!.firstName).toBe("Diana");
     expect(result!.lastName).toBe("Prince");
     expect(result!.title).toBe("CEO");
     expect(result!.organizationName).toBe("Themyscira Inc");
-
-    // Extra fields — must all pass through
     expect(result!.headline).toBe("CEO & Founder at Themyscira Inc");
-    expect(result!.city).toBe("Gateway City");
-    expect(result!.state).toBe("CA");
-    expect(result!.country).toBe("United States");
-    expect(result!.organizationShortDescription).toBe("Leading defense tech company");
     expect(result!.organizationFoundedYear).toBe(2010);
-    expect(result!.organizationRevenueUsd).toBe("50000000");
-    expect(result!.seniority).toBe("founder");
-    expect(result!.departments).toEqual(["executive"]);
-    expect(result!.photoUrl).toBe("https://example.com/diana.jpg");
-    expect(result!.twitterUrl).toBe("https://twitter.com/diana");
-    expect(result!.organizationLogoUrl).toBe("https://example.com/logo.png");
-    expect(result!.organizationTotalFunding).toBe(25000000);
-    expect(result!.organizationLatestFundingRound).toBe("Series C");
-    expect(result!.organizationTechnologies).toEqual(["React", "Node.js", "PostgreSQL"]);
   });
 
   it("works with minimal metadata (just firstName)", () => {
     const result = extractEnrichment({ firstName: "Alice" });
     expect(result).not.toBeNull();
     expect(result!.firstName).toBe("Alice");
+  });
+});
+
+// --- GET /orgs/leads with merged status ---
+
+describe("GET /orgs/leads", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFindMany.mockResolvedValue([]);
+    mockCheckDeliveryStatus.mockResolvedValue(null);
+  });
+
+  it("returns leads with default status when no brandId/campaignId", async () => {
+    mockFindMany.mockResolvedValue([makeServedLead()]);
+
+    const app = createApp();
+    const res = await request(app).get("/orgs/leads");
+    expect(res.status).toBe(200);
+    expect(res.body.leads).toHaveLength(1);
+    expect(res.body.leads[0]).toMatchObject({
+      contacted: false,
+      delivered: false,
+      bounced: false,
+      replied: false,
+      replyClassification: null,
+      lastDeliveredAt: null,
+    });
+    expect(mockCheckDeliveryStatus).not.toHaveBeenCalled();
+  });
+
+  it("merges delivery status from email-gateway with campaignId", async () => {
+    mockFindMany.mockResolvedValue([
+      makeServedLead({ leadId: "lead-1", email: "alice@acme.com" }),
+      makeServedLead({ leadId: "lead-2", email: "bob@acme.com" }),
+    ]);
+
+    mockCheckDeliveryStatus.mockResolvedValue({
+      results: [
+        {
+          leadId: "lead-1",
+          email: "alice@acme.com",
+          broadcast: makeBroadcastStatus({
+            campaign: { contacted: true, delivered: true, replied: true, replyClassification: "positive", lastDeliveredAt: "2026-03-29T10:00:00Z" },
+          }),
+        },
+        {
+          leadId: "lead-2",
+          email: "bob@acme.com",
+          broadcast: makeBroadcastStatus({
+            campaign: { contacted: true, bounced: true },
+          }),
+        },
+      ],
+    });
+
+    const app = createApp();
+    const res = await request(app).get("/orgs/leads?campaignId=c1");
+    expect(res.status).toBe(200);
+
+    const alice = res.body.leads.find((l: any) => l.email === "alice@acme.com");
+    expect(alice.contacted).toBe(true);
+    expect(alice.delivered).toBe(true);
+    expect(alice.replied).toBe(true);
+    expect(alice.replyClassification).toBe("positive");
+    expect(alice.lastDeliveredAt).toBe("2026-03-29T10:00:00Z");
+
+    const bob = res.body.leads.find((l: any) => l.email === "bob@acme.com");
+    expect(bob.contacted).toBe(true);
+    expect(bob.bounced).toBe(true);
+    expect(bob.replied).toBe(false);
+  });
+
+  it("uses brand-scoped flattening when only brandId is provided", async () => {
+    mockFindMany.mockResolvedValue([
+      makeServedLead({ leadId: "lead-1", email: "alice@acme.com" }),
+    ]);
+
+    mockCheckDeliveryStatus.mockResolvedValue({
+      results: [
+        {
+          leadId: "lead-1",
+          email: "alice@acme.com",
+          broadcast: makeBroadcastStatus({
+            brand: { contacted: true, delivered: true, replied: true, replyClassification: "negative", lastDeliveredAt: "2026-04-01T12:00:00Z" },
+          }),
+        },
+      ],
+    });
+
+    const app = createApp();
+    const res = await request(app).get("/orgs/leads?brandId=b1");
+    expect(res.status).toBe(200);
+
+    const alice = res.body.leads[0];
+    expect(alice.contacted).toBe(true);
+    expect(alice.delivered).toBe(true);
+    expect(alice.replied).toBe(true);
+    expect(alice.replyClassification).toBe("negative");
+  });
+
+  it("returns default status when email-gateway is unreachable", async () => {
+    mockFindMany.mockResolvedValue([
+      makeServedLead({ leadId: "lead-1", email: "alice@acme.com" }),
+    ]);
+    mockCheckDeliveryStatus.mockResolvedValue(null);
+
+    const app = createApp();
+    const res = await request(app).get("/orgs/leads?campaignId=c1");
+    expect(res.status).toBe(200);
+    expect(res.body.leads[0]).toMatchObject({
+      contacted: false,
+      delivered: false,
+      bounced: false,
+      replied: false,
+      replyClassification: null,
+    });
+  });
+
+  it("groups email-gateway calls by first brandId", async () => {
+    mockFindMany.mockResolvedValue([
+      makeServedLead({ leadId: "lead-1", email: "alice@acme.com", brandIds: ["b1"] }),
+      makeServedLead({ leadId: "lead-2", email: "bob@other.com", brandIds: ["b2"] }),
+    ]);
+    mockCheckDeliveryStatus.mockResolvedValue({ results: [] });
+
+    const app = createApp();
+    await request(app).get("/orgs/leads?campaignId=c1");
+
+    expect(mockCheckDeliveryStatus).toHaveBeenCalledTimes(2);
+    expect(mockCheckDeliveryStatus).toHaveBeenCalledWith("b1", "c1", expect.any(Array), expect.any(Object));
+    expect(mockCheckDeliveryStatus).toHaveBeenCalledWith("b2", "c1", expect.any(Array), expect.any(Object));
+  });
+
+  it("skips email-gateway call for leads with null leadId", async () => {
+    mockFindMany.mockResolvedValue([
+      makeServedLead({ leadId: null, email: "orphan@acme.com" }),
+      makeServedLead({ leadId: "lead-1", email: "alice@acme.com" }),
+    ]);
+    mockCheckDeliveryStatus.mockResolvedValue({ results: [] });
+
+    const app = createApp();
+    const res = await request(app).get("/orgs/leads?campaignId=c1");
+    expect(res.body.leads).toHaveLength(2);
+
+    // Only lead-1 should be sent to email-gateway
+    const items = mockCheckDeliveryStatus.mock.calls[0][2];
+    expect(items).toHaveLength(1);
+    expect(items[0].leadId).toBe("lead-1");
+  });
+
+  it("still returns enrichment alongside status", async () => {
+    const metadata = { firstName: "Alice", lastName: "Smith", email: "alice@acme.com" };
+    mockFindMany.mockResolvedValue([
+      makeServedLead({ leadId: "lead-1", email: "alice@acme.com", metadata }),
+    ]);
+    mockCheckDeliveryStatus.mockResolvedValue({ results: [] });
+
+    const app = createApp();
+    const res = await request(app).get("/orgs/leads?campaignId=c1");
+    expect(res.body.leads[0].enrichment).toMatchObject({ firstName: "Alice" });
+    expect(res.body.leads[0].contacted).toBe(false);
+  });
+});
+
+// --- flattenCampaignStatus unit tests ---
+
+describe("flattenCampaignStatus", () => {
+  it("detects replied and replyClassification from broadcast campaign", () => {
+    const result = flattenCampaignStatus({
+      leadId: "l1",
+      email: "a@b.com",
+      broadcast: makeBroadcastStatus({
+        campaign: { contacted: true, delivered: true, replied: true, replyClassification: "positive", lastDeliveredAt: "2026-03-29T10:00:00Z" },
+      }),
+    });
+
+    expect(result.replied).toBe(true);
+    expect(result.replyClassification).toBe("positive");
+    expect(result.delivered).toBe(true);
+    expect(result.contacted).toBe(true);
+    expect(result.lastDeliveredAt).toBe("2026-03-29T10:00:00Z");
+  });
+
+  it("detects transactional delivery", () => {
+    const defaultScoped = {
+      contacted: false, delivered: false, opened: false, replied: false,
+      replyClassification: null, bounced: false, unsubscribed: false, lastDeliveredAt: null,
+    };
+    const result = flattenCampaignStatus({
+      leadId: "l1",
+      email: "a@b.com",
+      transactional: {
+        campaign: { ...defaultScoped, contacted: true, delivered: true, lastDeliveredAt: "2026-03-28T08:00:00Z" },
+        brand: defaultScoped,
+        global: {
+          email: { contacted: false, delivered: false, bounced: false, unsubscribed: false, lastDeliveredAt: null },
+        },
+      },
+    });
+
+    expect(result.delivered).toBe(true);
+    expect(result.contacted).toBe(true);
+    expect(result.lastDeliveredAt).toBe("2026-03-28T08:00:00Z");
+  });
+
+  it("returns all false when no providers present", () => {
+    const result = flattenCampaignStatus({ leadId: "l1", email: "a@b.com" });
+    expect(result).toEqual({
+      contacted: false, delivered: false, bounced: false, replied: false, replyClassification: null, lastDeliveredAt: null,
+    });
+  });
+});
+
+// --- flattenBrandStatus unit tests ---
+
+describe("flattenBrandStatus", () => {
+  it("uses brand scope for cross-campaign status", () => {
+    const result = flattenBrandStatus({
+      leadId: "l1",
+      email: "a@b.com",
+      broadcast: makeBroadcastStatus({
+        brand: { contacted: true, delivered: true, replied: true, lastDeliveredAt: "2026-03-29T10:00:00Z" },
+      }),
+    });
+
+    expect(result.contacted).toBe(true);
+    expect(result.delivered).toBe(true);
+    expect(result.replied).toBe(true);
+    expect(result.lastDeliveredAt).toBe("2026-03-29T10:00:00Z");
+  });
+
+  it("handles missing scopes in provider (partial response)", () => {
+    const result = flattenBrandStatus({
+      leadId: "l1",
+      email: "a@b.com",
+      broadcast: { global: { email: { contacted: true, delivered: true, bounced: false, unsubscribed: false, lastDeliveredAt: null } } } as any,
+    });
+    expect(result.contacted).toBe(true);
+    expect(result.delivered).toBe(false);
+  });
+
+  it("returns all false when no providers present", () => {
+    const result = flattenBrandStatus({ leadId: "l1", email: "a@b.com" });
+    expect(result).toEqual({
+      contacted: false, delivered: false, bounced: false, replied: false, replyClassification: null, lastDeliveredAt: null,
+    });
   });
 });

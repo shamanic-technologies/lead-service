@@ -12,7 +12,6 @@ import bufferRoutes from "./routes/buffer.js";
 import cursorRoutes from "./routes/cursor.js";
 import leadsRoutes from "./routes/leads.js";
 import statsRoutes from "./routes/stats.js";
-import leadStatusRoutes from "./routes/lead-status.js";
 import { registerProviders } from "./lib/register-providers.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -37,7 +36,6 @@ app.use(bufferRoutes);
 app.use(cursorRoutes);
 app.use(leadsRoutes);
 app.use(statsRoutes);
-app.use(leadStatusRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ error: "Not found" });

@@ -288,6 +288,24 @@ const LeadDetailSchema = z
     userId: z.string().nullable(),
     servedAt: z.string(),
     enrichment: ApolloPersonDataSchema.nullable(),
+    contacted: z.boolean(),
+    delivered: z.boolean(),
+    bounced: z.boolean(),
+    replied: z
+      .boolean()
+      .openapi({ description: "Whether the lead replied (any reply, regardless of sentiment)" }),
+    replyClassification: z
+      .enum(["positive", "negative", "neutral"])
+      .nullable()
+      .openapi({
+        description:
+          "Classification of the most recent reply from email-gateway. " +
+          "'positive' = interested or willing to meet, " +
+          "'negative' = not interested, " +
+          "'neutral' = ambiguous or informational. " +
+          "null when no reply detected.",
+      }),
+    lastDeliveredAt: z.string().nullable(),
   })
   .openapi("LeadDetail");
 
@@ -330,38 +348,6 @@ const StatsGroupedResponseSchema = z
   })
   .openapi("StatsGroupedResponse");
 
-// --- Lead Status ---
-
-const LeadStatusItemSchema = z
-  .object({
-    leadId: z.string().uuid(),
-    email: z.string(),
-    contacted: z.boolean(),
-    delivered: z.boolean(),
-    bounced: z.boolean(),
-    replied: z
-      .boolean()
-      .openapi({ description: "Whether the lead replied (any reply, regardless of sentiment)" }),
-    replyClassification: z
-      .enum(["positive", "negative", "neutral"])
-      .nullable()
-      .openapi({
-        description:
-          "Classification of the most recent reply from email-gateway. " +
-          "'positive' = interested or willing to meet, " +
-          "'negative' = not interested, " +
-          "'neutral' = ambiguous or informational. " +
-          "null when no reply detected.",
-      }),
-    lastDeliveredAt: z.string().nullable(),
-  })
-  .openapi("LeadStatusItem");
-
-const LeadStatusResponseSchema = z
-  .object({
-    statuses: z.array(LeadStatusItemSchema),
-  })
-  .openapi("LeadStatusResponse");
 
 // --- Register Paths ---
 
@@ -445,7 +431,13 @@ registry.registerPath({
 registry.registerPath({
   method: "get",
   path: "/orgs/leads",
-  summary: "List served leads with enrichment data",
+  summary: "List served leads with enrichment and delivery status",
+  description:
+    "Returns served leads with Apollo enrichment data and delivery status " +
+    "(contacted, delivered, bounced, replied, replyClassification, lastDeliveredAt). " +
+    "Status is fetched from email-gateway when brandId or campaignId is provided. " +
+    "With campaignId: campaign-scoped status. With brandId only: brand-scoped (cross-campaign). " +
+    "Without either: status fields default to false/null.",
   parameters: [
     ...AuthHeaders,
     {
@@ -604,48 +596,6 @@ registry.registerPath({
   },
 });
 
-registry.registerPath({
-  method: "get",
-  path: "/orgs/leads/status",
-  summary: "Get per-lead delivery and reply status",
-  description:
-    "Returns delivery status (contacted, delivered, bounced, replied, replyClassification) for served leads. " +
-    "With campaignId: campaign-scoped status. Without campaignId: cross-campaign brand-scoped status " +
-    "(requires brandId). At least one of campaignId or brandId must be provided. " +
-    "Calls email-gateway internally.",
-  parameters: [
-    ...AuthHeaders,
-    {
-      in: "query" as const,
-      name: "campaignId",
-      required: false,
-      schema: { type: "string" as const },
-      description:
-        "Campaign ID filter. When provided, status is campaign-scoped. " +
-        "When absent, status is brand-scoped (cross-campaign) and brandId becomes required.",
-    },
-    {
-      in: "query" as const,
-      name: "brandId",
-      required: false,
-      schema: { type: "string" as const },
-      description:
-        "Brand ID filter. Required when campaignId is absent (cross-campaign mode). " +
-        "Optional additional filter when campaignId is present.",
-    },
-  ],
-  responses: {
-    200: {
-      description: "Per-lead delivery and reply statuses",
-      content: { "application/json": { schema: LeadStatusResponseSchema } },
-    },
-    400: {
-      description: "Missing required query parameters",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    401: { description: "Unauthorized" },
-  },
-});
 
 registry.registerPath({
   method: "get",
