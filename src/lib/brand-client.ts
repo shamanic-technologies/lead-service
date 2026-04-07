@@ -29,7 +29,7 @@ export async function fetchBrand(
     if (context?.workflowSlug) headers["x-workflow-slug"] = context.workflowSlug;
     if (context?.featureSlug) headers["x-feature-slug"] = context.featureSlug;
 
-    const url = new URL(`${BRAND_SERVICE_URL}/brands/${brandId}`);
+    const url = new URL(`${BRAND_SERVICE_URL}/internal/brands/${brandId}`);
     if (orgId) url.searchParams.set("orgId", orgId);
 
     const response = await fetch(url.toString(), { headers, signal: AbortSignal.timeout(300_000) });
@@ -83,7 +83,7 @@ export async function extractBrandFields(
   context?: ServiceContext,
 ): Promise<ExtractedField[] | null> {
   try {
-    const response = await fetch(`${BRAND_SERVICE_URL}/brands/extract-fields`, {
+    const response = await fetch(`${BRAND_SERVICE_URL}/orgs/brands/extract-fields`, {
       method: "POST",
       headers: buildHeaders(orgId, context),
       body: JSON.stringify({ fields }),
@@ -99,8 +99,32 @@ export async function extractBrandFields(
       return null;
     }
 
-    const data = (await response.json()) as { results: ExtractedField[] };
-    return data.results;
+    const data = (await response.json()) as {
+      brands: Array<{ brandId: string; domain: string; name: string }>;
+      fields: Record<string, {
+        value: string | string[] | Record<string, unknown> | null;
+        byBrand: Record<string, {
+          value: string | string[] | Record<string, unknown> | null;
+          cached: boolean;
+          extractedAt: string;
+          expiresAt: string | null;
+          sourceUrls: string[] | null;
+        }>;
+      }>;
+    };
+
+    // Transform new response shape back to ExtractedField[] for consumers
+    return Object.entries(data.fields).map(([key, field]) => {
+      const firstBrand = Object.values(field.byBrand)[0];
+      return {
+        key,
+        value: field.value,
+        cached: firstBrand?.cached ?? false,
+        extractedAt: firstBrand?.extractedAt ?? new Date().toISOString(),
+        expiresAt: firstBrand?.expiresAt ?? null,
+        sourceUrls: firstBrand?.sourceUrls ?? null,
+      };
+    });
   } catch (error) {
     console.error("[brand-client] Error extracting brand fields:", error);
     throw error;
@@ -113,7 +137,7 @@ export async function fetchExtractedFields(
   context?: ServiceContext,
 ): Promise<ExtractedField[] | null> {
   try {
-    const response = await fetch(`${BRAND_SERVICE_URL}/brands/${brandId}/extracted-fields`, {
+    const response = await fetch(`${BRAND_SERVICE_URL}/internal/brands/${brandId}/extracted-fields`, {
       headers: buildHeaders(orgId, context),
       signal: AbortSignal.timeout(300_000),
     });
