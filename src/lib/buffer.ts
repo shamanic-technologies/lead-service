@@ -170,7 +170,7 @@ async function fillBufferFromSearch(params: {
     // Batch contacted check for candidates with emails and leadIds
     const itemsWithEmails = candidates
       .filter((c): c is typeof c & { email: string; leadId: string } => !!c.email && !!c.leadId)
-      .map((c) => ({ email: c.email, leadId: c.leadId }));
+      .map((c) => ({ email: c.email }));
 
     const contactedMap =
       itemsWithEmails.length > 0
@@ -409,7 +409,7 @@ export async function pullNext(params: {
 
     // Check contacted status via email-gateway
     const contactedMap = await checkContacted(params.brandIds, params.campaignId, [
-      { leadId, email },
+      { email },
     ], {
       orgId: params.orgId,
       userId: params.userId ?? undefined,

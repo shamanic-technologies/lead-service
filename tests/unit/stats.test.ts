@@ -178,7 +178,6 @@ describe("GET /stats", () => {
     mockCheckDeliveryStatus.mockResolvedValue({
       results: [
         {
-          leadId: "lead-1",
           email: "alice@acme.com",
           broadcast: {
             campaign: { contacted: true },
@@ -187,7 +186,6 @@ describe("GET /stats", () => {
           },
         },
         {
-          leadId: "lead-2",
           email: "bob@acme.com",
           broadcast: {
             campaign: { contacted: false },
@@ -204,7 +202,7 @@ describe("GET /stats", () => {
     expect(res.body.contacted).toBe(1);
     expect(mockCheckDeliveryStatus).toHaveBeenCalledWith(
       "b1", "c1",
-      [{ leadId: "lead-1", email: "alice@acme.com" }, { leadId: "lead-2", email: "bob@acme.com" }],
+      [{ email: "alice@acme.com" }, { email: "bob@acme.com" }],
       expect.objectContaining({ orgId: "org-1" }),
     );
   });

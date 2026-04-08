@@ -24,7 +24,6 @@ describe("email-gateway-client", () => {
       const responseBody = {
         results: [
           {
-            leadId: "lead-1",
             email: "alice@acme.com",
             broadcast: {
               campaign: { contacted: true, delivered: true, opened: false, replied: false, replyClassification: null, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
@@ -43,7 +42,7 @@ describe("email-gateway-client", () => {
       });
 
       const result = await checkDeliveryStatus("brand-1", "campaign-1", [
-        { leadId: "lead-1", email: "alice@acme.com" },
+        { email: "alice@acme.com" },
       ]);
 
       expect(result).toEqual(responseBody);
@@ -51,29 +50,27 @@ describe("email-gateway-client", () => {
       const [url, opts] = mockFetch.mock.calls[0];
       expect(url).toContain("/orgs/status");
       expect(opts.method).toBe("POST");
-      expect(opts.headers["x-brand-id"]).toBe("brand-1");
       const body = JSON.parse(opts.body);
-      expect(body.brandId).toBeUndefined();
+      expect(body.brandId).toBe("brand-1");
       expect(body.campaignId).toBe("campaign-1");
-      expect(body.items).toEqual([{ leadId: "lead-1", email: "alice@acme.com" }]);
+      expect(body.items).toEqual([{ email: "alice@acme.com" }]);
     });
 
-    it("sends brandId via x-brand-id header, not in body, when campaignId is undefined", async () => {
+    it("sends brandId in body when campaignId is undefined", async () => {
       mockFetch.mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({ results: [] }),
       });
 
       await checkDeliveryStatus("brand-1", undefined, [
-        { leadId: "lead-1", email: "alice@acme.com" },
+        { email: "alice@acme.com" },
       ]);
 
       const [, opts] = mockFetch.mock.calls[0];
-      expect(opts.headers["x-brand-id"]).toBe("brand-1");
       const body = JSON.parse(opts.body);
-      expect(body.brandId).toBeUndefined();
+      expect(body.brandId).toBe("brand-1");
       expect(body.campaignId).toBeUndefined();
-      expect(body.items).toEqual([{ leadId: "lead-1", email: "alice@acme.com" }]);
+      expect(body.items).toEqual([{ email: "alice@acme.com" }]);
     });
 
     it("returns null on non-200 response", async () => {
@@ -84,7 +81,7 @@ describe("email-gateway-client", () => {
       });
 
       const result = await checkDeliveryStatus("brand-1", "campaign-1", [
-        { leadId: "lead-1", email: "alice@acme.com" },
+        { email: "alice@acme.com" },
       ]);
 
       expect(result).toBeNull();
@@ -96,7 +93,7 @@ describe("email-gateway-client", () => {
       mockFetch.mockRejectedValue(new TypeError("fetch failed"));
 
       const result = await checkDeliveryStatus("brand-1", "campaign-1", [
-        { leadId: "lead-1", email: "alice@acme.com" },
+        { email: "alice@acme.com" },
       ]);
 
       expect(result).toBeNull();
@@ -116,7 +113,6 @@ describe("email-gateway-client", () => {
 
     it("batches items when exceeding batch size", async () => {
       const items = Array.from({ length: 150 }, (_, i) => ({
-        leadId: `lead-${i}`,
         email: `user${i}@acme.com`,
       }));
 
@@ -125,8 +121,7 @@ describe("email-gateway-client", () => {
         return {
           ok: true,
           json: () => Promise.resolve({
-            results: body.items.map((item: { leadId: string; email: string }) => ({
-              leadId: item.leadId,
+            results: body.items.map((item: { email: string }) => ({
               email: item.email,
             })),
           }),
@@ -146,7 +141,6 @@ describe("email-gateway-client", () => {
     it("returns null if any batch fails", async () => {
       vi.spyOn(console, "error").mockImplementation(() => {});
       const items = Array.from({ length: 150 }, (_, i) => ({
-        leadId: `lead-${i}`,
         email: `user${i}@acme.com`,
       }));
 
@@ -174,7 +168,7 @@ describe("email-gateway-client", () => {
       mockFetch.mockRejectedValue(unexpectedError);
 
       const result = await checkDeliveryStatus("brand-1", "campaign-1", [
-        { leadId: "lead-1", email: "alice@acme.com" },
+        { email: "alice@acme.com" },
       ]);
 
       expect(result).toBeNull();
@@ -206,7 +200,6 @@ describe("email-gateway-client", () => {
 
     it("returns false when nothing is contacted", () => {
       const result: StatusResult = {
-        leadId: "lead-1",
         email: "alice@acme.com",
         broadcast: emptyProvider,
         transactional: emptyProvider,
@@ -221,7 +214,6 @@ describe("email-gateway-client", () => {
 
     it("returns true when broadcast campaign is contacted", () => {
       const result: StatusResult = {
-        leadId: "lead-1",
         email: "alice@acme.com",
         broadcast: {
           ...emptyProvider,
@@ -233,7 +225,6 @@ describe("email-gateway-client", () => {
 
     it("returns true when broadcast brand is contacted", () => {
       const result: StatusResult = {
-        leadId: "lead-1",
         email: "alice@acme.com",
         broadcast: {
           ...emptyProvider,
@@ -245,7 +236,6 @@ describe("email-gateway-client", () => {
 
     it("returns true when transactional global email is contacted", () => {
       const result: StatusResult = {
-        leadId: "lead-1",
         email: "alice@acme.com",
         transactional: {
           ...emptyProvider,
@@ -259,7 +249,6 @@ describe("email-gateway-client", () => {
 
     it("returns true when broadcast global email is contacted", () => {
       const result: StatusResult = {
-        leadId: "lead-1",
         email: "alice@acme.com",
         broadcast: {
           ...emptyProvider,
@@ -269,6 +258,32 @@ describe("email-gateway-client", () => {
         },
       };
       expect(isContacted(result)).toBe(true);
+    });
+
+    it("returns true when broadcast byCampaign has a contacted entry", () => {
+      const result: StatusResult = {
+        email: "alice@acme.com",
+        broadcast: {
+          ...emptyProvider,
+          byCampaign: {
+            "campaign-other": { ...emptyScoped, contacted: true, delivered: true },
+          },
+        },
+      };
+      expect(isContacted(result)).toBe(true);
+    });
+
+    it("returns false when broadcast byCampaign entries are all not contacted", () => {
+      const result: StatusResult = {
+        email: "alice@acme.com",
+        broadcast: {
+          ...emptyProvider,
+          byCampaign: {
+            "campaign-other": emptyScoped,
+          },
+        },
+      };
+      expect(isContacted(result)).toBe(false);
     });
   });
 });

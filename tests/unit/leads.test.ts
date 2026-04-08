@@ -191,14 +191,12 @@ describe("GET /orgs/leads", () => {
     mockCheckDeliveryStatus.mockResolvedValue({
       results: [
         {
-          leadId: "lead-1",
           email: "alice@acme.com",
           broadcast: makeBroadcastStatus({
             campaign: { contacted: true, delivered: true, replied: true, replyClassification: "positive", lastDeliveredAt: "2026-03-29T10:00:00Z" },
           }),
         },
         {
-          leadId: "lead-2",
           email: "bob@acme.com",
           broadcast: makeBroadcastStatus({
             campaign: { contacted: true, bounced: true },
@@ -232,7 +230,6 @@ describe("GET /orgs/leads", () => {
     mockCheckDeliveryStatus.mockResolvedValue({
       results: [
         {
-          leadId: "lead-1",
           email: "alice@acme.com",
           broadcast: makeBroadcastStatus({
             brand: { contacted: true, delivered: true, replied: true, replyClassification: "negative", lastDeliveredAt: "2026-04-01T12:00:00Z" },
@@ -296,10 +293,10 @@ describe("GET /orgs/leads", () => {
     const res = await request(app).get("/orgs/leads?campaignId=c1");
     expect(res.body.leads).toHaveLength(2);
 
-    // Only lead-1 should be sent to email-gateway
+    // Only lead-1's email should be sent to email-gateway (items no longer have leadId)
     const items = mockCheckDeliveryStatus.mock.calls[0][2];
     expect(items).toHaveLength(1);
-    expect(items[0].leadId).toBe("lead-1");
+    expect(items[0].email).toBe("alice@acme.com");
   });
 
   it("still returns enrichment alongside status", async () => {
@@ -321,7 +318,6 @@ describe("GET /orgs/leads", () => {
 describe("flattenCampaignStatus", () => {
   it("detects replied and replyClassification from broadcast campaign", () => {
     const result = flattenCampaignStatus({
-      leadId: "l1",
       email: "a@b.com",
       broadcast: makeBroadcastStatus({
         campaign: { contacted: true, delivered: true, replied: true, replyClassification: "positive", lastDeliveredAt: "2026-03-29T10:00:00Z" },
@@ -341,7 +337,6 @@ describe("flattenCampaignStatus", () => {
       replyClassification: null, bounced: false, unsubscribed: false, lastDeliveredAt: null,
     };
     const result = flattenCampaignStatus({
-      leadId: "l1",
       email: "a@b.com",
       transactional: {
         campaign: { ...defaultScoped, contacted: true, delivered: true, lastDeliveredAt: "2026-03-28T08:00:00Z" },
@@ -370,7 +365,6 @@ describe("flattenCampaignStatus", () => {
 describe("flattenBrandStatus", () => {
   it("uses brand scope for cross-campaign status", () => {
     const result = flattenBrandStatus({
-      leadId: "l1",
       email: "a@b.com",
       broadcast: makeBroadcastStatus({
         brand: { contacted: true, delivered: true, replied: true, lastDeliveredAt: "2026-03-29T10:00:00Z" },
@@ -385,7 +379,6 @@ describe("flattenBrandStatus", () => {
 
   it("handles missing scopes in provider (partial response)", () => {
     const result = flattenBrandStatus({
-      leadId: "l1",
       email: "a@b.com",
       broadcast: { global: { email: { contacted: true, delivered: true, bounced: false, unsubscribed: false, lastDeliveredAt: null } } } as any,
     });

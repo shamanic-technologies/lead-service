@@ -1,7 +1,6 @@
 import { EMAIL_GATEWAY_SERVICE_URL, EMAIL_GATEWAY_SERVICE_API_KEY } from "../config.js";
 
 export interface DeliveryStatusItem {
-  leadId?: string;
   email: string;
 }
 
@@ -27,13 +26,13 @@ export interface GlobalStatus {
 }
 
 export interface ProviderStatus {
-  campaign?: ScopedStatus;
-  brand?: ScopedStatus;
+  campaign?: ScopedStatus | null;
+  brand?: ScopedStatus | null;
+  byCampaign?: Record<string, ScopedStatus> | null;
   global?: GlobalStatus;
 }
 
 export interface StatusResult {
-  leadId: string | null;
   email: string;
   broadcast?: ProviderStatus;
   transactional?: ProviderStatus;
@@ -51,8 +50,7 @@ async function checkDeliveryStatusBatch(
   items: DeliveryStatusItem[],
   headers: Record<string, string>,
 ): Promise<DeliveryStatusResponse | null> {
-  headers["x-brand-id"] = brandId;
-  const body: Record<string, unknown> = { items };
+  const body: Record<string, unknown> = { brandId, items };
   if (campaignId) body.campaignId = campaignId;
 
   const response = await fetch(`${EMAIL_GATEWAY_SERVICE_URL}/orgs/status`, {
@@ -135,12 +133,24 @@ export async function checkDeliveryStatus(
 export function isContacted(result: StatusResult): boolean {
   const bc = result.broadcast;
   const tx = result.transactional;
-  return !!(
+
+  if (
     bc?.campaign?.contacted ||
     bc?.brand?.contacted ||
     bc?.global?.email?.contacted ||
     tx?.campaign?.contacted ||
     tx?.brand?.contacted ||
     tx?.global?.email?.contacted
-  );
+  ) return true;
+
+  // Check byCampaign breakdown (populated in brand-only mode)
+  for (const provider of [bc, tx]) {
+    if (provider?.byCampaign) {
+      for (const status of Object.values(provider.byCampaign)) {
+        if (status.contacted) return true;
+      }
+    }
+  }
+
+  return false;
 }

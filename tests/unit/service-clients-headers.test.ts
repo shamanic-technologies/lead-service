@@ -112,7 +112,7 @@ describe("service client headers", () => {
       fetchSpy.mockReturnValue(jsonResponse({ results: [] }));
 
       const { checkDeliveryStatus } = await import("../../src/lib/email-gateway-client.js");
-      await checkDeliveryStatus("brand-1", "camp-1", [{ leadId: "l1", email: "a@b.com" }], {
+      await checkDeliveryStatus("brand-1", "camp-1", [{ email: "a@b.com" }], {
         orgId: "org-1", userId: "user-1", runId: "run-1",
       });
 
@@ -127,7 +127,7 @@ describe("service client headers", () => {
       fetchSpy.mockReturnValue(jsonResponse({ results: [] }));
 
       const { checkDeliveryStatus } = await import("../../src/lib/email-gateway-client.js");
-      await checkDeliveryStatus("brand-1", "camp-1", [{ leadId: "l1", email: "a@b.com" }], {
+      await checkDeliveryStatus("brand-1", "camp-1", [{ email: "a@b.com" }], {
         orgId: "org-1", userId: "user-1", runId: "run-1",
         campaignId: "camp-1", brandId: "brand-1", workflowSlug: "wf-test", featureSlug: "feat-test",
       });
