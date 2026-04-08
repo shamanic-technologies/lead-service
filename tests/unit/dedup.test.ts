@@ -29,31 +29,31 @@ describe("dedup", () => {
     it("returns contacted=true for emails that email-gateway reports as contacted", async () => {
       vi.mocked(checkDeliveryStatus).mockResolvedValue({
         results: [
-          { leadId: "lead-1", email: "alice@acme.com" } as never,
+          { email: "alice@acme.com" } as never,
         ],
       });
       vi.mocked(isContacted).mockReturnValue(true);
 
       const result = await checkContacted(["brand-1"], "campaign-1", [
-        { leadId: "lead-1", email: "alice@acme.com" },
+        { email: "alice@acme.com" },
       ]);
 
       expect(result.get("alice@acme.com")).toBe(true);
       expect(checkDeliveryStatus).toHaveBeenCalledWith("brand-1", "campaign-1", [
-        { leadId: "lead-1", email: "alice@acme.com" },
+        { email: "alice@acme.com" },
       ], undefined);
     });
 
     it("returns contacted=false for emails not yet contacted", async () => {
       vi.mocked(checkDeliveryStatus).mockResolvedValue({
         results: [
-          { leadId: "lead-1", email: "bob@acme.com" } as never,
+          { email: "bob@acme.com" } as never,
         ],
       });
       vi.mocked(isContacted).mockReturnValue(false);
 
       const result = await checkContacted(["brand-1"], "campaign-1", [
-        { leadId: "lead-1", email: "bob@acme.com" },
+        { email: "bob@acme.com" },
       ]);
 
       expect(result.get("bob@acme.com")).toBe(false);
@@ -63,8 +63,8 @@ describe("dedup", () => {
       vi.mocked(checkDeliveryStatus).mockResolvedValue(null);
 
       const result = await checkContacted(["brand-1"], "campaign-1", [
-        { leadId: "lead-1", email: "alice@acme.com" },
-        { leadId: "lead-2", email: "bob@acme.com" },
+        { email: "alice@acme.com" },
+        { email: "bob@acme.com" },
       ]);
 
       expect(result.get("alice@acme.com")).toBe(false);
@@ -74,8 +74,8 @@ describe("dedup", () => {
     it("handles batch of multiple emails with mixed results", async () => {
       vi.mocked(checkDeliveryStatus).mockResolvedValue({
         results: [
-          { leadId: "lead-1", email: "alice@acme.com" } as never,
-          { leadId: "lead-2", email: "bob@acme.com" } as never,
+          { email: "alice@acme.com" } as never,
+          { email: "bob@acme.com" } as never,
         ],
       });
       vi.mocked(isContacted)
@@ -83,8 +83,8 @@ describe("dedup", () => {
         .mockReturnValueOnce(false);
 
       const result = await checkContacted(["brand-1"], "campaign-1", [
-        { leadId: "lead-1", email: "alice@acme.com" },
-        { leadId: "lead-2", email: "bob@acme.com" },
+        { email: "alice@acme.com" },
+        { email: "bob@acme.com" },
       ]);
 
       expect(result.get("alice@acme.com")).toBe(true);
@@ -94,13 +94,13 @@ describe("dedup", () => {
     it("uses first brand ID for email-gateway call with multi-brand", async () => {
       vi.mocked(checkDeliveryStatus).mockResolvedValue({
         results: [
-          { leadId: "lead-1", email: "alice@acme.com" } as never,
+          { email: "alice@acme.com" } as never,
         ],
       });
       vi.mocked(isContacted).mockReturnValue(true);
 
       await checkContacted(["brand-1", "brand-2", "brand-3"], "campaign-1", [
-        { leadId: "lead-1", email: "alice@acme.com" },
+        { email: "alice@acme.com" },
       ]);
 
       expect(checkDeliveryStatus).toHaveBeenCalledWith("brand-1", "campaign-1", expect.any(Array), undefined);
@@ -108,7 +108,7 @@ describe("dedup", () => {
 
     it("returns all-false when brandIds is empty", async () => {
       const result = await checkContacted([], "campaign-1", [
-        { leadId: "lead-1", email: "alice@acme.com" },
+        { email: "alice@acme.com" },
       ]);
 
       expect(result.get("alice@acme.com")).toBe(false);

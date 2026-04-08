@@ -151,7 +151,7 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
         if (!groups.has(primaryBrandId)) {
           groups.set(primaryBrandId, { brandId: primaryBrandId, items: [] });
         }
-        groups.get(primaryBrandId)!.items.push({ leadId: row.leadId, email: row.email });
+        groups.get(primaryBrandId)!.items.push({ email: row.email });
       }
 
       await Promise.all(

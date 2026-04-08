@@ -7,7 +7,6 @@ import { fetchApolloStats } from "../lib/apollo-client.js";
 import {
   checkDeliveryStatus,
   isContacted,
-  type DeliveryStatusItem,
 } from "../lib/email-gateway-client.js";
 import {
   resolveFeatureDynastySlugs,
@@ -158,7 +157,7 @@ async function countContacted(
   if (rows.length === 0) return 0;
 
   // Group by first brandId + campaignId since email-gateway scopes status per brand/campaign
-  const groups = new Map<string, { brandId: string; campaignId: string; items: DeliveryStatusItem[] }>();
+  const groups = new Map<string, { brandId: string; campaignId: string; items: { leadId: string; email: string }[] }>();
   for (const row of rows) {
     if (!row.leadId) continue;
     const primaryBrandId = row.brandIds[0] ?? "unknown";
@@ -176,7 +175,7 @@ async function countContacted(
       const response = await checkDeliveryStatus(
         group.brandId,
         group.campaignId,
-        group.items,
+        group.items.map((i) => ({ email: i.email })),
         context,
       );
       if (!response) return;
@@ -218,7 +217,7 @@ async function countContactedGrouped(
   if (rows.length === 0) return new Map();
 
   // Group by first brandId + campaignId for email-gateway calls
-  const callGroups = new Map<string, { brandId: string; campaignId: string; items: (DeliveryStatusItem & { groupKey: string })[] }>();
+  const callGroups = new Map<string, { brandId: string; campaignId: string; items: { leadId: string; email: string; groupKey: string }[] }>();
   for (const row of rows) {
     if (!row.leadId) continue;
     const primaryBrandId = row.brandIds[0] ?? "unknown";
@@ -241,7 +240,7 @@ async function countContactedGrouped(
       const response = await checkDeliveryStatus(
         group.brandId,
         group.campaignId,
-        group.items,
+        group.items.map((i) => ({ email: i.email })),
         context,
       );
       if (!response) return;
@@ -252,7 +251,7 @@ async function countContactedGrouped(
             if (!contactedPerGroup.has(item.groupKey)) {
               contactedPerGroup.set(item.groupKey, new Set());
             }
-            contactedPerGroup.get(item.groupKey)!.add(item.leadId!);
+            contactedPerGroup.get(item.groupKey)!.add(item.leadId);
           }
         }
       }
@@ -286,7 +285,7 @@ async function countContactedGroupedByBrand(
   if (rows.length === 0) return new Map();
 
   // Group by first brandId + campaignId for email-gateway calls
-  const callGroups = new Map<string, { brandId: string; campaignId: string; items: (DeliveryStatusItem & { brandIds: string[] })[] }>();
+  const callGroups = new Map<string, { brandId: string; campaignId: string; items: { leadId: string; email: string; brandIds: string[] }[] }>();
   for (const row of rows) {
     if (!row.leadId) continue;
     const primaryBrandId = row.brandIds[0] ?? "unknown";
@@ -309,7 +308,7 @@ async function countContactedGroupedByBrand(
       const response = await checkDeliveryStatus(
         group.brandId,
         group.campaignId,
-        group.items,
+        group.items.map((i) => ({ email: i.email })),
         context,
       );
       if (!response) return;
@@ -322,7 +321,7 @@ async function countContactedGroupedByBrand(
               if (!contactedPerBrand.has(bid)) {
                 contactedPerBrand.set(bid, new Set());
               }
-              contactedPerBrand.get(bid)!.add(item.leadId!);
+              contactedPerBrand.get(bid)!.add(item.leadId);
             }
           }
         }

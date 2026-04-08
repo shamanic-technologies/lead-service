@@ -12,7 +12,7 @@ import {
  * Falls back to all-false if email-gateway is unreachable —
  * the downstream /send endpoint has its own idempotency.
  *
- * With multi-brand, checks against the first brand ID via x-brand-id header.
+ * With multi-brand, checks against the first brand ID via brandId body field.
  */
 export async function checkContacted(
   brandIds: string[],
