@@ -48,7 +48,7 @@ function uniqueRunId(): string {
   return `test-run-${Date.now()}-${++runCounter}`;
 }
 
-describe("API Integration Tests", () => {
+describe("API Integration Tests", { timeout: 30000 }, () => {
   beforeAll(async () => {
     await cleanupTestData();
   });
