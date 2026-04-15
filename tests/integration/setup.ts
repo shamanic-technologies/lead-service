@@ -3,9 +3,11 @@ import { servedLeads, leadBuffer, cursors, idempotencyCache } from "../../src/db
 import { eq } from "drizzle-orm";
 
 export const TEST_API_KEY = "test-api-key";
-export const TEST_ORG_ID = "test-org-uuid-integration";
-export const TEST_USER_ID = "test-user-uuid-integration";
-export const TEST_RUN_ID = "test-run-uuid-integration";
+// Randomize org ID per test run to prevent cross-run interference in shared Neon DB
+const RUN_SUFFIX = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+export const TEST_ORG_ID = `test-org-${RUN_SUFFIX}`;
+export const TEST_USER_ID = `test-user-${RUN_SUFFIX}`;
+export const TEST_RUN_ID = `test-run-${RUN_SUFFIX}`;
 
 export async function cleanupTestData(): Promise<void> {
   await db.delete(idempotencyCache).where(eq(idempotencyCache.orgId, TEST_ORG_ID));
@@ -13,15 +15,12 @@ export async function cleanupTestData(): Promise<void> {
   await db.delete(leadBuffer).where(eq(leadBuffer.orgId, TEST_ORG_ID));
   // Delete served_leads first (FK → leads), then lead_emails, then leads
   await db.delete(servedLeads).where(eq(servedLeads.orgId, TEST_ORG_ID));
-  await sql`DELETE FROM lead_emails WHERE lead_id IN (
-    SELECT l.id FROM leads l
-    JOIN lead_emails le ON le.lead_id = l.id
-    WHERE le.email LIKE '%@example.com'
-  )`;
-  await sql`DELETE FROM leads WHERE id IN (
-    SELECT l.id FROM leads l
-    LEFT JOIN served_leads sl ON sl.lead_id = l.id
-    WHERE sl.id IS NULL
+  // Clean up leads/lead_emails created during this test run
+  await sql`DELETE FROM lead_emails WHERE email LIKE '%@example.com'`;
+  await sql`DELETE FROM leads WHERE id NOT IN (
+    SELECT DISTINCT lead_id FROM served_leads WHERE lead_id IS NOT NULL
+  ) AND id NOT IN (
+    SELECT DISTINCT lead_id FROM lead_emails WHERE lead_id IS NOT NULL
   )`;
 }
 
