@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // pgSql mock — must be hoisted since vi.mock factory runs before variable declarations
-const { pgSqlMock } = vi.hoisted(() => ({
-  pgSqlMock: vi.fn().mockResolvedValue([]),
-}));
+const { pgSqlMock, pgSqlUnsafeMock } = vi.hoisted(() => {
+  const unsafeMock = vi.fn().mockResolvedValue([]);
+  const mock = Object.assign(vi.fn().mockResolvedValue([]), { unsafe: unsafeMock });
+  return { pgSqlMock: mock, pgSqlUnsafeMock: unsafeMock };
+});
 
 // Mock db
 vi.mock("../../src/db/index.js", () => ({
@@ -44,6 +46,15 @@ vi.mock("../../src/lib/brand-client.js", () => ({
 vi.mock("../../src/lib/email-gateway-client.js", () => ({
   checkDeliveryStatus: vi.fn().mockResolvedValue({ results: [] }),
   isContacted: vi.fn().mockReturnValue(false),
+  checkEmailStatus: vi.fn().mockReturnValue({ contacted: false, bounced: false, unsubscribed: false }),
+}));
+
+// Mock dedup — brand dedup + race window + checkContacted + markServed
+vi.mock("../../src/lib/dedup.js", () => ({
+  isAlreadyServedForBrand: vi.fn().mockResolvedValue({ blocked: false }),
+  checkRaceWindow: vi.fn().mockResolvedValue(false),
+  checkContacted: vi.fn().mockResolvedValue(new Map()),
+  markServed: vi.fn().mockResolvedValue({ inserted: true }),
 }));
 
 // Mock leads-registry
@@ -57,6 +68,7 @@ import { db } from "../../src/db/index.js";
 import { pullNext } from "../../src/lib/buffer.js";
 import { apolloSearchNext, apolloSearchParams, apolloEnrich, apolloMatch } from "../../src/lib/apollo-client.js";
 import { checkDeliveryStatus } from "../../src/lib/email-gateway-client.js";
+import { isAlreadyServedForBrand, checkRaceWindow, checkContacted, markServed } from "../../src/lib/dedup.js";
 import { resolveOrCreateLead } from "../../src/lib/leads-registry.js";
 import { fetchCampaign } from "../../src/lib/campaign-client.js";
 import { extractBrandFields } from "../../src/lib/brand-client.js";
@@ -103,6 +115,10 @@ describe("buffer", () => {
     vi.mocked(extractBrandFields).mockResolvedValue(null);
     vi.mocked(apolloSearchParams).mockResolvedValue({ searchParams: {} });
     vi.mocked(apolloSearchNext).mockResolvedValue({ people: [], done: true });
+    vi.mocked(isAlreadyServedForBrand).mockResolvedValue({ blocked: false });
+    vi.mocked(checkRaceWindow).mockResolvedValue(false);
+    vi.mocked(checkContacted).mockResolvedValue(new Map());
+    vi.mocked(markServed).mockResolvedValue({ inserted: true });
   });
 
   describe("pullNext", () => {
@@ -309,30 +325,14 @@ describe("buffer", () => {
           userId: null,
         })]);
 
-      // First lead: delivered, second lead: not delivered
-      vi.mocked(checkDeliveryStatus)
-        .mockResolvedValueOnce({
-          results: [{ email: "alice@acme.com", broadcast: {
-            campaign: { contacted: true, delivered: true, opened: false, replied: false, replyClassification: null, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
-            brand: { contacted: false, delivered: false, opened: false, replied: false, replyClassification: null, bounced: false, unsubscribed: false, lastDeliveredAt: null },
-            global: { email: { contacted: true, delivered: true, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" } },
-          }}],
-        })
-        .mockResolvedValueOnce({ results: [] });
-
-      const { isContacted } = await import("../../src/lib/email-gateway-client.js");
-      vi.mocked(isContacted)
-        .mockReturnValueOnce(true)   // alice: delivered
-        .mockReturnValueOnce(false); // bob: not delivered (no results)
+      // First lead: contacted, second lead: not contacted
+      vi.mocked(checkContacted)
+        .mockResolvedValueOnce(new Map([["alice@acme.com", { contacted: true, bounced: false, unsubscribed: false }]]))
+        .mockResolvedValueOnce(new Map());
 
       vi.mocked(resolveOrCreateLead)
         .mockResolvedValueOnce({ leadId: "lead-alice", isNew: false })
         .mockResolvedValueOnce({ leadId: "lead-bob", isNew: true });
-
-      const returningMock = vi.fn().mockResolvedValue([{ id: "served-2" }]);
-      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
-      const valuesMock = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictMock });
-      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
 
       const setMock = vi.fn().mockReturnValue({
         where: vi.fn().mockResolvedValue(undefined),
@@ -993,7 +993,7 @@ describe("buffer", () => {
       expect(result.lead?.email).toBe("good@acme.com");
     });
 
-    it("continues when email-gateway is unreachable (fallback)", async () => {
+    it("throws when email-gateway is unreachable (no silent fallback)", async () => {
       pgSqlMock.mockResolvedValue([toClaimedRow({
         id: "buf-1",
         namespace: "campaign-1",
@@ -1006,29 +1006,23 @@ describe("buffer", () => {
         userId: null,
       })]);
 
-      // email-gateway is unreachable
-      vi.mocked(checkDeliveryStatus).mockResolvedValue(null);
-
-      const returningMock = vi.fn().mockResolvedValue([{ id: "served-1" }]);
-      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
-      const valuesMock = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictMock });
-      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
+      // checkContacted throws when email-gateway is unreachable
+      vi.mocked(checkContacted).mockRejectedValue(
+        new Error("[dedup] email-gateway unreachable — refusing to serve without delivery check")
+      );
 
       const setMock = vi.fn().mockReturnValue({
         where: vi.fn().mockResolvedValue(undefined),
       });
       vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
 
-      const result = await pullNext({
-        orgId: "org-1",
-        campaignId: "campaign-1",
-        brandIds: ["brand-1"],
-
-      });
-
-      // Should still serve the lead (fallback: not delivered)
-      expect(result.found).toBe(true);
-      expect(result.lead?.email).toBe("alice@acme.com");
+      await expect(
+        pullNext({
+          orgId: "org-1",
+          campaignId: "campaign-1",
+          brandIds: ["brand-1"],
+        })
+      ).rejects.toThrow("email-gateway unreachable");
     });
 
     it("REMOVED journalist tests — journalist pipeline moved to journalists-service", () => {
@@ -1065,25 +1059,14 @@ describe("buffer", () => {
           userId: null,
         })]);
 
-      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
-
       vi.mocked(resolveOrCreateLead)
         .mockResolvedValueOnce({ leadId: "lead-dup", isNew: false })
         .mockResolvedValueOnce({ leadId: "lead-next", isNew: true });
 
-      // First markServed: conflict (another request already served this email)
-      // Second markServed: success
-      const returningMockEmpty = vi.fn().mockResolvedValueOnce([]);
-      const onConflictMockEmpty = vi.fn().mockReturnValue({ returning: returningMockEmpty });
-
-      const returningMockSuccess = vi.fn().mockResolvedValueOnce([{ id: "served-next" }]);
-      const onConflictMockSuccess = vi.fn().mockReturnValue({ returning: returningMockSuccess });
-
-      const valuesMock = vi.fn()
-        .mockReturnValueOnce({ onConflictDoNothing: onConflictMockEmpty })     // markServed → conflict
-        .mockReturnValueOnce({ onConflictDoNothing: onConflictMockSuccess });  // markServed → success
-
-      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
+      // First markServed: conflict, second: success
+      vi.mocked(markServed)
+        .mockResolvedValueOnce({ inserted: false })
+        .mockResolvedValueOnce({ inserted: true });
 
       const setMock = vi.fn().mockReturnValue({
         where: vi.fn().mockResolvedValue(undefined),
@@ -1170,17 +1153,7 @@ describe("buffer", () => {
         userId: null,
       })]);
 
-      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
       vi.mocked(resolveOrCreateLead).mockResolvedValue({ leadId: "lead-ms-1", isNew: true });
-
-      const insertValues: unknown[] = [];
-      const returningMock = vi.fn().mockResolvedValue([{ id: "served-ms-1" }]);
-      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
-      const valuesMock = vi.fn().mockImplementation((vals) => {
-        insertValues.push(vals);
-        return { onConflictDoNothing: onConflictMock };
-      });
-      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
 
       const setMock = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
       vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
@@ -1192,13 +1165,15 @@ describe("buffer", () => {
 
       });
 
-      // markServed inserts into servedLeads — find the insert that has namespace
-      const servedInsert = insertValues.find(
-        (v) => (v as Record<string, unknown>).namespace !== undefined
-      ) as Record<string, unknown>;
-      expect(servedInsert).toBeDefined();
-      expect(servedInsert.namespace).toBe("apollo");
-      expect(servedInsert.namespace).not.toBe("campaign-uuid-789");
+      // markServed should be called with namespace "apollo", not the campaignId
+      expect(markServed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          namespace: "apollo",
+          campaignId: "campaign-uuid-789",
+        })
+      );
+      const callArgs = vi.mocked(markServed).mock.calls[0][0];
+      expect(callArgs.namespace).not.toBe("campaign-uuid-789");
     });
   });
 });

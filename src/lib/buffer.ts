@@ -1,7 +1,7 @@
 import { eq, and, sql } from "drizzle-orm";
 import { db, sql as pgSql } from "../db/index.js";
 import { leadBuffer, enrichments } from "../db/schema.js";
-import { checkContacted, markServed } from "./dedup.js";
+import { checkContacted, markServed, isAlreadyServedForBrand, checkRaceWindow } from "./dedup.js";
 import { resolveOrCreateLead, findLeadByApolloPersonId } from "./leads-registry.js";
 import { apolloSearchNext, apolloEnrich, apolloSearchParams } from "./apollo-client.js";
 import { fetchCampaign } from "./campaign-client.js";
@@ -183,12 +183,13 @@ async function fillBufferFromSearch(params: {
             workflowSlug: params.workflowSlug,
             featureSlug: params.featureSlug,
           })
-        : new Map<string, boolean>();
+        : new Map<string, import("./email-gateway-client.js").EmailCheckResult>();
 
     let pageFilled = 0;
 
     for (const { data, externalId, email } of candidates) {
-      if (email && contactedMap.get(email)) continue;
+      const status = email ? contactedMap.get(email) : undefined;
+      if (status?.contacted || status?.bounced || status?.unsubscribed) continue;
 
       await db.insert(leadBuffer).values({
         namespace: "apollo",
@@ -407,8 +408,43 @@ export async function pullNext(params: {
       metadata: enrichedData,
     });
 
-    // Check contacted status via email-gateway
-    const contactedMap = await checkContacted(params.brandIds, params.campaignId, [
+    // DB-level brand dedup: check served_leads cross-campaign via brand_ids overlap
+    const brandCheck = await isAlreadyServedForBrand({
+      orgId: params.orgId,
+      brandIds: params.brandIds,
+      leadId,
+      email,
+      externalId: row.externalId,
+    });
+
+    if (brandCheck.blocked) {
+      console.log(`[lead-service] pullNext skip (brand dedup): ${brandCheck.reason} email=${email}`);
+      await db
+        .update(leadBuffer)
+        .set({ status: "skipped" })
+        .where(eq(leadBuffer.id, row.id));
+      continue;
+    }
+
+    // Race window: skip if another buffer row for the same brand was recently claimed/served
+    const inRaceWindow = await checkRaceWindow({
+      orgId: params.orgId,
+      brandIds: params.brandIds,
+      email,
+      excludeBufferId: row.id,
+    });
+
+    if (inRaceWindow) {
+      console.log(`[lead-service] pullNext skip (race window) email=${email}`);
+      await db
+        .update(leadBuffer)
+        .set({ status: "skipped" })
+        .where(eq(leadBuffer.id, row.id));
+      continue;
+    }
+
+    // Email-gateway: contacted + bounce + unsub check (fails loud if unreachable)
+    const statusMap = await checkContacted(params.brandIds, params.campaignId, [
       { email },
     ], {
       orgId: params.orgId,
@@ -420,7 +456,24 @@ export async function pullNext(params: {
       featureSlug: params.featureSlug,
     });
 
-    if (contactedMap.get(email)) {
+    const emailStatus = statusMap.get(email);
+    if (emailStatus?.contacted) {
+      await db
+        .update(leadBuffer)
+        .set({ status: "skipped" })
+        .where(eq(leadBuffer.id, row.id));
+      continue;
+    }
+    if (emailStatus?.bounced) {
+      console.log(`[lead-service] pullNext skip (bounced) email=${email}`);
+      await db
+        .update(leadBuffer)
+        .set({ status: "skipped" })
+        .where(eq(leadBuffer.id, row.id));
+      continue;
+    }
+    if (emailStatus?.unsubscribed) {
+      console.log(`[lead-service] pullNext skip (unsubscribed) email=${email}`);
       await db
         .update(leadBuffer)
         .set({ status: "skipped" })
