@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import request from "supertest";
 import app from "../../src/index.js";
 import {
@@ -9,7 +9,8 @@ import {
   TEST_API_KEY,
 } from "./setup.js";
 import { createRun } from "../../src/lib/runs-client.js";
-import { checkDeliveryStatus, isContacted } from "../../src/lib/email-gateway-client.js";
+import { checkDeliveryStatus } from "../../src/lib/email-gateway-client.js";
+import { checkEmailStatus } from "../../src/lib/email-gateway-client.js";
 
 vi.mock("../../src/lib/runs-client.js", () => ({
   createRun: vi.fn().mockResolvedValue({ id: "mock-run-id" }),
@@ -20,12 +21,36 @@ vi.mock("../../src/lib/runs-client.js", () => ({
 vi.mock("../../src/lib/email-gateway-client.js", () => ({
   checkDeliveryStatus: vi.fn().mockResolvedValue({ results: [] }),
   isContacted: vi.fn().mockReturnValue(false),
+  checkEmailStatus: vi.fn().mockReturnValue({ contacted: false, bounced: false, unsubscribed: false }),
 }));
 
-describe("API Integration Tests", () => {
+vi.mock("../../src/lib/apollo-client.js", () => ({
+  apolloSearch: vi.fn().mockResolvedValue({ people: [], pagination: {} }),
+  apolloSearchNext: vi.fn().mockResolvedValue({ people: [], pagination: {} }),
+  apolloSearchParams: vi.fn().mockResolvedValue({ searchParams: {} }),
+  fetchApolloStats: vi.fn().mockResolvedValue(null),
+  apolloMatch: vi.fn().mockResolvedValue(null),
+  apolloEnrich: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("../../src/lib/campaign-client.js", () => ({
+  fetchCampaign: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("../../src/lib/brand-client.js", () => ({
+  fetchBrand: vi.fn().mockResolvedValue(null),
+  extractBrandFields: vi.fn().mockResolvedValue(null),
+  fetchExtractedFields: vi.fn().mockResolvedValue(null),
+}));
+
+let runCounter = 0;
+function uniqueRunId(): string {
+  return `test-run-${Date.now()}-${++runCounter}`;
+}
+
+describe("API Integration Tests", { timeout: 30000 }, () => {
   beforeAll(async () => {
-    // LEAD_SERVICE_API_KEY is set by tests/setup.ts; override with test-specific key
-    process.env.LEAD_SERVICE_API_KEY = TEST_API_KEY;
+    await cleanupTestData();
   });
 
   afterAll(async () => {
@@ -45,7 +70,7 @@ describe("API Integration Tests", () => {
     it("rejects requests without API key", async () => {
       const res = await request(app)
         .post("/orgs/buffer/next")
-        .send({ campaignId: "c1", brandId: "b1" });
+        .send({});
 
       expect(res.status).toBe(401);
     });
@@ -55,7 +80,7 @@ describe("API Integration Tests", () => {
         .post("/orgs/buffer/next")
         .set("x-api-key", "wrong-key")
         .set("x-org-id", "test")
-        .send({ campaignId: "c1", brandId: "b1" });
+        .send({});
 
       expect(res.status).toBe(401);
     });
@@ -64,13 +89,13 @@ describe("API Integration Tests", () => {
       const res = await request(app)
         .post("/orgs/buffer/next")
         .set("x-api-key", TEST_API_KEY)
-        .send({ campaignId: "c1", brandId: "b1" });
+        .send({});
 
       expect(res.status).toBe(400);
     });
   });
 
-  describe("POST /buffer/next", () => {
+  describe("POST /orgs/buffer/next", () => {
     it("pulls next lead from buffer", async () => {
       await seedBuffer({
         campaignId: "campaign-b",
@@ -80,8 +105,8 @@ describe("API Integration Tests", () => {
 
       const res = await request(app)
         .post("/orgs/buffer/next")
-        .set(getAuthHeaders())
-        .send({ campaignId: "campaign-b", brandId: "brand-b" });
+        .set(getAuthHeaders({ campaignId: "campaign-b", brandId: "brand-b", runId: uniqueRunId() }))
+        .send({});
 
       expect(res.status).toBe(200);
       expect(res.body.found).toBe(true);
@@ -92,21 +117,21 @@ describe("API Integration Tests", () => {
     it("returns found: false when buffer empty", async () => {
       const res = await request(app)
         .post("/orgs/buffer/next")
-        .set(getAuthHeaders())
-        .send({ campaignId: "campaign-empty", brandId: "brand-empty" });
+        .set(getAuthHeaders({ campaignId: "campaign-empty", brandId: "brand-empty", runId: uniqueRunId() }))
+        .send({});
 
       expect(res.status).toBe(200);
       expect(res.body.found).toBe(false);
     });
 
-    it("returns 400 when brandId is empty string", async () => {
+    it("returns 400 when x-brand-id header is missing", async () => {
       const res = await request(app)
         .post("/orgs/buffer/next")
-        .set(getAuthHeaders())
-        .send({ campaignId: "campaign-x", brandId: "" });
+        .set(getAuthHeaders({ campaignId: "campaign-x", runId: uniqueRunId() }))
+        .send({});
 
       expect(res.status).toBe(400);
-      expect(res.body.details.fieldErrors.brandId).toBeDefined();
+      expect(res.body.error).toContain("x-campaign-id and x-brand-id");
     });
 
     it("passes workflowSlug to createRun", async () => {
@@ -118,21 +143,20 @@ describe("API Integration Tests", () => {
 
       vi.mocked(createRun).mockClear();
 
+      const headers = getAuthHeaders({ campaignId: "campaign-wf-next", brandId: "brand-wf-next", runId: uniqueRunId() });
+      headers["x-workflow-slug"] = "cold-email-outreach";
+
       await request(app)
         .post("/orgs/buffer/next")
-        .set(getAuthHeaders())
-        .send({
-          campaignId: "campaign-wf-next",
-          brandId: "brand-wf-next",
-          workflowSlug: "cold-email-outreach",
-        });
+        .set(headers)
+        .send({});
 
       expect(createRun).toHaveBeenCalledWith(
         expect.objectContaining({ workflowSlug: "cold-email-outreach" })
       );
     });
 
-    it("deduplicates — skips leads that email-gateway reports as delivered", async () => {
+    it("deduplicates — skips leads that email-gateway reports as contacted", async () => {
       await seedBuffer({
         campaignId: "campaign-c",
         brandId: "brand-c",
@@ -142,12 +166,11 @@ describe("API Integration Tests", () => {
         ],
       });
 
-      // First call: email-gateway reports dedup@example.com as delivered
-      // Second call: fresh@example.com not delivered
+      // First call: checkEmailStatus reports dedup@example.com as contacted
+      // Second call: fresh@example.com not contacted
       vi.mocked(checkDeliveryStatus)
         .mockResolvedValueOnce({
           results: [{
-            leadId: null,
             email: "dedup@example.com",
             broadcast: {
               campaign: { contacted: true, delivered: true, opened: false, replied: false, replyClassification: null, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
@@ -160,56 +183,49 @@ describe("API Integration Tests", () => {
         })
         .mockResolvedValue({ results: [] });
 
-      vi.mocked(isContacted)
-        .mockReturnValueOnce(true)
-        .mockReturnValue(false);
+      vi.mocked(checkEmailStatus)
+        .mockReturnValueOnce({ contacted: true, bounced: false, unsubscribed: false })
+        .mockReturnValue({ contacted: false, bounced: false, unsubscribed: false });
 
       const res = await request(app)
         .post("/orgs/buffer/next")
-        .set(getAuthHeaders())
-        .send({ campaignId: "campaign-c", brandId: "brand-c" });
+        .set(getAuthHeaders({ campaignId: "campaign-c", brandId: "brand-c", runId: uniqueRunId() }))
+        .send({});
 
       expect(res.body.found).toBe(true);
       expect(res.body.lead.email).toBe("fresh@example.com");
 
       // Reset mocks for subsequent tests
       vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
-      vi.mocked(isContacted).mockReturnValue(false);
+      vi.mocked(checkEmailStatus).mockReturnValue({ contacted: false, bounced: false, unsubscribed: false });
     }, 10000);
   });
 
-  describe("POST /buffer/next idempotency", () => {
-    it("returns same lead on retry with same idempotencyKey", async () => {
+  describe("POST /orgs/buffer/next idempotency", () => {
+    it("returns same lead on retry with same x-run-id", async () => {
       await seedBuffer({
         campaignId: "campaign-idem-1",
         brandId: "brand-idem-1",
         leads: [{ email: "idem@example.com", data: { name: "Idem" } }],
       });
 
-      // First pull with idempotencyKey
+      const runId = uniqueRunId();
+
       const first = await request(app)
         .post("/orgs/buffer/next")
-        .set(getAuthHeaders())
-        .send({
-          campaignId: "campaign-idem-1",
-          brandId: "brand-idem-1",
-          idempotencyKey: "run-idem-1",
-        });
+        .set(getAuthHeaders({ campaignId: "campaign-idem-1", brandId: "brand-idem-1", runId }))
+        .send({});
 
       expect(first.status).toBe(200);
       expect(first.body.found).toBe(true);
       expect(first.body.lead.email).toBe("idem@example.com");
       expect(first.body.lead.leadId).toBeDefined();
 
-      // Retry with same idempotencyKey — should return cached result
+      // Retry with same runId — should return cached result
       const retry = await request(app)
         .post("/orgs/buffer/next")
-        .set(getAuthHeaders())
-        .send({
-          campaignId: "campaign-idem-1",
-          brandId: "brand-idem-1",
-          idempotencyKey: "run-idem-1",
-        });
+        .set(getAuthHeaders({ campaignId: "campaign-idem-1", brandId: "brand-idem-1", runId }))
+        .send({});
 
       expect(retry.status).toBe(200);
       expect(retry.body.found).toBe(true);
@@ -226,15 +242,12 @@ describe("API Integration Tests", () => {
         ],
       });
 
-      // Pull with idempotencyKey
+      const runId = uniqueRunId();
+
       const first = await request(app)
         .post("/orgs/buffer/next")
-        .set(getAuthHeaders())
-        .send({
-          campaignId: "campaign-idem-2",
-          brandId: "brand-idem-2",
-          idempotencyKey: "run-idem-2",
-        });
+        .set(getAuthHeaders({ campaignId: "campaign-idem-2", brandId: "brand-idem-2", runId }))
+        .send({});
 
       expect(first.body.found).toBe(true);
       const firstEmail = first.body.lead.email;
@@ -242,37 +255,26 @@ describe("API Integration Tests", () => {
       // Retry with same key — should NOT consume second lead
       await request(app)
         .post("/orgs/buffer/next")
-        .set(getAuthHeaders())
-        .send({
-          campaignId: "campaign-idem-2",
-          brandId: "brand-idem-2",
-          idempotencyKey: "run-idem-2",
-        });
+        .set(getAuthHeaders({ campaignId: "campaign-idem-2", brandId: "brand-idem-2", runId }))
+        .send({});
 
       // Pull with different key — should get the other lead
       const second = await request(app)
         .post("/orgs/buffer/next")
-        .set(getAuthHeaders())
-        .send({
-          campaignId: "campaign-idem-2",
-          brandId: "brand-idem-2",
-          idempotencyKey: "run-idem-2b",
-        });
+        .set(getAuthHeaders({ campaignId: "campaign-idem-2", brandId: "brand-idem-2", runId: uniqueRunId() }))
+        .send({});
 
       expect(second.body.found).toBe(true);
       expect(second.body.lead.email).not.toBe(firstEmail);
     });
 
     it("caches found: false responses too", async () => {
-      // Pull from empty buffer with idempotencyKey
+      const runId = uniqueRunId();
+
       const first = await request(app)
         .post("/orgs/buffer/next")
-        .set(getAuthHeaders())
-        .send({
-          campaignId: "campaign-idem-empty",
-          brandId: "brand-idem-empty",
-          idempotencyKey: "run-idem-empty",
-        });
+        .set(getAuthHeaders({ campaignId: "campaign-idem-empty", brandId: "brand-idem-empty", runId }))
+        .send({});
 
       expect(first.body.found).toBe(false);
 
@@ -286,12 +288,8 @@ describe("API Integration Tests", () => {
       // Retry with same key — should still return cached found: false
       const retry = await request(app)
         .post("/orgs/buffer/next")
-        .set(getAuthHeaders())
-        .send({
-          campaignId: "campaign-idem-empty",
-          brandId: "brand-idem-empty",
-          idempotencyKey: "run-idem-empty",
-        });
+        .set(getAuthHeaders({ campaignId: "campaign-idem-empty", brandId: "brand-idem-empty", runId }))
+        .send({});
 
       expect(retry.body.found).toBe(false);
     });
@@ -305,11 +303,8 @@ describe("API Integration Tests", () => {
 
       const res = await request(app)
         .post("/orgs/buffer/next")
-        .set(getAuthHeaders())
-        .send({
-          campaignId: "campaign-idem-compat",
-          brandId: "brand-idem-compat",
-        });
+        .set(getAuthHeaders({ campaignId: "campaign-idem-compat", brandId: "brand-idem-compat", runId: uniqueRunId() }))
+        .send({});
 
       expect(res.status).toBe(200);
       expect(res.body.found).toBe(true);
@@ -317,7 +312,7 @@ describe("API Integration Tests", () => {
     });
   }, 15000);
 
-  describe("GET /leads", () => {
+  describe("GET /orgs/leads", () => {
     it("returns served leads with full enrichment data (no filtering)", async () => {
       const richData = {
         firstName: "Diana",
@@ -350,10 +345,10 @@ describe("API Integration Tests", () => {
       // Pull it to move to served_leads
       await request(app)
         .post("/orgs/buffer/next")
-        .set(getAuthHeaders())
-        .send({ campaignId: "campaign-leads", brandId: "brand-leads" });
+        .set(getAuthHeaders({ campaignId: "campaign-leads", brandId: "brand-leads", runId: uniqueRunId() }))
+        .send({});
 
-      // Query GET /leads
+      // Query GET /orgs/leads
       const res = await request(app)
         .get("/orgs/leads?brandId=brand-leads&campaignId=campaign-leads")
         .set(getAuthHeaders());
@@ -365,7 +360,6 @@ describe("API Integration Tests", () => {
       expect(lead).toBeDefined();
       expect(lead.enrichment).not.toBeNull();
 
-      // Verify ALL fields pass through
       expect(lead.enrichment.firstName).toBe("Diana");
       expect(lead.enrichment.lastName).toBe("Prince");
       expect(lead.enrichment.title).toBe("CEO");
@@ -390,8 +384,8 @@ describe("API Integration Tests", () => {
 
       await request(app)
         .post("/orgs/buffer/next")
-        .set(getAuthHeaders())
-        .send({ campaignId: "campaign-leads-empty", brandId: "brand-leads-empty" });
+        .set(getAuthHeaders({ campaignId: "campaign-leads-empty", brandId: "brand-leads-empty", runId: uniqueRunId() }))
+        .send({});
 
       const res = await request(app)
         .get("/orgs/leads?brandId=brand-leads-empty&campaignId=campaign-leads-empty")
