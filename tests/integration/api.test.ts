@@ -24,6 +24,25 @@ vi.mock("../../src/lib/email-gateway-client.js", () => ({
   checkEmailStatus: vi.fn().mockReturnValue({ contacted: false, bounced: false, unsubscribed: false }),
 }));
 
+vi.mock("../../src/lib/apollo-client.js", () => ({
+  apolloSearch: vi.fn().mockResolvedValue({ people: [], pagination: {} }),
+  apolloSearchNext: vi.fn().mockResolvedValue({ people: [], pagination: {} }),
+  apolloSearchParams: vi.fn().mockResolvedValue({ searchParams: {} }),
+  fetchApolloStats: vi.fn().mockResolvedValue(null),
+  apolloMatch: vi.fn().mockResolvedValue(null),
+  apolloEnrich: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("../../src/lib/campaign-client.js", () => ({
+  fetchCampaign: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("../../src/lib/brand-client.js", () => ({
+  fetchBrand: vi.fn().mockResolvedValue(null),
+  extractBrandFields: vi.fn().mockResolvedValue(null),
+  fetchExtractedFields: vi.fn().mockResolvedValue(null),
+}));
+
 let runCounter = 0;
 function uniqueRunId(): string {
   return `test-run-${Date.now()}-${++runCounter}`;
