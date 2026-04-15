@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   checkDeliveryStatus,
   isContacted,
+  checkEmailStatus,
   type StatusResult,
   type ProviderStatus,
   type ScopedStatus,
@@ -284,6 +285,85 @@ describe("email-gateway-client", () => {
         },
       };
       expect(isContacted(result)).toBe(false);
+    });
+  });
+
+  describe("checkEmailStatus", () => {
+    const emptyScoped: ScopedStatus = {
+      contacted: false, delivered: false, opened: false, replied: false,
+      replyClassification: null, bounced: false, unsubscribed: false, lastDeliveredAt: null,
+    };
+
+    const emptyGlobal = {
+      email: { contacted: false, delivered: false, bounced: false, unsubscribed: false, lastDeliveredAt: null },
+    };
+
+    const emptyProvider: ProviderStatus = {
+      campaign: emptyScoped,
+      brand: emptyScoped,
+      global: emptyGlobal,
+    };
+
+    it("returns all false when nothing is set", () => {
+      const result: StatusResult = {
+        email: "alice@acme.com",
+        broadcast: emptyProvider,
+        transactional: emptyProvider,
+      };
+      expect(checkEmailStatus(result)).toEqual({ contacted: false, bounced: false, unsubscribed: false });
+    });
+
+    it("detects global bounce from broadcast", () => {
+      const result: StatusResult = {
+        email: "alice@acme.com",
+        broadcast: {
+          ...emptyProvider,
+          global: {
+            email: { contacted: false, delivered: false, bounced: true, unsubscribed: false, lastDeliveredAt: null },
+          },
+        },
+      };
+      expect(checkEmailStatus(result)).toEqual({ contacted: false, bounced: true, unsubscribed: false });
+    });
+
+    it("detects global unsubscribe from transactional", () => {
+      const result: StatusResult = {
+        email: "alice@acme.com",
+        transactional: {
+          ...emptyProvider,
+          global: {
+            email: { contacted: false, delivered: false, bounced: false, unsubscribed: true, lastDeliveredAt: null },
+          },
+        },
+      };
+      expect(checkEmailStatus(result)).toEqual({ contacted: false, bounced: false, unsubscribed: true });
+    });
+
+    it("detects contacted + bounced simultaneously", () => {
+      const result: StatusResult = {
+        email: "alice@acme.com",
+        broadcast: {
+          campaign: { ...emptyScoped, contacted: true },
+          brand: emptyScoped,
+          global: {
+            email: { contacted: false, delivered: false, bounced: true, unsubscribed: false, lastDeliveredAt: null },
+          },
+        },
+      };
+      const status = checkEmailStatus(result);
+      expect(status.contacted).toBe(true);
+      expect(status.bounced).toBe(true);
+    });
+
+    it("isContacted delegates to checkEmailStatus", () => {
+      const result: StatusResult = {
+        email: "alice@acme.com",
+        broadcast: {
+          ...emptyProvider,
+          brand: { ...emptyScoped, contacted: true },
+        },
+      };
+      expect(isContacted(result)).toBe(true);
     });
   });
 });

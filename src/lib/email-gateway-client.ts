@@ -126,14 +126,36 @@ export async function checkDeliveryStatus(
   }
 }
 
+export interface EmailCheckResult {
+  contacted: boolean;
+  bounced: boolean;
+  unsubscribed: boolean;
+}
+
 /**
  * Check if a status result indicates the lead/email has already been contacted
  * via any provider (broadcast or transactional) at any scope (campaign, brand, or global).
  */
 export function isContacted(result: StatusResult): boolean {
+  return checkEmailStatus(result).contacted;
+}
+
+/**
+ * Full status check: contacted, bounced, and unsubscribed.
+ */
+export function checkEmailStatus(result: StatusResult): EmailCheckResult {
   const bc = result.broadcast;
   const tx = result.transactional;
 
+  let contacted = false;
+  let bounced = false;
+  let unsubscribed = false;
+
+  // Bounce & unsub — global scope (all brands, all orgs)
+  if (bc?.global?.email?.bounced || tx?.global?.email?.bounced) bounced = true;
+  if (bc?.global?.email?.unsubscribed || tx?.global?.email?.unsubscribed) unsubscribed = true;
+
+  // Contacted — any scope (campaign, brand, global)
   if (
     bc?.campaign?.contacted ||
     bc?.brand?.contacted ||
@@ -141,16 +163,22 @@ export function isContacted(result: StatusResult): boolean {
     tx?.campaign?.contacted ||
     tx?.brand?.contacted ||
     tx?.global?.email?.contacted
-  ) return true;
+  ) contacted = true;
 
   // Check byCampaign breakdown (populated in brand-only mode)
-  for (const provider of [bc, tx]) {
-    if (provider?.byCampaign) {
-      for (const status of Object.values(provider.byCampaign)) {
-        if (status.contacted) return true;
+  if (!contacted) {
+    for (const provider of [bc, tx]) {
+      if (provider?.byCampaign) {
+        for (const status of Object.values(provider.byCampaign)) {
+          if (status.contacted) {
+            contacted = true;
+            break;
+          }
+        }
+        if (contacted) break;
       }
     }
   }
 
-  return false;
+  return { contacted, bounced, unsubscribed };
 }
