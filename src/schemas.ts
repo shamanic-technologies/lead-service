@@ -597,6 +597,63 @@ registry.registerPath({
 });
 
 
+// --- Transfer Brand ---
+
+const InternalApiKeyHeader = [
+  {
+    in: "header" as const,
+    name: "x-api-key",
+    required: true,
+    schema: { type: "string" as const },
+    description: "API key for authenticating requests",
+  },
+];
+
+export const TransferBrandRequestSchema = z
+  .object({
+    brandId: z.string().uuid(),
+    sourceOrgId: z.string().uuid(),
+    targetOrgId: z.string().uuid(),
+  })
+  .openapi("TransferBrandRequest");
+
+const TransferBrandTableResultSchema = z.object({
+  tableName: z.string(),
+  count: z.number(),
+});
+
+const TransferBrandResponseSchema = z
+  .object({
+    updatedTables: z.array(TransferBrandTableResultSchema),
+  })
+  .openapi("TransferBrandResponse");
+
+registry.registerPath({
+  method: "post",
+  path: "/internal/transfer-brand",
+  summary: "Transfer a solo-brand from one org to another",
+  description:
+    "Updates org_id on all rows that reference exactly this one brand (solo-brand). " +
+    "Co-branding rows (multiple brand IDs) are skipped. Idempotent — running twice is a no-op.",
+  request: {
+    body: {
+      content: { "application/json": { schema: TransferBrandRequestSchema } },
+    },
+  },
+  parameters: InternalApiKeyHeader,
+  responses: {
+    200: {
+      description: "Transfer results per table",
+      content: { "application/json": { schema: TransferBrandResponseSchema } },
+    },
+    400: {
+      description: "Invalid request body",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: { description: "Unauthorized" },
+  },
+});
+
 registry.registerPath({
   method: "get",
   path: "/openapi.json",
