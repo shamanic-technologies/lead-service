@@ -31,6 +31,12 @@ function buildApp() {
   return app;
 }
 
+const VALID_BODY = {
+  sourceBrandId: "11111111-1111-4111-a111-111111111111",
+  sourceOrgId: "22222222-2222-4222-a222-222222222222",
+  targetOrgId: "33333333-3333-4333-a333-333333333333",
+};
+
 describe("POST /internal/transfer-brand", () => {
   beforeEach(() => {
     mockUpdate.mockReset();
@@ -59,7 +65,7 @@ describe("POST /internal/transfer-brand", () => {
     const res = await request(app)
       .post("/internal/transfer-brand")
       .send({
-        brandId: "not-a-uuid",
+        sourceBrandId: "not-a-uuid",
         sourceOrgId: "also-not",
         targetOrgId: "nope",
       });
@@ -67,8 +73,16 @@ describe("POST /internal/transfer-brand", () => {
     expect(res.status).toBe(400);
   });
 
-  it("updates both tables and returns counts", async () => {
-    // First call (served_leads) returns 2 rows, second (lead_buffer) returns 1
+  it("returns 400 for invalid targetBrandId", async () => {
+    const app = buildApp();
+    const res = await request(app)
+      .post("/internal/transfer-brand")
+      .send({ ...VALID_BODY, targetBrandId: "not-a-uuid" });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("updates both tables and returns counts (no targetBrandId)", async () => {
     mockReturning
       .mockResolvedValueOnce([{ id: "a" }, { id: "b" }])
       .mockResolvedValueOnce([{ id: "c" }]);
@@ -76,11 +90,7 @@ describe("POST /internal/transfer-brand", () => {
     const app = buildApp();
     const res = await request(app)
       .post("/internal/transfer-brand")
-      .send({
-        brandId: "11111111-1111-4111-a111-111111111111",
-        sourceOrgId: "22222222-2222-4222-a222-222222222222",
-        targetOrgId: "33333333-3333-4333-a333-333333333333",
-      });
+      .send(VALID_BODY);
 
     expect(res.status).toBe(200);
     expect(res.body.updatedTables).toEqual([
@@ -91,9 +101,48 @@ describe("POST /internal/transfer-brand", () => {
     // db.update called twice (once per table)
     expect(mockUpdate).toHaveBeenCalledTimes(2);
 
-    // .set() called with targetOrgId both times
+    // .set() called with only orgId (no brand rewrite)
     expect(mockSet).toHaveBeenCalledWith({
       orgId: "33333333-3333-4333-a333-333333333333",
+    });
+  });
+
+  it("rewrites brand_ids in a separate step when targetBrandId is present", async () => {
+    mockReturning
+      .mockResolvedValueOnce([{ id: "a" }])
+      .mockResolvedValueOnce([]);
+
+    const app = buildApp();
+    const res = await request(app)
+      .post("/internal/transfer-brand")
+      .send({
+        ...VALID_BODY,
+        targetBrandId: "44444444-4444-4444-a444-444444444444",
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.updatedTables).toEqual([
+      { tableName: "served_leads", count: 1 },
+      { tableName: "lead_buffer", count: 0 },
+    ]);
+
+    // Step 1: org move (2 calls) + Step 2: brand rewrite (2 calls) = 4 total
+    expect(mockUpdate).toHaveBeenCalledTimes(4);
+
+    // Step 1 calls set orgId only
+    expect(mockSet).toHaveBeenNthCalledWith(1, {
+      orgId: "33333333-3333-4333-a333-333333333333",
+    });
+    expect(mockSet).toHaveBeenNthCalledWith(2, {
+      orgId: "33333333-3333-4333-a333-333333333333",
+    });
+
+    // Step 2 calls set brandIds only (no orgId)
+    expect(mockSet).toHaveBeenNthCalledWith(3, {
+      brandIds: expect.anything(),
+    });
+    expect(mockSet).toHaveBeenNthCalledWith(4, {
+      brandIds: expect.anything(),
     });
   });
 
@@ -105,11 +154,7 @@ describe("POST /internal/transfer-brand", () => {
     const app = buildApp();
     const res = await request(app)
       .post("/internal/transfer-brand")
-      .send({
-        brandId: "11111111-1111-4111-a111-111111111111",
-        sourceOrgId: "22222222-2222-4222-a222-222222222222",
-        targetOrgId: "33333333-3333-4333-a333-333333333333",
-      });
+      .send(VALID_BODY);
 
     expect(res.status).toBe(200);
     expect(res.body.updatedTables).toEqual([
