@@ -107,7 +107,7 @@ describe("POST /internal/transfer-brand", () => {
     });
   });
 
-  it("rewrites brand_ids when targetBrandId is present", async () => {
+  it("rewrites brand_ids in a separate step when targetBrandId is present", async () => {
     mockReturning
       .mockResolvedValueOnce([{ id: "a" }])
       .mockResolvedValueOnce([]);
@@ -126,13 +126,24 @@ describe("POST /internal/transfer-brand", () => {
       { tableName: "lead_buffer", count: 0 },
     ]);
 
-    // .set() called with orgId AND brandIds
-    expect(mockSet).toHaveBeenCalledWith(
-      expect.objectContaining({
-        orgId: "33333333-3333-4333-a333-333333333333",
-        brandIds: expect.anything(),
-      })
-    );
+    // Step 1: org move (2 calls) + Step 2: brand rewrite (2 calls) = 4 total
+    expect(mockUpdate).toHaveBeenCalledTimes(4);
+
+    // Step 1 calls set orgId only
+    expect(mockSet).toHaveBeenNthCalledWith(1, {
+      orgId: "33333333-3333-4333-a333-333333333333",
+    });
+    expect(mockSet).toHaveBeenNthCalledWith(2, {
+      orgId: "33333333-3333-4333-a333-333333333333",
+    });
+
+    // Step 2 calls set brandIds only (no orgId)
+    expect(mockSet).toHaveBeenNthCalledWith(3, {
+      brandIds: expect.anything(),
+    });
+    expect(mockSet).toHaveBeenNthCalledWith(4, {
+      brandIds: expect.anything(),
+    });
   });
 
   it("is idempotent — returns 0 counts when already transferred", async () => {
