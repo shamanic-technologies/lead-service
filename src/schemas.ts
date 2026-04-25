@@ -611,9 +611,10 @@ const InternalApiKeyHeader = [
 
 export const TransferBrandRequestSchema = z
   .object({
-    brandId: z.string().uuid(),
+    sourceBrandId: z.string().uuid(),
     sourceOrgId: z.string().uuid(),
     targetOrgId: z.string().uuid(),
+    targetBrandId: z.string().uuid().optional(),
   })
   .openapi("TransferBrandRequest");
 

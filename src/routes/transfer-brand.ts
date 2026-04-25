@@ -8,9 +8,10 @@ import { apiKeyAuth } from "../middleware/auth.js";
 const router = Router();
 
 const TransferBrandBodySchema = z.object({
-  brandId: z.string().uuid(),
+  sourceBrandId: z.string().uuid(),
   sourceOrgId: z.string().uuid(),
   targetOrgId: z.string().uuid(),
+  targetBrandId: z.string().uuid().optional(),
 });
 
 router.post("/internal/transfer-brand", apiKeyAuth, async (req, res) => {
@@ -20,19 +21,26 @@ router.post("/internal/transfer-brand", apiKeyAuth, async (req, res) => {
     return;
   }
 
-  const { brandId, sourceOrgId, targetOrgId } = parsed.data;
+  const { sourceBrandId, sourceOrgId, targetOrgId, targetBrandId } = parsed.data;
 
   console.log(
-    `[lead-service] Transfer brand ${brandId} from org ${sourceOrgId} to org ${targetOrgId}`
+    `[lead-service] Transfer brand ${sourceBrandId} from org ${sourceOrgId} to org ${targetOrgId}` +
+      (targetBrandId ? ` (rewrite to ${targetBrandId})` : "")
   );
 
-  // Solo-brand condition: brand_ids array has exactly one element and it equals brandId
-  const soloBrandCondition = sql`array_length(brand_ids, 1) = 1 AND brand_ids[1] = ${brandId}`;
+  // Solo-brand condition: brand_ids array has exactly one element and it equals sourceBrandId
+  const soloBrandCondition = sql`array_length(brand_ids, 1) = 1 AND brand_ids[1] = ${sourceBrandId}`;
+
+  // When targetBrandId is present, rewrite brand_ids too
+  const setClause: Record<string, unknown> = { orgId: targetOrgId };
+  if (targetBrandId) {
+    setClause.brandIds = sql`ARRAY[${targetBrandId}]::text[]`;
+  }
 
   // Update served_leads
   const servedResult = await db
     .update(servedLeads)
-    .set({ orgId: targetOrgId })
+    .set(setClause)
     .where(
       and(eq(servedLeads.orgId, sourceOrgId), soloBrandCondition)
     )
@@ -41,7 +49,7 @@ router.post("/internal/transfer-brand", apiKeyAuth, async (req, res) => {
   // Update lead_buffer (brand_ids is nullable, so also check it's not null)
   const bufferResult = await db
     .update(leadBuffer)
-    .set({ orgId: targetOrgId })
+    .set(setClause)
     .where(
       and(
         eq(leadBuffer.orgId, sourceOrgId),
