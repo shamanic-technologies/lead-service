@@ -31,25 +31,18 @@ router.post("/internal/transfer-brand", apiKeyAuth, async (req, res) => {
   // Solo-brand condition: brand_ids array has exactly one element and it equals sourceBrandId
   const soloBrandCondition = sql`array_length(brand_ids, 1) = 1 AND brand_ids[1] = ${sourceBrandId}`;
 
-  // When targetBrandId is present, rewrite brand_ids too
-  const setClause: Record<string, unknown> = { orgId: targetOrgId };
-  if (targetBrandId) {
-    setClause.brandIds = sql`ARRAY[${targetBrandId}]::text[]`;
-  }
-
-  // Update served_leads
-  const servedResult = await db
+  // Step 1: Move org — UPDATE SET org_id = targetOrgId WHERE brand_id = sourceBrandId AND org_id = sourceOrgId
+  const servedStep1 = await db
     .update(servedLeads)
-    .set(setClause)
+    .set({ orgId: targetOrgId })
     .where(
       and(eq(servedLeads.orgId, sourceOrgId), soloBrandCondition)
     )
     .returning({ id: servedLeads.id });
 
-  // Update lead_buffer (brand_ids is nullable, so also check it's not null)
-  const bufferResult = await db
+  const bufferStep1 = await db
     .update(leadBuffer)
-    .set(setClause)
+    .set({ orgId: targetOrgId })
     .where(
       and(
         eq(leadBuffer.orgId, sourceOrgId),
@@ -59,9 +52,24 @@ router.post("/internal/transfer-brand", apiKeyAuth, async (req, res) => {
     )
     .returning({ id: leadBuffer.id });
 
+  // Step 2: Rewrite brand (if targetBrandId present) — no org_id filter, matches all rows with sourceBrandId
+  if (targetBrandId) {
+    const rewriteSet = { brandIds: sql`ARRAY[${targetBrandId}]::text[]` };
+
+    await db
+      .update(servedLeads)
+      .set(rewriteSet)
+      .where(soloBrandCondition);
+
+    await db
+      .update(leadBuffer)
+      .set(rewriteSet)
+      .where(and(sql`brand_ids IS NOT NULL`, soloBrandCondition));
+  }
+
   const updatedTables = [
-    { tableName: "served_leads", count: servedResult.length },
-    { tableName: "lead_buffer", count: bufferResult.length },
+    { tableName: "served_leads", count: servedStep1.length },
+    { tableName: "lead_buffer", count: bufferStep1.length },
   ];
 
   console.log(
