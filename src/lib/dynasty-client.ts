@@ -5,9 +5,14 @@ import {
   WORKFLOW_SERVICE_API_KEY,
 } from "../config.js";
 
-interface DynastyEntry {
+interface FeatureDynastyEntry {
   dynastySlug: string;
   slugs: string[];
+}
+
+interface WorkflowDynastyEntry {
+  workflowDynastySlug: string;
+  workflowSlugs: string[];
 }
 
 function buildHeaders(
@@ -59,7 +64,7 @@ export async function resolveWorkflowDynastySlugs(
   context?: { orgId?: string; userId?: string; runId?: string },
 ): Promise<string[]> {
   try {
-    const url = `${WORKFLOW_SERVICE_URL}/workflows/dynasty/slugs?dynastySlug=${encodeURIComponent(dynastySlug)}`;
+    const url = `${WORKFLOW_SERVICE_URL}/workflows/dynasty/slugs?workflowDynastySlug=${encodeURIComponent(dynastySlug)}`;
     const response = await fetch(url, {
       headers: buildHeaders(WORKFLOW_SERVICE_API_KEY, context),
       signal: AbortSignal.timeout(300_000),
@@ -68,8 +73,8 @@ export async function resolveWorkflowDynastySlugs(
       console.warn(`[lead-service] Failed to resolve workflow dynasty slug ${dynastySlug}: ${response.status}`);
       return [];
     }
-    const data = (await response.json()) as { slugs: string[] };
-    return data.slugs ?? [];
+    const data = (await response.json()) as { workflowSlugs: string[] };
+    return data.workflowSlugs ?? [];
   } catch (error) {
     console.error("[lead-service] Error resolving workflow dynasty slug:", error);
     return [];
@@ -92,8 +97,8 @@ export async function fetchFeatureDynastyMap(
       console.warn(`[lead-service] Failed to fetch feature dynasties: ${response.status}`);
       return new Map();
     }
-    const data = (await response.json()) as { dynasties: DynastyEntry[] };
-    return buildSlugToDynastyMap(data.dynasties ?? []);
+    const data = (await response.json()) as { dynasties: FeatureDynastyEntry[] };
+    return buildFeatureSlugToDynastyMap(data.dynasties ?? []);
   } catch (error) {
     console.error("[lead-service] Error fetching feature dynasties:", error);
     return new Map();
@@ -116,21 +121,33 @@ export async function fetchWorkflowDynastyMap(
       console.warn(`[lead-service] Failed to fetch workflow dynasties: ${response.status}`);
       return new Map();
     }
-    const data = (await response.json()) as { dynasties: DynastyEntry[] };
-    return buildSlugToDynastyMap(data.dynasties ?? []);
+    const data = (await response.json()) as { dynasties: WorkflowDynastyEntry[] };
+    return buildWorkflowSlugToDynastyMap(data.dynasties ?? []);
   } catch (error) {
     console.error("[lead-service] Error fetching workflow dynasties:", error);
     return new Map();
   }
 }
 
-function buildSlugToDynastyMap(
-  dynasties: DynastyEntry[],
+function buildFeatureSlugToDynastyMap(
+  dynasties: FeatureDynastyEntry[],
 ): Map<string, string> {
   const map = new Map<string, string>();
   for (const d of dynasties) {
     for (const slug of d.slugs) {
       map.set(slug, d.dynastySlug);
+    }
+  }
+  return map;
+}
+
+function buildWorkflowSlugToDynastyMap(
+  dynasties: WorkflowDynastyEntry[],
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const d of dynasties) {
+    for (const slug of d.workflowSlugs) {
+      map.set(slug, d.workflowDynastySlug);
     }
   }
   return map;
