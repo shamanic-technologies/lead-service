@@ -64,13 +64,13 @@ describe("dynasty-client", () => {
     it("returns slugs from workflow-service", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ slugs: ["cold-email", "cold-email-v2"] }),
+        json: async () => ({ workflowDynastySlug: "cold-email", workflowDynastyName: "Cold Email", workflowSlugs: ["cold-email", "cold-email-v2"] }),
       });
 
       const result = await resolveWorkflowDynastySlugs("cold-email");
       expect(result).toEqual(["cold-email", "cold-email-v2"]);
       expect(mockFetch).toHaveBeenCalledWith(
-        "http://workflows:3002/workflows/dynasty/slugs?dynastySlug=cold-email",
+        "http://workflows:3002/workflows/dynasty/slugs?workflowDynastySlug=cold-email",
         expect.objectContaining({
           headers: expect.objectContaining({ "X-API-Key": process.env.WORKFLOW_SERVICE_API_KEY }),
         }),
@@ -116,7 +116,7 @@ describe("dynasty-client", () => {
         ok: true,
         json: async () => ({
           dynasties: [
-            { dynastySlug: "cold-email", slugs: ["cold-email", "cold-email-v2", "cold-email-v3"] },
+            { workflowDynastySlug: "cold-email", workflowDynastyName: "Cold Email", workflowSlugs: ["cold-email", "cold-email-v2", "cold-email-v3"] },
           ],
         }),
       });
