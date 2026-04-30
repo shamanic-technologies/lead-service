@@ -1035,6 +1035,7 @@ describe("buffer", () => {
       // Lead has no email (needs enrichment) but externalId is already served for this brand.
       // pullNext should skip it WITHOUT calling apolloEnrich.
       pgSqlMock
+        .mockResolvedValueOnce([])  // stale claim recovery
         .mockResolvedValueOnce([toClaimedRow({
           id: "buf-predeup",
           namespace: "apollo",
