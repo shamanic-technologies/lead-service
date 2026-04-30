@@ -150,10 +150,50 @@ describe("buffer", () => {
       expect(apolloSearchNext).toHaveBeenCalled();
     });
 
+    it("recovers stale claimed leads back to buffered before claiming", async () => {
+      pgSqlMock
+        .mockResolvedValueOnce([{ id: "stale-1" }])  // stale claim recovery: 1 recovered
+        .mockResolvedValueOnce([toClaimedRow({
+          id: "stale-1",
+          namespace: "apollo",
+          campaignId: "campaign-1",
+          email: "recovered@example.com",
+          externalId: "apollo-stale",
+          data: { firstName: "Recovered" },
+          brandIds: ["brand-1"],
+          orgId: "org-1",
+          userId: null,
+        })]);
+
+      vi.mocked(checkDeliveryStatus).mockResolvedValue({ results: [] });
+
+      const returningMock = vi.fn().mockResolvedValue([{ id: "served-1" }]);
+      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
+      const valuesMock = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictMock });
+      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
+
+      const setMock = vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(undefined),
+      });
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
+
+      const result = await pullNext({
+        orgId: "org-1",
+        campaignId: "campaign-1",
+        brandIds: ["brand-1"],
+      });
+
+      expect(result.found).toBe(true);
+      expect(result.lead?.email).toBe("recovered@example.com");
+      // First pgSql call should be the stale recovery UPDATE
+      expect(pgSqlMock).toHaveBeenCalledTimes(2);
+    });
+
     it("fills buffer from Apollo search even when searchParams is omitted (regression)", async () => {
       // First call: buffer empty → triggers fill
       // Second call: buffer has the lead
       pgSqlMock
+        .mockResolvedValueOnce([])  // stale claim recovery
         .mockResolvedValueOnce([])  // 1st pullNext: buffer empty
         .mockResolvedValueOnce([toClaimedRow({
           id: "buf-1",
@@ -302,6 +342,7 @@ describe("buffer", () => {
 
     it("skips already-delivered buffer rows and tries next", async () => {
       pgSqlMock
+        .mockResolvedValueOnce([])  // stale claim recovery
         .mockResolvedValueOnce([toClaimedRow({
           id: "buf-1",
           namespace: "campaign-1",
@@ -365,6 +406,7 @@ describe("buffer", () => {
       });
 
       pgSqlMock
+        .mockResolvedValueOnce([])          // stale claim recovery
         .mockResolvedValueOnce([])          // pullNext: buffer empty (claim returns nothing)
         .mockResolvedValueOnce([newLeadRow]); // pullNext retry: claimed new lead
 
@@ -421,6 +463,7 @@ describe("buffer", () => {
       });
 
       pgSqlMock
+        .mockResolvedValueOnce([])  // stale claim recovery
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([newLeadRow]);
 
@@ -490,6 +533,7 @@ describe("buffer", () => {
       });
 
       pgSqlMock
+        .mockResolvedValueOnce([])  // stale claim recovery
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([newLeadRow]);
 
@@ -594,6 +638,7 @@ describe("buffer", () => {
       });
 
       pgSqlMock
+        .mockResolvedValueOnce([])              // stale claim recovery
         .mockResolvedValueOnce([])              // pullNext: buffer empty
         .mockResolvedValueOnce([enrichedLeadRow]); // pullNext retry: merged lead
 
@@ -739,6 +784,7 @@ describe("buffer", () => {
 
     it("skips enrichment when cache has no-email entry for person", async () => {
       pgSqlMock
+        .mockResolvedValueOnce([])  // stale claim recovery
         .mockResolvedValueOnce([toClaimedRow({
           id: "buf-1",
           namespace: "campaign-1",
@@ -808,6 +854,7 @@ describe("buffer", () => {
       });
 
       pgSqlMock
+        .mockResolvedValueOnce([])          // stale claim recovery
         .mockResolvedValueOnce([])          // pullNext: buffer empty
         .mockResolvedValueOnce([newLeadRow]); // pullNext retry: claimed new lead
 
@@ -909,6 +956,7 @@ describe("buffer", () => {
 
     it("skips buffer rows with no email and no externalId (never returns found: true with empty email)", async () => {
       pgSqlMock
+        .mockResolvedValueOnce([])  // stale claim recovery
         .mockResolvedValueOnce([toClaimedRow({
           id: "buf-no-email",
           namespace: "campaign-1",
@@ -941,6 +989,7 @@ describe("buffer", () => {
 
     it("skips lead with no email after failed enrichment and serves next lead", async () => {
       pgSqlMock
+        .mockResolvedValueOnce([])  // stale claim recovery
         .mockResolvedValueOnce([toClaimedRow({
           id: "buf-no-email",
           namespace: "campaign-1",
@@ -1036,6 +1085,7 @@ describe("buffer", () => {
       // but both have the same email. The second call's markServed returns
       // inserted: false due to the unique index — it should skip and serve the next lead.
       pgSqlMock
+        .mockResolvedValueOnce([])  // stale claim recovery
         .mockResolvedValueOnce([toClaimedRow({
           id: "buf-dup",
           namespace: "campaign-1",
@@ -1090,6 +1140,7 @@ describe("buffer", () => {
       // First call: buffer empty → triggers fillBufferFromSearch
       // Second call: buffer has the lead
       pgSqlMock
+        .mockResolvedValueOnce([])  // stale claim recovery
         .mockResolvedValueOnce([])  // buffer empty
         .mockResolvedValueOnce([toClaimedRow({
           id: "buf-ns-1",

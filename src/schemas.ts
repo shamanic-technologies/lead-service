@@ -330,6 +330,7 @@ const StatsResponseSchema = z
     contacted: z.number(),
     buffered: z.number(),
     skipped: z.number(),
+    claimed: z.number(),
     apollo: ApolloStatsSchema,
   })
   .openapi("StatsResponse");
@@ -340,6 +341,7 @@ const StatsGroupSchema = z.object({
   contacted: z.number(),
   buffered: z.number(),
   skipped: z.number(),
+  claimed: z.number(),
 });
 
 const StatsGroupedResponseSchema = z

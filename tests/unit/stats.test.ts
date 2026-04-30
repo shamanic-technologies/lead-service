@@ -149,6 +149,7 @@ describe("GET /stats", () => {
     expect(res.body).toHaveProperty("contacted");
     expect(res.body).toHaveProperty("buffered");
     expect(res.body).toHaveProperty("skipped");
+    expect(res.body).toHaveProperty("claimed");
     expect(res.body).toHaveProperty("apollo");
     expect(res.body).not.toHaveProperty("groups");
     expect(res.body.contacted).toBe(0);
@@ -276,6 +277,7 @@ describe("GET /stats", () => {
       contacted: 0,
       buffered: 0,
       skipped: 0,
+      claimed: 0,
       apollo: { enrichedLeadsCount: 0, searchCount: 0, fetchedPeopleCount: 0, totalMatchingPeople: 0 },
     });
     // Should NOT hit the database
