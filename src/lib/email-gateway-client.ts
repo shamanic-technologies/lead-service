@@ -6,8 +6,10 @@ export interface DeliveryStatusItem {
 
 export interface ScopedStatus {
   contacted: boolean;
+  sent: boolean;
   delivered: boolean;
   opened: boolean;
+  clicked: boolean;
   replied: boolean;
   replyClassification: "positive" | "negative" | "neutral" | null;
   bounced: boolean;
@@ -17,11 +19,8 @@ export interface ScopedStatus {
 
 export interface GlobalStatus {
   email: {
-    contacted: boolean;
-    delivered: boolean;
     bounced: boolean;
     unsubscribed: boolean;
-    lastDeliveredAt: string | null;
   };
 }
 
@@ -49,7 +48,7 @@ async function checkDeliveryStatusBatch(
   campaignId: string | undefined,
   items: DeliveryStatusItem[],
   headers: Record<string, string>,
-): Promise<DeliveryStatusResponse | null> {
+): Promise<DeliveryStatusResponse> {
   const body: Record<string, unknown> = { brandId, items };
   if (campaignId) body.campaignId = campaignId;
 
@@ -62,10 +61,9 @@ async function checkDeliveryStatusBatch(
 
   if (!response.ok) {
     const error = await response.text();
-    console.error(
+    throw new Error(
       `[email-gateway-client] Status check failed: ${response.status} - ${error}`
     );
-    return null;
   }
 
   return (await response.json()) as DeliveryStatusResponse;
@@ -76,54 +74,126 @@ export async function checkDeliveryStatus(
   campaignId: string | undefined,
   items: DeliveryStatusItem[],
   context?: { orgId?: string; userId?: string; runId?: string; campaignId?: string; brandId?: string; workflowSlug?: string; featureSlug?: string }
-): Promise<DeliveryStatusResponse | null> {
+): Promise<DeliveryStatusResponse> {
   if (items.length === 0) return { results: [] };
 
-  try {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      "X-API-Key": EMAIL_GATEWAY_SERVICE_API_KEY,
-    };
-    if (context?.orgId) headers["x-org-id"] = context.orgId;
-    if (context?.userId) headers["x-user-id"] = context.userId;
-    if (context?.runId) headers["x-run-id"] = context.runId;
-    if (context?.campaignId) headers["x-campaign-id"] = context.campaignId;
-    if (context?.brandId) headers["x-brand-id"] = context.brandId;
-    if (context?.workflowSlug) headers["x-workflow-slug"] = context.workflowSlug;
-    if (context?.featureSlug) headers["x-feature-slug"] = context.featureSlug;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-API-Key": EMAIL_GATEWAY_SERVICE_API_KEY,
+  };
+  if (context?.orgId) headers["x-org-id"] = context.orgId;
+  if (context?.userId) headers["x-user-id"] = context.userId;
+  if (context?.runId) headers["x-run-id"] = context.runId;
+  if (context?.campaignId) headers["x-campaign-id"] = context.campaignId;
+  if (context?.brandId) headers["x-brand-id"] = context.brandId;
+  if (context?.workflowSlug) headers["x-workflow-slug"] = context.workflowSlug;
+  if (context?.featureSlug) headers["x-feature-slug"] = context.featureSlug;
 
-    if (items.length <= BATCH_SIZE) {
-      return await checkDeliveryStatusBatch(brandId, campaignId, items, headers);
-    }
-
-    const batches: DeliveryStatusItem[][] = [];
-    for (let i = 0; i < items.length; i += BATCH_SIZE) {
-      batches.push(items.slice(i, i + BATCH_SIZE));
-    }
-
-    const batchResults = await Promise.all(
-      batches.map((batch) => checkDeliveryStatusBatch(brandId, campaignId, batch, headers))
-    );
-
-    const allResults: StatusResult[] = [];
-    for (const result of batchResults) {
-      if (!result) return null;
-      allResults.push(...result.results);
-    }
-
-    return { results: allResults };
-  } catch (error) {
-    const isConnectionError =
-      error instanceof TypeError && error.message === "fetch failed";
-    if (isConnectionError) {
-      console.warn(
-        "[email-gateway-client] email-gateway unreachable, skipping delivery check"
-      );
-    } else {
-      console.error("[email-gateway-client] Status check error:", error);
-    }
-    return null;
+  if (items.length <= BATCH_SIZE) {
+    return await checkDeliveryStatusBatch(brandId, campaignId, items, headers);
   }
+
+  const batches: DeliveryStatusItem[][] = [];
+  for (let i = 0; i < items.length; i += BATCH_SIZE) {
+    batches.push(items.slice(i, i + BATCH_SIZE));
+  }
+
+  const batchResults = await Promise.all(
+    batches.map((batch) => checkDeliveryStatusBatch(brandId, campaignId, batch, headers))
+  );
+
+  const allResults: StatusResult[] = [];
+  for (const result of batchResults) {
+    allResults.push(...result.results);
+  }
+
+  return { results: allResults };
+}
+
+/** Stats from email-gateway GET /orgs/stats */
+export interface RecipientStats {
+  contacted: number;
+  sent: number;
+  delivered: number;
+  opened: number;
+  bounced: number;
+  clicked: number;
+  unsubscribed: number;
+  repliesPositive: number;
+  repliesNegative: number;
+  repliesNeutral: number;
+  repliesAutoReply: number;
+  repliesDetail: {
+    interested: number;
+    meetingBooked: number;
+    closed: number;
+    notInterested: number;
+    wrongPerson: number;
+    unsubscribe: number;
+    neutral: number;
+    autoReply: number;
+    outOfOffice: number;
+  };
+}
+
+export interface EmailGatewayStatsResponse {
+  transactional?: { recipientStats: RecipientStats };
+  broadcast?: { recipientStats: RecipientStats };
+}
+
+export interface EmailGatewayGroupedStatsResponse {
+  groups: Array<{
+    key: string;
+    transactional?: { recipientStats: RecipientStats };
+    broadcast?: { recipientStats: RecipientStats };
+  }>;
+}
+
+export async function fetchEmailGatewayStats(
+  params: {
+    brandId?: string;
+    campaignId?: string;
+    workflowSlugs?: string;
+    featureSlugs?: string;
+    groupBy?: string;
+  },
+  context?: { orgId?: string; userId?: string; runId?: string; campaignId?: string; brandId?: string; workflowSlug?: string; featureSlug?: string }
+): Promise<EmailGatewayStatsResponse | EmailGatewayGroupedStatsResponse> {
+  const queryParams = new URLSearchParams();
+  if (params.brandId) queryParams.set("brandId", params.brandId);
+  if (params.campaignId) queryParams.set("campaignId", params.campaignId);
+  if (params.workflowSlugs) queryParams.set("workflowSlugs", params.workflowSlugs);
+  if (params.featureSlugs) queryParams.set("featureSlugs", params.featureSlugs);
+  if (params.groupBy) queryParams.set("groupBy", params.groupBy);
+
+  const headers: Record<string, string> = {
+    "X-API-Key": EMAIL_GATEWAY_SERVICE_API_KEY,
+  };
+  if (context?.orgId) headers["x-org-id"] = context.orgId;
+  if (context?.userId) headers["x-user-id"] = context.userId;
+  if (context?.runId) headers["x-run-id"] = context.runId;
+  if (context?.campaignId) headers["x-campaign-id"] = context.campaignId;
+  if (context?.brandId) headers["x-brand-id"] = context.brandId;
+  if (context?.workflowSlug) headers["x-workflow-slug"] = context.workflowSlug;
+  if (context?.featureSlug) headers["x-feature-slug"] = context.featureSlug;
+
+  const qs = queryParams.toString();
+  const url = `${EMAIL_GATEWAY_SERVICE_URL}/orgs/stats${qs ? `?${qs}` : ""}`;
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers,
+    signal: AbortSignal.timeout(300_000),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(
+      `[email-gateway-client] Stats fetch failed: ${response.status} - ${error}`
+    );
+  }
+
+  return response.json();
 }
 
 export interface EmailCheckResult {
@@ -159,10 +229,8 @@ export function checkEmailStatus(result: StatusResult): EmailCheckResult {
   if (
     bc?.campaign?.contacted ||
     bc?.brand?.contacted ||
-    bc?.global?.email?.contacted ||
     tx?.campaign?.contacted ||
-    tx?.brand?.contacted ||
-    tx?.global?.email?.contacted
+    tx?.brand?.contacted
   ) contacted = true;
 
   // Check byCampaign breakdown (populated in brand-only mode)

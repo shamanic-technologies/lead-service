@@ -39,7 +39,7 @@ export const servedLeads = pgTable(
     leadId: uuid("lead_id").references(() => leads.id),
     namespace: text("namespace").notNull(),
     email: text("email").notNull(),
-    externalId: text("external_id"),
+    apolloPersonId: text("apollo_person_id"),
     metadata: jsonb("metadata"),
     parentRunId: text("parent_run_id"),
     runId: text("run_id"),
@@ -68,7 +68,7 @@ export const leadBuffer = pgTable(
     namespace: text("namespace").notNull(),
     campaignId: text("campaign_id").notNull(),
     email: text("email").notNull(),
-    externalId: text("external_id"),
+    apolloPersonId: text("apollo_person_id"),
     data: jsonb("data"),
     status: text("status").notNull().default("buffered"),
     pushRunId: text("push_run_id"),
@@ -81,7 +81,7 @@ export const leadBuffer = pgTable(
   },
   (table) => [
     index("idx_buffer_org_campaign_ns_status").on(table.orgId, table.campaignId, table.namespace, table.status),
-    index("idx_buffer_org_campaign_extid").on(table.orgId, table.campaignId, table.externalId),
+    index("idx_buffer_org_campaign_extid").on(table.orgId, table.campaignId, table.apolloPersonId),
   ]
 );
 
@@ -91,6 +91,7 @@ export const enrichments = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     email: text("email"),
+    emailStatus: text("email_status"),
     apolloPersonId: text("apollo_person_id"),
     firstName: text("first_name"),
     lastName: text("last_name"),

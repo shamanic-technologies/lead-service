@@ -278,7 +278,12 @@ const LeadDetailSchema = z
     leadId: z.string().uuid().nullable(),
     namespace: z.string(),
     email: z.string(),
-    externalId: z.string().nullable(),
+    apolloPersonId: z.string().nullable().openapi({
+      description: "Apollo person ID from enrichment",
+    }),
+    emailStatus: z.string().nullable().openapi({
+      description: "Email verification status from Apollo (verified, extrapolated, etc.)",
+    }),
     metadata: ApolloPersonDataSchema.nullable(),
     parentRunId: z.string().nullable(),
     runId: z.string().nullable(),
@@ -289,8 +294,12 @@ const LeadDetailSchema = z
     servedAt: z.string(),
     enrichment: ApolloPersonDataSchema.nullable(),
     contacted: z.boolean(),
+    sent: z.boolean(),
     delivered: z.boolean(),
+    opened: z.boolean(),
+    clicked: z.boolean(),
     bounced: z.boolean(),
+    unsubscribed: z.boolean(),
     replied: z
       .boolean()
       .openapi({ description: "Whether the lead replied (any reply, regardless of sentiment)" }),
@@ -306,6 +315,12 @@ const LeadDetailSchema = z
           "null when no reply detected.",
       }),
     lastDeliveredAt: z.string().nullable(),
+    global: z.object({
+      bounced: z.boolean(),
+      unsubscribed: z.boolean(),
+    }).openapi({
+      description: "Global-scope status (across all brands/campaigns). bounced and unsubscribed are global flags.",
+    }),
   })
   .openapi("LeadDetail");
 
@@ -317,28 +332,49 @@ const LeadsResponseSchema = z
 
 // --- Stats ---
 
-const ApolloStatsSchema = z.object({
-  enrichedLeadsCount: z.number(),
-  searchCount: z.number(),
-  fetchedPeopleCount: z.number(),
-  totalMatchingPeople: z.number(),
+const RepliesDetailSchema = z.object({
+  interested: z.number(),
+  meetingBooked: z.number(),
+  closed: z.number(),
+  notInterested: z.number(),
+  wrongPerson: z.number(),
+  unsubscribe: z.number(),
+  neutral: z.number(),
+  autoReply: z.number(),
+  outOfOffice: z.number(),
+});
+
+const ByOutreachStatusSchema = z.object({
+  contacted: z.number(),
+  sent: z.number(),
+  delivered: z.number(),
+  opened: z.number(),
+  bounced: z.number(),
+  clicked: z.number(),
+  unsubscribed: z.number(),
+  repliesPositive: z.number(),
+  repliesNegative: z.number(),
+  repliesNeutral: z.number(),
+  repliesAutoReply: z.number(),
+  repliesDetail: RepliesDetailSchema,
 });
 
 const StatsResponseSchema = z
   .object({
-    served: z.number(),
-    contacted: z.number(),
+    totalLeads: z.number(),
+    byOutreachStatus: ByOutreachStatusSchema,
+    repliesDetail: RepliesDetailSchema,
     buffered: z.number(),
     skipped: z.number(),
     claimed: z.number(),
-    apollo: ApolloStatsSchema,
   })
   .openapi("StatsResponse");
 
 const StatsGroupSchema = z.object({
   key: z.string(),
-  served: z.number(),
-  contacted: z.number(),
+  totalLeads: z.number(),
+  byOutreachStatus: ByOutreachStatusSchema,
+  repliesDetail: RepliesDetailSchema,
   buffered: z.number(),
   skipped: z.number(),
   claimed: z.number(),
@@ -435,8 +471,8 @@ registry.registerPath({
   path: "/orgs/leads",
   summary: "List served leads with enrichment and delivery status",
   description:
-    "Returns served leads with Apollo enrichment data and delivery status " +
-    "(contacted, delivered, bounced, replied, replyClassification, lastDeliveredAt). " +
+    "Returns served leads with Apollo enrichment data, apolloPersonId, emailStatus, and full delivery status " +
+    "(contacted, sent, delivered, opened, clicked, bounced, unsubscribed, replied, replyClassification, lastDeliveredAt, global). " +
     "Status is fetched from email-gateway when brandId or campaignId is provided. " +
     "With campaignId: campaign-scoped status. With brandId only: brand-scoped (cross-campaign). " +
     "Without either: status fields default to false/null.",
@@ -481,7 +517,7 @@ registry.registerPath({
   path: "/orgs/stats",
   summary: "Get lead stats by status",
   description:
-    "Returns counts of leads by status: served (delivered with verified email), contacted (unique leads with at least one successful email send), buffered (awaiting enrichment), and skipped (no email found).",
+    "Returns lead stats with outreach status from email-gateway. totalLeads = served leads count, byOutreachStatus = full recipientStats (contacted, sent, delivered, opened, clicked, bounced, unsubscribed, replies*), repliesDetail = granular reply breakdown, buffered/skipped = buffer counts.",
   parameters: [
     ...AuthHeaders,
     {
@@ -583,7 +619,7 @@ registry.registerPath({
   responses: {
     200: {
       description:
-        "Lead stats by status. Without groupBy: flat stats with Apollo metrics. With groupBy: grouped stats array.",
+        "Lead stats with outreach status. Without groupBy: flat response with totalLeads, byOutreachStatus, repliesDetail, buffered, skipped. With groupBy: grouped stats array.",
       content: {
         "application/json": {
           schema: z.union([StatsResponseSchema, StatsGroupedResponseSchema]),

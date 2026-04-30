@@ -530,9 +530,15 @@
           "email": {
             "type": "string"
           },
-          "externalId": {
+          "apolloPersonId": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "Apollo person ID from enrichment"
+          },
+          "emailStatus": {
+            "type": "string",
+            "nullable": true,
+            "description": "Email verification status from Apollo (verified, extrapolated, etc.)"
           },
           "metadata": {
             "$ref": "#/components/schemas/ApolloPersonData"
@@ -570,10 +576,22 @@
           "contacted": {
             "type": "boolean"
           },
+          "sent": {
+            "type": "boolean"
+          },
           "delivered": {
             "type": "boolean"
           },
+          "opened": {
+            "type": "boolean"
+          },
+          "clicked": {
+            "type": "boolean"
+          },
           "bounced": {
+            "type": "boolean"
+          },
+          "unsubscribed": {
             "type": "boolean"
           },
           "replied": {
@@ -594,6 +612,22 @@
           "lastDeliveredAt": {
             "type": "string",
             "nullable": true
+          },
+          "global": {
+            "type": "object",
+            "properties": {
+              "bounced": {
+                "type": "boolean"
+              },
+              "unsubscribed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "bounced",
+              "unsubscribed"
+            ],
+            "description": "Global-scope status (across all brands/campaigns). bounced and unsubscribed are global flags."
           }
         },
         "required": [
@@ -601,7 +635,8 @@
           "leadId",
           "namespace",
           "email",
-          "externalId",
+          "apolloPersonId",
+          "emailStatus",
           "metadata",
           "parentRunId",
           "runId",
@@ -612,21 +647,161 @@
           "servedAt",
           "enrichment",
           "contacted",
+          "sent",
           "delivered",
+          "opened",
+          "clicked",
           "bounced",
+          "unsubscribed",
           "replied",
           "replyClassification",
-          "lastDeliveredAt"
+          "lastDeliveredAt",
+          "global"
         ]
       },
       "StatsResponse": {
         "type": "object",
         "properties": {
-          "served": {
+          "totalLeads": {
             "type": "number"
           },
-          "contacted": {
-            "type": "number"
+          "byOutreachStatus": {
+            "type": "object",
+            "properties": {
+              "contacted": {
+                "type": "number"
+              },
+              "sent": {
+                "type": "number"
+              },
+              "delivered": {
+                "type": "number"
+              },
+              "opened": {
+                "type": "number"
+              },
+              "bounced": {
+                "type": "number"
+              },
+              "clicked": {
+                "type": "number"
+              },
+              "unsubscribed": {
+                "type": "number"
+              },
+              "repliesPositive": {
+                "type": "number"
+              },
+              "repliesNegative": {
+                "type": "number"
+              },
+              "repliesNeutral": {
+                "type": "number"
+              },
+              "repliesAutoReply": {
+                "type": "number"
+              },
+              "repliesDetail": {
+                "type": "object",
+                "properties": {
+                  "interested": {
+                    "type": "number"
+                  },
+                  "meetingBooked": {
+                    "type": "number"
+                  },
+                  "closed": {
+                    "type": "number"
+                  },
+                  "notInterested": {
+                    "type": "number"
+                  },
+                  "wrongPerson": {
+                    "type": "number"
+                  },
+                  "unsubscribe": {
+                    "type": "number"
+                  },
+                  "neutral": {
+                    "type": "number"
+                  },
+                  "autoReply": {
+                    "type": "number"
+                  },
+                  "outOfOffice": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "interested",
+                  "meetingBooked",
+                  "closed",
+                  "notInterested",
+                  "wrongPerson",
+                  "unsubscribe",
+                  "neutral",
+                  "autoReply",
+                  "outOfOffice"
+                ]
+              }
+            },
+            "required": [
+              "contacted",
+              "sent",
+              "delivered",
+              "opened",
+              "bounced",
+              "clicked",
+              "unsubscribed",
+              "repliesPositive",
+              "repliesNegative",
+              "repliesNeutral",
+              "repliesAutoReply",
+              "repliesDetail"
+            ]
+          },
+          "repliesDetail": {
+            "type": "object",
+            "properties": {
+              "interested": {
+                "type": "number"
+              },
+              "meetingBooked": {
+                "type": "number"
+              },
+              "closed": {
+                "type": "number"
+              },
+              "notInterested": {
+                "type": "number"
+              },
+              "wrongPerson": {
+                "type": "number"
+              },
+              "unsubscribe": {
+                "type": "number"
+              },
+              "neutral": {
+                "type": "number"
+              },
+              "autoReply": {
+                "type": "number"
+              },
+              "outOfOffice": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "interested",
+              "meetingBooked",
+              "closed",
+              "notInterested",
+              "wrongPerson",
+              "unsubscribe",
+              "neutral",
+              "autoReply",
+              "outOfOffice"
+            ]
           },
           "buffered": {
             "type": "number"
@@ -636,38 +811,15 @@
           },
           "claimed": {
             "type": "number"
-          },
-          "apollo": {
-            "type": "object",
-            "properties": {
-              "enrichedLeadsCount": {
-                "type": "number"
-              },
-              "searchCount": {
-                "type": "number"
-              },
-              "fetchedPeopleCount": {
-                "type": "number"
-              },
-              "totalMatchingPeople": {
-                "type": "number"
-              }
-            },
-            "required": [
-              "enrichedLeadsCount",
-              "searchCount",
-              "fetchedPeopleCount",
-              "totalMatchingPeople"
-            ]
           }
         },
         "required": [
-          "served",
-          "contacted",
+          "totalLeads",
+          "byOutreachStatus",
+          "repliesDetail",
           "buffered",
           "skipped",
-          "claimed",
-          "apollo"
+          "claimed"
         ]
       },
       "StatsGroupedResponse": {
@@ -681,11 +833,146 @@
                 "key": {
                   "type": "string"
                 },
-                "served": {
+                "totalLeads": {
                   "type": "number"
                 },
-                "contacted": {
-                  "type": "number"
+                "byOutreachStatus": {
+                  "type": "object",
+                  "properties": {
+                    "contacted": {
+                      "type": "number"
+                    },
+                    "sent": {
+                      "type": "number"
+                    },
+                    "delivered": {
+                      "type": "number"
+                    },
+                    "opened": {
+                      "type": "number"
+                    },
+                    "bounced": {
+                      "type": "number"
+                    },
+                    "clicked": {
+                      "type": "number"
+                    },
+                    "unsubscribed": {
+                      "type": "number"
+                    },
+                    "repliesPositive": {
+                      "type": "number"
+                    },
+                    "repliesNegative": {
+                      "type": "number"
+                    },
+                    "repliesNeutral": {
+                      "type": "number"
+                    },
+                    "repliesAutoReply": {
+                      "type": "number"
+                    },
+                    "repliesDetail": {
+                      "type": "object",
+                      "properties": {
+                        "interested": {
+                          "type": "number"
+                        },
+                        "meetingBooked": {
+                          "type": "number"
+                        },
+                        "closed": {
+                          "type": "number"
+                        },
+                        "notInterested": {
+                          "type": "number"
+                        },
+                        "wrongPerson": {
+                          "type": "number"
+                        },
+                        "unsubscribe": {
+                          "type": "number"
+                        },
+                        "neutral": {
+                          "type": "number"
+                        },
+                        "autoReply": {
+                          "type": "number"
+                        },
+                        "outOfOffice": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "interested",
+                        "meetingBooked",
+                        "closed",
+                        "notInterested",
+                        "wrongPerson",
+                        "unsubscribe",
+                        "neutral",
+                        "autoReply",
+                        "outOfOffice"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "contacted",
+                    "sent",
+                    "delivered",
+                    "opened",
+                    "bounced",
+                    "clicked",
+                    "unsubscribed",
+                    "repliesPositive",
+                    "repliesNegative",
+                    "repliesNeutral",
+                    "repliesAutoReply",
+                    "repliesDetail"
+                  ]
+                },
+                "repliesDetail": {
+                  "type": "object",
+                  "properties": {
+                    "interested": {
+                      "type": "number"
+                    },
+                    "meetingBooked": {
+                      "type": "number"
+                    },
+                    "closed": {
+                      "type": "number"
+                    },
+                    "notInterested": {
+                      "type": "number"
+                    },
+                    "wrongPerson": {
+                      "type": "number"
+                    },
+                    "unsubscribe": {
+                      "type": "number"
+                    },
+                    "neutral": {
+                      "type": "number"
+                    },
+                    "autoReply": {
+                      "type": "number"
+                    },
+                    "outOfOffice": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "interested",
+                    "meetingBooked",
+                    "closed",
+                    "notInterested",
+                    "wrongPerson",
+                    "unsubscribe",
+                    "neutral",
+                    "autoReply",
+                    "outOfOffice"
+                  ]
                 },
                 "buffered": {
                   "type": "number"
@@ -699,8 +986,9 @@
               },
               "required": [
                 "key",
-                "served",
-                "contacted",
+                "totalLeads",
+                "byOutreachStatus",
+                "repliesDetail",
                 "buffered",
                 "skipped",
                 "claimed"
@@ -1130,7 +1418,7 @@
     "/orgs/leads": {
       "get": {
         "summary": "List served leads with enrichment and delivery status",
-        "description": "Returns served leads with Apollo enrichment data and delivery status (contacted, delivered, bounced, replied, replyClassification, lastDeliveredAt). Status is fetched from email-gateway when brandId or campaignId is provided. With campaignId: campaign-scoped status. With brandId only: brand-scoped (cross-campaign). Without either: status fields default to false/null.",
+        "description": "Returns served leads with Apollo enrichment data, apolloPersonId, emailStatus, and full delivery status (contacted, sent, delivered, opened, clicked, bounced, unsubscribed, replied, replyClassification, lastDeliveredAt, global). Status is fetched from email-gateway when brandId or campaignId is provided. With campaignId: campaign-scoped status. With brandId only: brand-scoped (cross-campaign). Without either: status fields default to false/null.",
         "parameters": [
           {
             "in": "header",
@@ -1257,7 +1545,7 @@
     "/orgs/stats": {
       "get": {
         "summary": "Get lead stats by status",
-        "description": "Returns counts of leads by status: served (delivered with verified email), contacted (unique leads with at least one successful email send), buffered (awaiting enrichment), and skipped (no email found).",
+        "description": "Returns lead stats with outreach status from email-gateway. totalLeads = served leads count, byOutreachStatus = full recipientStats (contacted, sent, delivered, opened, clicked, bounced, unsubscribed, replies*), repliesDetail = granular reply breakdown, buffered/skipped = buffer counts.",
         "parameters": [
           {
             "in": "header",
@@ -1446,7 +1734,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Lead stats by status. Without groupBy: flat stats with Apollo metrics. With groupBy: grouped stats array.",
+            "description": "Lead stats with outreach status. Without groupBy: flat response with totalLeads, byOutreachStatus, repliesDetail, buffered, skipped. With groupBy: grouped stats array.",
             "content": {
               "application/json": {
                 "schema": {

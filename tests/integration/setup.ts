@@ -44,14 +44,14 @@ export function getAuthHeaders(extra?: { campaignId?: string; brandId?: string; 
 export async function seedBuffer(params: {
   campaignId: string;
   brandId: string;
-  leads: Array<{ email: string; externalId?: string; data?: unknown }>;
+  leads: Array<{ email: string; apolloPersonId?: string; data?: unknown }>;
 }): Promise<void> {
   for (const lead of params.leads) {
     await db.insert(leadBuffer).values({
       namespace: "apollo",
       campaignId: params.campaignId,
       email: lead.email,
-      externalId: lead.externalId ?? null,
+      apolloPersonId: lead.apolloPersonId ?? null,
       data: lead.data ?? null,
       status: "buffered",
       pushRunId: null,
