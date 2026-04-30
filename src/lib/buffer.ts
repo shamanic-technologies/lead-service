@@ -231,6 +231,7 @@ export async function pullNext(params: {
   orgId: string;
   campaignId: string;
   brandIds: string[];
+  parentRunId?: string | null;
   runId?: string | null;
   userId?: string | null;
   workflowSlug?: string;
@@ -327,6 +328,25 @@ export async function pullNext(params: {
 
       console.log(`[lead-service] pullNext found=false campaign=${params.campaignId}`);
       return { found: false };
+    }
+
+    // Pre-enrichment brand dedup: skip leads already served for this brand
+    // before paying for Apollo enrichment (uses externalId only, no email needed)
+    if (row.externalId) {
+      const preCheck = await isAlreadyServedForBrand({
+        orgId: params.orgId,
+        brandIds: params.brandIds,
+        externalId: row.externalId,
+      });
+
+      if (preCheck.blocked) {
+        console.log(`[lead-service] pullNext skip (pre-enrich brand dedup): ${preCheck.reason} externalId=${row.externalId}`);
+        await db
+          .update(leadBuffer)
+          .set({ status: "skipped" })
+          .where(eq(leadBuffer.id, row.id));
+        continue;
+      }
     }
 
     // Enrich if no email
@@ -509,6 +529,7 @@ export async function pullNext(params: {
       leadId,
       externalId: row.externalId,
       metadata: enrichedData,
+      parentRunId: params.parentRunId ?? null,
       runId: params.runId ?? null,
       userId: row.userId,
       workflowSlug: params.workflowSlug ?? null,

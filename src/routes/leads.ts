@@ -8,6 +8,7 @@ import {
   type StatusResult,
   type DeliveryStatusItem,
 } from "../lib/email-gateway-client.js";
+import { traceEvent } from "../lib/trace-event.js";
 
 const router = Router();
 
@@ -110,6 +111,7 @@ const DEFAULT_STATUS = { contacted: false, delivered: false, bounced: false, rep
 
 router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedRequest, res) => {
   try {
+    if (req.runId) traceEvent(req.runId, { service: "lead-service", event: "leads-query-start", detail: `orgId=${req.orgId}` }, req.headers).catch(() => {});
     const { brandId, campaignId, orgId, userId } = req.query;
 
     // Build filter conditions
@@ -184,6 +186,7 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       };
     });
 
+    if (req.runId) traceEvent(req.runId, { service: "lead-service", event: "leads-query-done", detail: `count=${enrichedLeads.length}`, data: { count: enrichedLeads.length } }, req.headers).catch(() => {});
     res.json({ leads: enrichedLeads });
   } catch (error) {
     console.error("[lead-service] Leads error:", error);
