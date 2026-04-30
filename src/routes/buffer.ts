@@ -78,6 +78,7 @@ router.post("/orgs/buffer/next", apiKeyAuth, requireOrgId, async (req: Authentic
       orgId: req.orgId!,
       campaignId,
       brandIds,
+      parentRunId: runId,
       runId: serveRunId,
       userId: req.userId ?? null,
       workflowSlug,
