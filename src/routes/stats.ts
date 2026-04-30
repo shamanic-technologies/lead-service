@@ -362,6 +362,7 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
           contacted: 0,
           buffered: 0,
           skipped: 0,
+          claimed: 0,
           apollo: { enrichedLeadsCount: 0, searchCount: 0, fetchedPeopleCount: 0, totalMatchingPeople: 0 },
         });
       }
@@ -398,12 +399,12 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       // Aggregate by dynasty slug using reverse map
       const groups = new Map<
         string,
-        { served: number; contacted: number; buffered: number; skipped: number }
+        { served: number; contacted: number; buffered: number; skipped: number; claimed: number }
       >();
 
       const getGroup = (dynastyKey: string) => {
         if (!groups.has(dynastyKey))
-          groups.set(dynastyKey, { served: 0, contacted: 0, buffered: 0, skipped: 0 });
+          groups.set(dynastyKey, { served: 0, contacted: 0, buffered: 0, skipped: 0, claimed: 0 });
         return groups.get(dynastyKey)!;
       };
 
@@ -420,6 +421,7 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
         const g = getGroup(toDynasty(row.key));
         if (row.status === "buffered") g.buffered += row.count;
         if (row.status === "skipped") g.skipped += row.count;
+        if (row.status === "claimed") g.claimed += row.count;
       }
 
       res.json({
@@ -453,13 +455,13 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
 
       const groups = new Map<
         string,
-        { served: number; contacted: number; buffered: number; skipped: number }
+        { served: number; contacted: number; buffered: number; skipped: number; claimed: number }
       >();
 
       const getGroup = (key: string | null) => {
         const k = key ?? "unknown";
         if (!groups.has(k))
-          groups.set(k, { served: 0, contacted: 0, buffered: 0, skipped: 0 });
+          groups.set(k, { served: 0, contacted: 0, buffered: 0, skipped: 0, claimed: 0 });
         return groups.get(k)!;
       };
 
@@ -507,13 +509,13 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       // Merge into a map keyed by groupBy value
       const groups = new Map<
         string,
-        { served: number; contacted: number; buffered: number; skipped: number }
+        { served: number; contacted: number; buffered: number; skipped: number; claimed: number }
       >();
 
       const getGroup = (key: string | null) => {
         const k = key ?? "unknown";
         if (!groups.has(k))
-          groups.set(k, { served: 0, contacted: 0, buffered: 0, skipped: 0 });
+          groups.set(k, { served: 0, contacted: 0, buffered: 0, skipped: 0, claimed: 0 });
         return groups.get(k)!;
       };
 
@@ -572,6 +574,7 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       contacted,
       buffered: bufferByStatus["buffered"] ?? 0,
       skipped: bufferByStatus["skipped"] ?? 0,
+      claimed: bufferByStatus["claimed"] ?? 0,
       apollo,
     });
   } catch (error) {

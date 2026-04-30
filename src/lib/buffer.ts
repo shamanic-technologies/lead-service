@@ -249,6 +249,25 @@ export async function pullNext(params: {
   };
 }> {
   const brandIdCsv = params.brandIds.join(",");
+
+  // Recover stale claimed leads: if a pullNext process crashed after claiming
+  // but before resolving (skip/serve), the lead stays "claimed" forever.
+  // Reset any claimed leads older than 1 hour back to "buffered".
+  const staleCutoff = new Date(Date.now() - 60 * 60 * 1000);
+  const staleRecovered = await pgSql`
+    UPDATE lead_buffer
+    SET status = 'buffered'
+    WHERE org_id = ${params.orgId}
+      AND campaign_id = ${params.campaignId}
+      AND namespace = 'apollo'
+      AND status = 'claimed'
+      AND created_at < ${staleCutoff.toISOString()}::timestamptz
+    RETURNING id
+  `;
+  if (staleRecovered.length > 0) {
+    console.log(`[lead-service] Recovered ${staleRecovered.length} stale claimed leads for campaign=${params.campaignId}`);
+  }
+
   const MAX_ITERATIONS = 100;
   let iterations = 0;
   while (true) {
