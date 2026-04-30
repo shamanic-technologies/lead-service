@@ -3,6 +3,7 @@ import { eq, lt } from "drizzle-orm";
 import { type AuthenticatedRequest, apiKeyAuth, requireOrgId } from "../middleware/auth.js";
 import { pullNext } from "../lib/buffer.js";
 import { createRun, updateRun } from "../lib/runs-client.js";
+import { traceEvent } from "../lib/trace-event.js";
 import { BufferNextRequestSchema } from "../schemas.js";
 import { db } from "../db/index.js";
 import { idempotencyCache } from "../db/schema.js";
@@ -56,6 +57,7 @@ router.post("/orgs/buffer/next", apiKeyAuth, requireOrgId, async (req: Authentic
   });
   if (cached) {
     console.log(`[lead-service] Idempotency hit for runId=${runId}`);
+    traceEvent(runId, { service: "lead-service", event: "idempotency-hit", detail: `Returning cached response for runId=${runId}` }, req.headers).catch(() => {});
     return res.json(cached.response);
   }
 
@@ -72,6 +74,8 @@ router.post("/orgs/buffer/next", apiKeyAuth, requireOrgId, async (req: Authentic
     featureSlug: req.featureSlug,
   });
   const serveRunId = childRun.id;
+
+  traceEvent(serveRunId, { service: "lead-service", event: "buffer-next-start", detail: `campaignId=${campaignId}, brandIds=${brandIds.join(",")}` }, req.headers).catch(() => {});
 
   try {
     const result = await pullNext({
@@ -98,12 +102,15 @@ router.post("/orgs/buffer/next", apiKeyAuth, requireOrgId, async (req: Authentic
       console.warn("[lead-service] Failed to cache idempotency response:", err);
     }
 
+    traceEvent(serveRunId, { service: "lead-service", event: "buffer-next-done", detail: `found=${result.found}`, data: { found: result.found } }, req.headers).catch(() => {});
+
     const runStatus = result.found ? "completed" : "failed";
     await updateRun(serveRunId, runStatus, runMeta);
 
     res.json(result);
   } catch (error) {
     console.error("[lead-service] buffer/next error:", error);
+    traceEvent(serveRunId, { service: "lead-service", event: "buffer-next-error", level: "error", detail: String(error) }, req.headers).catch(() => {});
     try {
       await updateRun(serveRunId, "failed", runMeta);
     } catch (runErr) {

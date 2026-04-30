@@ -4,6 +4,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { servedLeads, leadBuffer } from "../db/schema.js";
 import { apiKeyAuth } from "../middleware/auth.js";
+import { traceEvent } from "../lib/trace-event.js";
 
 const router = Router();
 
@@ -22,6 +23,9 @@ router.post("/internal/transfer-brand", apiKeyAuth, async (req, res) => {
   }
 
   const { sourceBrandId, sourceOrgId, targetOrgId, targetBrandId } = parsed.data;
+
+  const runId = req.headers["x-run-id"] as string | undefined;
+  if (runId) traceEvent(runId, { service: "lead-service", event: "transfer-brand-start", detail: `sourceBrandId=${sourceBrandId}, sourceOrgId=${sourceOrgId}, targetOrgId=${targetOrgId}` }, req.headers).catch(() => {});
 
   console.log(
     `[lead-service] Transfer brand ${sourceBrandId} from org ${sourceOrgId} to org ${targetOrgId}` +
@@ -75,6 +79,8 @@ router.post("/internal/transfer-brand", apiKeyAuth, async (req, res) => {
   console.log(
     `[lead-service] Transfer complete: ${JSON.stringify(updatedTables)}`
   );
+
+  if (runId) traceEvent(runId, { service: "lead-service", event: "transfer-brand-done", detail: `updated: ${JSON.stringify(updatedTables)}`, data: { updatedTables } }, req.headers).catch(() => {});
 
   res.json({ updatedTables });
 });
