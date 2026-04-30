@@ -30,7 +30,7 @@ describe("email-gateway-client", () => {
               campaign: { contacted: true, delivered: true, opened: false, replied: false, replyClassification: null, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
               brand: { contacted: true, delivered: true, opened: false, replied: false, replyClassification: null, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
               global: {
-                email: { contacted: true, delivered: true, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
+                email: { bounced: false, unsubscribed: false },
               },
             },
           },
@@ -74,36 +74,28 @@ describe("email-gateway-client", () => {
       expect(body.items).toEqual([{ email: "alice@acme.com" }]);
     });
 
-    it("returns null on non-200 response", async () => {
+    it("throws on non-200 response (fail loud)", async () => {
       mockFetch.mockResolvedValue({
         ok: false,
         status: 500,
         text: () => Promise.resolve("Internal server error"),
       });
 
-      const result = await checkDeliveryStatus("brand-1", "campaign-1", [
-        { email: "alice@acme.com" },
-      ]);
-
-      expect(result).toBeNull();
+      await expect(
+        checkDeliveryStatus("brand-1", "campaign-1", [
+          { email: "alice@acme.com" },
+        ])
+      ).rejects.toThrow("Status check failed: 500");
     });
 
-    it("returns null and logs warn on connection error (fetch failed)", async () => {
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    it("throws on connection error (fail loud)", async () => {
       mockFetch.mockRejectedValue(new TypeError("fetch failed"));
 
-      const result = await checkDeliveryStatus("brand-1", "campaign-1", [
-        { email: "alice@acme.com" },
-      ]);
-
-      expect(result).toBeNull();
-      expect(warnSpy).toHaveBeenCalledWith(
-        "[email-gateway-client] email-gateway unreachable, skipping delivery check"
-      );
-      expect(errorSpy).not.toHaveBeenCalled();
-      warnSpy.mockRestore();
-      errorSpy.mockRestore();
+      await expect(
+        checkDeliveryStatus("brand-1", "campaign-1", [
+          { email: "alice@acme.com" },
+        ])
+      ).rejects.toThrow("fetch failed");
     });
 
     it("returns empty results for empty items array", async () => {
@@ -136,11 +128,10 @@ describe("email-gateway-client", () => {
       const secondBatch = JSON.parse(mockFetch.mock.calls[1][1].body);
       expect(firstBatch.items).toHaveLength(100);
       expect(secondBatch.items).toHaveLength(50);
-      expect(result!.results).toHaveLength(150);
+      expect(result.results).toHaveLength(150);
     });
 
-    it("returns null if any batch fails", async () => {
-      vi.spyOn(console, "error").mockImplementation(() => {});
+    it("throws if any batch fails (fail loud)", async () => {
       const items = Array.from({ length: 150 }, (_, i) => ({
         email: `user${i}@acme.com`,
       }));
@@ -157,40 +148,20 @@ describe("email-gateway-client", () => {
         };
       });
 
-      const result = await checkDeliveryStatus("brand-1", "campaign-1", items);
-      expect(result).toBeNull();
-      vi.restoreAllMocks();
-    });
-
-    it("returns null and logs error on unexpected errors", async () => {
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-      const unexpectedError = new Error("something unexpected");
-      mockFetch.mockRejectedValue(unexpectedError);
-
-      const result = await checkDeliveryStatus("brand-1", "campaign-1", [
-        { email: "alice@acme.com" },
-      ]);
-
-      expect(result).toBeNull();
-      expect(errorSpy).toHaveBeenCalledWith(
-        "[email-gateway-client] Status check error:",
-        unexpectedError
-      );
-      expect(warnSpy).not.toHaveBeenCalled();
-      warnSpy.mockRestore();
-      errorSpy.mockRestore();
+      await expect(
+        checkDeliveryStatus("brand-1", "campaign-1", items)
+      ).rejects.toThrow("Status check failed: 500");
     });
   });
 
   describe("isContacted", () => {
     const emptyScoped: ScopedStatus = {
-      contacted: false, delivered: false, opened: false, replied: false,
+      contacted: false, sent: false, delivered: false, opened: false, clicked: false, replied: false,
       replyClassification: null, bounced: false, unsubscribed: false, lastDeliveredAt: null,
     };
 
     const emptyGlobal = {
-      email: { contacted: false, delivered: false, bounced: false, unsubscribed: false, lastDeliveredAt: null },
+      email: { bounced: false, unsubscribed: false },
     };
 
     const emptyProvider: ProviderStatus = {
@@ -209,7 +180,7 @@ describe("email-gateway-client", () => {
     });
 
     it("returns false when no providers present", () => {
-      const result: StatusResult = { leadId: "lead-1", email: "alice@acme.com" };
+      const result: StatusResult = { email: "alice@acme.com" };
       expect(isContacted(result)).toBe(false);
     });
 
@@ -230,32 +201,6 @@ describe("email-gateway-client", () => {
         broadcast: {
           ...emptyProvider,
           brand: { ...emptyScoped, contacted: true, delivered: true },
-        },
-      };
-      expect(isContacted(result)).toBe(true);
-    });
-
-    it("returns true when transactional global email is contacted", () => {
-      const result: StatusResult = {
-        email: "alice@acme.com",
-        transactional: {
-          ...emptyProvider,
-          global: {
-            email: { contacted: true, delivered: true, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
-          },
-        },
-      };
-      expect(isContacted(result)).toBe(true);
-    });
-
-    it("returns true when broadcast global email is contacted", () => {
-      const result: StatusResult = {
-        email: "alice@acme.com",
-        broadcast: {
-          ...emptyProvider,
-          global: {
-            email: { contacted: true, delivered: true, bounced: false, unsubscribed: false, lastDeliveredAt: "2024-01-01" },
-          },
         },
       };
       expect(isContacted(result)).toBe(true);
@@ -290,12 +235,12 @@ describe("email-gateway-client", () => {
 
   describe("checkEmailStatus", () => {
     const emptyScoped: ScopedStatus = {
-      contacted: false, delivered: false, opened: false, replied: false,
+      contacted: false, sent: false, delivered: false, opened: false, clicked: false, replied: false,
       replyClassification: null, bounced: false, unsubscribed: false, lastDeliveredAt: null,
     };
 
     const emptyGlobal = {
-      email: { contacted: false, delivered: false, bounced: false, unsubscribed: false, lastDeliveredAt: null },
+      email: { bounced: false, unsubscribed: false },
     };
 
     const emptyProvider: ProviderStatus = {
@@ -319,7 +264,7 @@ describe("email-gateway-client", () => {
         broadcast: {
           ...emptyProvider,
           global: {
-            email: { contacted: false, delivered: false, bounced: true, unsubscribed: false, lastDeliveredAt: null },
+            email: { bounced: true, unsubscribed: false },
           },
         },
       };
@@ -332,7 +277,7 @@ describe("email-gateway-client", () => {
         transactional: {
           ...emptyProvider,
           global: {
-            email: { contacted: false, delivered: false, bounced: false, unsubscribed: true, lastDeliveredAt: null },
+            email: { bounced: false, unsubscribed: true },
           },
         },
       };
@@ -346,7 +291,7 @@ describe("email-gateway-client", () => {
           campaign: { ...emptyScoped, contacted: true },
           brand: emptyScoped,
           global: {
-            email: { contacted: false, delivered: false, bounced: true, unsubscribed: false, lastDeliveredAt: null },
+            email: { bounced: true, unsubscribed: false },
           },
         },
       };

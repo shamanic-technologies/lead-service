@@ -132,7 +132,7 @@ describe("dedup", () => {
 
     it("returns blocked=true with reason when email matches", async () => {
       vi.mocked(pgSql.unsafe).mockResolvedValue([
-        { lead_id: null, email: "alice@acme.com", external_id: null },
+        { lead_id: null, email: "alice@acme.com", apollo_person_id: null },
       ] as never);
 
       const result = await isAlreadyServedForBrand({
@@ -147,7 +147,7 @@ describe("dedup", () => {
 
     it("returns blocked=true when leadId matches", async () => {
       vi.mocked(pgSql.unsafe).mockResolvedValue([
-        { lead_id: "lead-1", email: "other@acme.com", external_id: null },
+        { lead_id: "lead-1", email: "other@acme.com", apollo_person_id: null },
       ] as never);
 
       const result = await isAlreadyServedForBrand({
@@ -161,19 +161,32 @@ describe("dedup", () => {
       expect(result.reason).toContain("lead_id");
     });
 
-    it("returns blocked=true when externalId matches", async () => {
+    it("returns blocked=true when apolloPersonId matches", async () => {
       vi.mocked(pgSql.unsafe).mockResolvedValue([
-        { lead_id: null, email: "other@acme.com", external_id: "apollo-123" },
+        { lead_id: null, email: "other@acme.com", apollo_person_id: "apollo-123" },
       ] as never);
 
       const result = await isAlreadyServedForBrand({
         orgId: "org-1",
         brandIds: ["brand-1"],
-        externalId: "apollo-123",
+        apolloPersonId: "apollo-123",
       });
 
       expect(result.blocked).toBe(true);
-      expect(result.reason).toContain("external_id");
+      expect(result.reason).toContain("apollo_person_id");
+    });
+
+    it("includes 6-month TTL in the query", async () => {
+      vi.mocked(pgSql.unsafe).mockResolvedValue([] as never);
+
+      await isAlreadyServedForBrand({
+        orgId: "org-1",
+        brandIds: ["brand-1"],
+        email: "alice@acme.com",
+      });
+
+      const call = vi.mocked(pgSql.unsafe).mock.calls[0];
+      expect(call[0]).toContain("served_at >= now() - interval '6 months'");
     });
 
     it("uses brand_ids && overlap in the query", async () => {
@@ -219,13 +232,13 @@ describe("dedup", () => {
         brandIds: ["brand-1"],
         leadId: "lead-1",
         email: "alice@acme.com",
-        externalId: "apollo-123",
+        apolloPersonId: "apollo-123",
       });
 
       const call = vi.mocked(pgSql.unsafe).mock.calls[0];
       expect(call[0]).toContain("lead_id = $3");
       expect(call[0]).toContain("email = $4");
-      expect(call[0]).toContain("external_id = $5");
+      expect(call[0]).toContain("apollo_person_id = $5");
       expect(call[0]).toContain(" OR ");
     });
   });
@@ -300,7 +313,7 @@ describe("dedup", () => {
         campaignId: "campaign-1",
         email: "alice@acme.com",
         leadId: "lead-uuid-1",
-        externalId: "enrich-123",
+        apolloPersonId: "enrich-123",
         runId: "child-run-1",
       });
 

@@ -16,10 +16,10 @@ describe("lead_buffer indexes", () => {
     expect(idx.columns).toEqual(["org_id", "campaign_id", "namespace", "status"]);
   });
 
-  it("has index covering isInBuffer query (org_id, campaign_id, external_id)", () => {
+  it("has index covering isInBuffer query (org_id, campaign_id, apollo_person_id)", () => {
     expect(indexNames).toContain("idx_buffer_org_campaign_extid");
     const idx = indexes.find((i) => i.name === "idx_buffer_org_campaign_extid")!;
-    expect(idx.columns).toEqual(["org_id", "campaign_id", "external_id"]);
+    expect(idx.columns).toEqual(["org_id", "campaign_id", "apollo_person_id"]);
   });
 
   it("does NOT have the old suboptimal index (org_id, namespace, status)", () => {

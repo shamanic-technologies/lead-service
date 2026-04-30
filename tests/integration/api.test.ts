@@ -339,7 +339,7 @@ describe("API Integration Tests", { timeout: 30000 }, () => {
       await seedBuffer({
         campaignId: "campaign-leads",
         brandId: "brand-leads",
-        leads: [{ email: "diana@example.com", externalId: "apollo-1", data: richData }],
+        leads: [{ email: "diana@example.com", apolloPersonId: "apollo-1", data: richData }],
       });
 
       // Pull it to move to served_leads

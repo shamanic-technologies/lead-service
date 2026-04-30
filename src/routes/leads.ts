@@ -7,6 +7,8 @@ import {
   checkDeliveryStatus,
   type StatusResult,
   type DeliveryStatusItem,
+  type ScopedStatus,
+  type GlobalStatus,
 } from "../lib/email-gateway-client.js";
 import { traceEvent } from "../lib/trace-event.js";
 
@@ -21,93 +23,106 @@ export function extractEnrichment(metadata: unknown): Record<string, unknown> | 
   return { ...m };
 }
 
+interface FlattenedStatus {
+  contacted: boolean;
+  sent: boolean;
+  delivered: boolean;
+  opened: boolean;
+  clicked: boolean;
+  bounced: boolean;
+  unsubscribed: boolean;
+  replied: boolean;
+  replyClassification: "positive" | "negative" | "neutral" | null;
+  lastDeliveredAt: string | null;
+  global: {
+    bounced: boolean;
+    unsubscribed: boolean;
+  };
+}
+
+function pickScoped(s: ScopedStatus | null | undefined) {
+  return {
+    contacted: !!s?.contacted,
+    sent: !!s?.sent,
+    delivered: !!s?.delivered,
+    opened: !!s?.opened,
+    clicked: !!s?.clicked,
+    bounced: !!s?.bounced,
+    unsubscribed: !!s?.unsubscribed,
+    replied: !!s?.replied,
+    replyClassification: s?.replyClassification ?? null,
+    lastDeliveredAt: s?.lastDeliveredAt ?? null,
+  };
+}
+
+function mergeGlobal(bc?: GlobalStatus | null, tx?: GlobalStatus | null) {
+  return {
+    bounced: !!(bc?.email?.bounced || tx?.email?.bounced),
+    unsubscribed: !!(bc?.email?.unsubscribed || tx?.email?.unsubscribed),
+  };
+}
+
+function mergeProviders(
+  bcScope: ReturnType<typeof pickScoped>,
+  txScope: ReturnType<typeof pickScoped>,
+): Omit<FlattenedStatus, "global"> {
+  return {
+    contacted: bcScope.contacted || txScope.contacted,
+    sent: bcScope.sent || txScope.sent,
+    delivered: bcScope.delivered || txScope.delivered,
+    opened: bcScope.opened || txScope.opened,
+    clicked: bcScope.clicked || txScope.clicked,
+    bounced: bcScope.bounced || txScope.bounced,
+    unsubscribed: bcScope.unsubscribed || txScope.unsubscribed,
+    replied: bcScope.replied || txScope.replied,
+    replyClassification: bcScope.replyClassification ?? txScope.replyClassification ?? null,
+    lastDeliveredAt: bcScope.lastDeliveredAt ?? txScope.lastDeliveredAt ?? null,
+  };
+}
+
 /**
  * Flatten status using campaign scope (when campaignId is provided).
+ * Also checks brand + global for contacted flag.
  */
-export function flattenCampaignStatus(result: StatusResult) {
+export function flattenCampaignStatus(result: StatusResult): FlattenedStatus {
   const bc = result.broadcast;
   const tx = result.transactional;
 
-  const contacted = !!(
-    bc?.campaign?.contacted ||
-    bc?.brand?.contacted ||
-    bc?.global?.email?.contacted ||
-    tx?.campaign?.contacted ||
-    tx?.brand?.contacted ||
-    tx?.global?.email?.contacted
-  );
+  const bcCampaign = pickScoped(bc?.campaign);
+  const txCampaign = pickScoped(tx?.campaign);
+  const merged = mergeProviders(bcCampaign, txCampaign);
 
-  const delivered = !!(
-    bc?.campaign?.delivered ||
-    tx?.campaign?.delivered
-  );
+  // contacted: also true if brand or global says contacted
+  if (bc?.brand?.contacted || tx?.brand?.contacted) {
+    merged.contacted = true;
+  }
 
-  const bounced = !!(
-    bc?.campaign?.bounced ||
-    tx?.campaign?.bounced
-  );
+  const global = mergeGlobal(bc?.global, tx?.global);
 
-  const replied = !!(
-    bc?.campaign?.replied ||
-    tx?.campaign?.replied
-  );
-
-  const replyClassification =
-    bc?.campaign?.replyClassification ??
-    tx?.campaign?.replyClassification ??
-    null;
-
-  const lastDeliveredAt =
-    bc?.campaign?.lastDeliveredAt ??
-    tx?.campaign?.lastDeliveredAt ??
-    null;
-
-  return { contacted, delivered, bounced, replied, replyClassification, lastDeliveredAt };
+  return { ...merged, global };
 }
 
 /**
  * Flatten status using brand scope (when no campaignId — cross-campaign view).
  */
-export function flattenBrandStatus(result: StatusResult) {
+export function flattenBrandStatus(result: StatusResult): FlattenedStatus {
   const bc = result.broadcast;
   const tx = result.transactional;
 
-  const contacted = !!(
-    bc?.brand?.contacted ||
-    bc?.global?.email?.contacted ||
-    tx?.brand?.contacted ||
-    tx?.global?.email?.contacted
-  );
+  const bcBrand = pickScoped(bc?.brand);
+  const txBrand = pickScoped(tx?.brand);
+  const merged = mergeProviders(bcBrand, txBrand);
 
-  const delivered = !!(
-    bc?.brand?.delivered ||
-    tx?.brand?.delivered
-  );
+  const global = mergeGlobal(bc?.global, tx?.global);
 
-  const bounced = !!(
-    bc?.brand?.bounced ||
-    tx?.brand?.bounced
-  );
-
-  const replied = !!(
-    bc?.brand?.replied ||
-    tx?.brand?.replied
-  );
-
-  const replyClassification =
-    bc?.brand?.replyClassification ??
-    tx?.brand?.replyClassification ??
-    null;
-
-  const lastDeliveredAt =
-    bc?.brand?.lastDeliveredAt ??
-    tx?.brand?.lastDeliveredAt ??
-    null;
-
-  return { contacted, delivered, bounced, replied, replyClassification, lastDeliveredAt };
+  return { ...merged, global };
 }
 
-const DEFAULT_STATUS = { contacted: false, delivered: false, bounced: false, replied: false, replyClassification: null, lastDeliveredAt: null };
+const DEFAULT_STATUS: FlattenedStatus = {
+  contacted: false, sent: false, delivered: false, opened: false, clicked: false,
+  bounced: false, unsubscribed: false, replied: false, replyClassification: null, lastDeliveredAt: null,
+  global: { bounced: false, unsubscribed: false },
+};
 
 router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedRequest, res) => {
   try {
@@ -164,7 +179,6 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
             group.items,
             context,
           );
-          if (!response) return;
           for (const result of response.results) {
             statusMap.set(result.email, result);
           }
@@ -178,10 +192,15 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
         ? (statusResult ? flatten(statusResult) : DEFAULT_STATUS)
         : DEFAULT_STATUS;
 
+      const enrichment = extractEnrichment(lead.metadata);
+      const emailStatus = (enrichment?.emailStatus as string) ?? null;
+
       return {
         ...lead,
         leadId: lead.leadId ?? null,
-        enrichment: extractEnrichment(lead.metadata),
+        apolloPersonId: lead.apolloPersonId ?? null,
+        emailStatus,
+        enrichment,
         ...status,
       };
     });

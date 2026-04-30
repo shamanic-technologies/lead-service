@@ -99,6 +99,13 @@
       "when": 1775376000000,
       "tag": "0013_fix_buffer_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1775635200000,
+      "tag": "0014_rename_external_id_to_apollo_person_id",
+      "breakpoints": true
     }
   ]
 }

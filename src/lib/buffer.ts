@@ -7,12 +7,24 @@ import { apolloSearchNext, apolloEnrich, apolloSearchParams } from "./apollo-cli
 import { fetchCampaign } from "./campaign-client.js";
 import { extractBrandFields } from "./brand-client.js";
 
-async function isInBuffer(orgId: string, campaignId: string, externalId: string): Promise<boolean> {
+/** Valid Apollo email statuses — all others are skipped */
+const VALID_EMAIL_STATUSES = new Set(["verified", "extrapolated"]);
+
+/** Enrichment cache TTL: 6 months for found emails, 1 day for no-email results */
+const CACHE_TTL_EMAIL_FOUND_MS = 6 * 30 * 24 * 60 * 60 * 1000; // ~6 months
+const CACHE_TTL_NO_EMAIL_MS = 1 * 24 * 60 * 60 * 1000; // 1 day
+
+function isCacheFresh(enrichedAt: Date, hasEmail: boolean): boolean {
+  const ttl = hasEmail ? CACHE_TTL_EMAIL_FOUND_MS : CACHE_TTL_NO_EMAIL_MS;
+  return Date.now() - enrichedAt.getTime() < ttl;
+}
+
+async function isInBuffer(orgId: string, campaignId: string, apolloPersonId: string): Promise<boolean> {
   const row = await db.query.leadBuffer.findFirst({
     where: and(
       eq(leadBuffer.orgId, orgId),
       eq(leadBuffer.campaignId, campaignId),
-      eq(leadBuffer.externalId, externalId)
+      eq(leadBuffer.apolloPersonId, apolloPersonId)
     ),
   });
   return !!row;
@@ -124,7 +136,7 @@ async function fillBufferFromSearch(params: {
     // Collect candidates from this page (not already in buffer)
     const candidates: Array<{
       data: Record<string, unknown>;
-      externalId?: string;
+      apolloPersonId?: string;
       email?: string;
       leadId?: string;
     }> = [];
@@ -136,6 +148,7 @@ async function fillBufferFromSearch(params: {
       }
 
       let email = person.email || undefined;
+      let emailStatus = person.emailStatus || undefined;
       let leadId: string | undefined;
       let data: Record<string, unknown> = person;
 
@@ -146,16 +159,25 @@ async function fillBufferFromSearch(params: {
         });
 
         if (cached) {
-          if (!cached.email) {
-            // Previously enriched, no email found — skip entirely
+          if (!isCacheFresh(cached.enrichedAt, !!cached.email)) {
+            // Cache expired — will be re-enriched during pullNext
+          } else if (!cached.email) {
+            // Previously enriched, no email found, cache still fresh — skip entirely
             continue;
-          }
-          email = cached.email;
-          // Merge enriched data so buffer row has full person data (lastName, etc.)
-          if (cached.responseRaw && typeof cached.responseRaw === "object") {
-            data = { ...person, ...(cached.responseRaw as Record<string, unknown>) };
+          } else {
+            email = cached.email;
+            emailStatus = cached.emailStatus ?? undefined;
+            // Merge enriched data so buffer row has full person data (lastName, etc.)
+            if (cached.responseRaw && typeof cached.responseRaw === "object") {
+              data = { ...person, ...(cached.responseRaw as Record<string, unknown>) };
+            }
           }
         }
+      }
+
+      // Skip if email status is not valid
+      if (email && emailStatus && !VALID_EMAIL_STATUSES.has(emailStatus)) {
+        continue;
       }
 
       // Try to find existing leadId
@@ -164,7 +186,7 @@ async function fillBufferFromSearch(params: {
         if (existingLeadId) leadId = existingLeadId;
       }
 
-      candidates.push({ data, externalId: person.id, email, leadId });
+      candidates.push({ data, apolloPersonId: person.id, email, leadId });
     }
 
     // Batch contacted check for candidates with emails and leadIds
@@ -187,7 +209,7 @@ async function fillBufferFromSearch(params: {
 
     let pageFilled = 0;
 
-    for (const { data, externalId, email } of candidates) {
+    for (const { data, apolloPersonId, email } of candidates) {
       const status = email ? contactedMap.get(email) : undefined;
       if (status?.contacted || status?.bounced || status?.unsubscribed) continue;
 
@@ -195,7 +217,7 @@ async function fillBufferFromSearch(params: {
         namespace: "apollo",
         campaignId: params.campaignId,
         email: email ?? "",
-        externalId: externalId,
+        apolloPersonId: apolloPersonId,
         data,
         status: "buffered",
         pushRunId: params.pushRunId ?? null,
@@ -300,7 +322,7 @@ export async function pullNext(params: {
       namespace: claimedRows[0].namespace as string,
       campaignId: claimedRows[0].campaign_id as string,
       email: claimedRows[0].email as string,
-      externalId: claimedRows[0].external_id as string | null,
+      apolloPersonId: claimedRows[0].apollo_person_id as string | null,
       data: claimedRows[0].data as unknown,
       status: claimedRows[0].status as string,
       pushRunId: claimedRows[0].push_run_id as string | null,
@@ -331,16 +353,16 @@ export async function pullNext(params: {
     }
 
     // Pre-enrichment brand dedup: skip leads already served for this brand
-    // before paying for Apollo enrichment (uses externalId only, no email needed)
-    if (row.externalId) {
+    // before paying for Apollo enrichment (uses apolloPersonId only, no email needed)
+    if (row.apolloPersonId) {
       const preCheck = await isAlreadyServedForBrand({
         orgId: params.orgId,
         brandIds: params.brandIds,
-        externalId: row.externalId,
+        apolloPersonId: row.apolloPersonId,
       });
 
       if (preCheck.blocked) {
-        console.log(`[lead-service] pullNext skip (pre-enrich brand dedup): ${preCheck.reason} externalId=${row.externalId}`);
+        console.log(`[lead-service] pullNext skip (pre-enrich brand dedup): ${preCheck.reason} apolloPersonId=${row.apolloPersonId}`);
         await db
           .update(leadBuffer)
           .set({ status: "skipped" })
@@ -353,19 +375,28 @@ export async function pullNext(params: {
     let email = row.email;
     let enrichedData = row.data;
 
-    if (!email && row.externalId) {
+    if (!email && row.apolloPersonId) {
       // Check enrichment cache first to avoid duplicate Apollo API calls
       const cached = await db.query.enrichments.findFirst({
-        where: eq(enrichments.apolloPersonId, row.externalId),
+        where: eq(enrichments.apolloPersonId, row.apolloPersonId),
       });
 
-      if (cached) {
+      if (cached && isCacheFresh(cached.enrichedAt, !!cached.email)) {
         if (cached.email) {
+          // Check email status from cache
+          if (cached.emailStatus && !VALID_EMAIL_STATUSES.has(cached.emailStatus)) {
+            console.log(`[lead-service] pullNext skip (invalid emailStatus: ${cached.emailStatus}) apolloPersonId=${row.apolloPersonId}`);
+            await db
+              .update(leadBuffer)
+              .set({ status: "skipped" })
+              .where(eq(leadBuffer.id, row.id));
+            continue;
+          }
           // Use cached enrichment — no apollo-service call needed
           email = cached.email;
           enrichedData = cached.responseRaw ?? row.data;
         } else {
-          // Previously enriched but no email found — skip without calling Apollo
+          // Previously enriched but no email found, cache still fresh — skip without calling Apollo
           await db
             .update(leadBuffer)
             .set({ status: "skipped" })
@@ -373,7 +404,7 @@ export async function pullNext(params: {
           continue;
         }
       } else {
-        const enrichResult = await apolloEnrich(row.externalId, {
+        const enrichResult = await apolloEnrich(row.apolloPersonId, {
           runId: params.runId,
           orgId: params.orgId,
           userId: params.userId,
@@ -387,7 +418,8 @@ export async function pullNext(params: {
           // Cache the no-email result to avoid re-enriching this person
           await db.insert(enrichments).values({
             email: null,
-            apolloPersonId: row.externalId,
+            emailStatus: null,
+            apolloPersonId: row.apolloPersonId,
             firstName: enrichResult?.person?.firstName ?? null,
             lastName: enrichResult?.person?.lastName ?? null,
             title: enrichResult?.person?.title ?? null,
@@ -405,13 +437,40 @@ export async function pullNext(params: {
           continue;
         }
 
+        // Check email status from fresh enrichment
+        const freshEmailStatus = enrichResult.person.emailStatus;
+        if (freshEmailStatus && !VALID_EMAIL_STATUSES.has(freshEmailStatus)) {
+          console.log(`[lead-service] pullNext skip (invalid emailStatus: ${freshEmailStatus}) apolloPersonId=${row.apolloPersonId}`);
+          // Still cache the result
+          await db.insert(enrichments).values({
+            email: enrichResult.person.email,
+            emailStatus: freshEmailStatus,
+            apolloPersonId: row.apolloPersonId,
+            firstName: enrichResult.person.firstName ?? null,
+            lastName: enrichResult.person.lastName ?? null,
+            title: enrichResult.person.title ?? null,
+            linkedinUrl: enrichResult.person.linkedinUrl ?? null,
+            organizationName: enrichResult.person.organizationName ?? null,
+            organizationDomain: enrichResult.person.organizationDomain ?? null,
+            organizationIndustry: enrichResult.person.organizationIndustry ?? null,
+            organizationSize: enrichResult.person.organizationSize ?? null,
+            responseRaw: enrichResult.person,
+          }).onConflictDoNothing();
+          await db
+            .update(leadBuffer)
+            .set({ status: "skipped" })
+            .where(eq(leadBuffer.id, row.id));
+          continue;
+        }
+
         email = enrichResult.person.email;
         enrichedData = { ...(row.data as object ?? {}), ...enrichResult.person };
 
         // Save to enrichment cache for future lookups
         await db.insert(enrichments).values({
           email,
-          apolloPersonId: row.externalId,
+          emailStatus: freshEmailStatus ?? null,
+          apolloPersonId: row.apolloPersonId,
           firstName: enrichResult.person.firstName ?? null,
           lastName: enrichResult.person.lastName ?? null,
           title: enrichResult.person.title ?? null,
@@ -442,7 +501,7 @@ export async function pullNext(params: {
 
     // Resolve or create the lead identity
     const { leadId } = await resolveOrCreateLead({
-      apolloPersonId: row.externalId,
+      apolloPersonId: row.apolloPersonId,
       email,
       metadata: enrichedData,
     });
@@ -453,7 +512,7 @@ export async function pullNext(params: {
       brandIds: params.brandIds,
       leadId,
       email,
-      externalId: row.externalId,
+      apolloPersonId: row.apolloPersonId,
     });
 
     if (brandCheck.blocked) {
@@ -527,7 +586,7 @@ export async function pullNext(params: {
       campaignId: params.campaignId,
       email,
       leadId,
-      externalId: row.externalId,
+      apolloPersonId: row.apolloPersonId,
       metadata: enrichedData,
       parentRunId: params.parentRunId ?? null,
       runId: params.runId ?? null,
@@ -556,8 +615,6 @@ export async function pullNext(params: {
         ? { ...(enrichedData as Record<string, unknown>), email }
         : { email };
 
-    const dataObj = finalData as Record<string, unknown>;
-
     console.log(`[lead-service] pullNext found=true campaign=${params.campaignId} email=${email} leadId=${leadId}`);
     return {
       found: true,
@@ -568,7 +625,7 @@ export async function pullNext(params: {
         brandIds: params.brandIds,
         orgId: row.orgId,
         userId: row.userId,
-        apolloPersonId: (dataObj.id as string) ?? null,
+        apolloPersonId: row.apolloPersonId,
       },
     };
   }
