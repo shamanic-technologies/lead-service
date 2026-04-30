@@ -344,6 +344,28 @@ describe("dedup", () => {
       );
     });
 
+    it("stores parentRunId when provided", async () => {
+      const returningMock = vi.fn().mockResolvedValue([{ id: "uuid-1" }]);
+      const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });
+      const valuesMock = vi.fn().mockReturnValue({ onConflictDoNothing: onConflictMock });
+      vi.mocked(db.insert).mockReturnValue({ values: valuesMock } as never);
+
+      await markServed({
+        orgId: "org-1",
+        namespace: "apollo",
+        brandIds: ["brand-1"],
+        campaignId: "campaign-1",
+        email: "alice@acme.com",
+        leadId: "lead-uuid-1",
+        runId: "child-run-1",
+        parentRunId: "caller-run-1",
+      });
+
+      expect(valuesMock).toHaveBeenCalledWith(
+        expect.objectContaining({ parentRunId: "caller-run-1" })
+      );
+    });
+
     it("stores multiple brandIds in the insert", async () => {
       const returningMock = vi.fn().mockResolvedValue([{ id: "uuid-1" }]);
       const onConflictMock = vi.fn().mockReturnValue({ returning: returningMock });

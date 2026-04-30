@@ -146,6 +146,7 @@ export async function markServed(params: {
   leadId?: string | null;
   externalId?: string | null;
   metadata?: unknown;
+  parentRunId?: string | null;
   runId?: string | null;
   userId?: string | null;
   workflowSlug?: string | null;
@@ -160,6 +161,7 @@ export async function markServed(params: {
       leadId: params.leadId ?? null,
       externalId: params.externalId ?? null,
       metadata: params.metadata ?? null,
+      parentRunId: params.parentRunId ?? null,
       runId: params.runId ?? null,
       brandIds: params.brandIds,
       campaignId: params.campaignId,

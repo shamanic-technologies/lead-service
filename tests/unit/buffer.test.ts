@@ -1031,6 +1031,61 @@ describe("buffer", () => {
       expect(true).toBe(true);
     });
 
+    it("skips lead via brand dedup by externalId BEFORE calling apolloEnrich (no wasted credits)", async () => {
+      // Lead has no email (needs enrichment) but externalId is already served for this brand.
+      // pullNext should skip it WITHOUT calling apolloEnrich.
+      pgSqlMock
+        .mockResolvedValueOnce([toClaimedRow({
+          id: "buf-predeup",
+          namespace: "apollo",
+          campaignId: "campaign-1",
+          email: "",
+          externalId: "already-served-person",
+          data: { firstName: "Dupe" },
+          brandIds: ["brand-1"],
+          orgId: "org-1",
+          userId: null,
+        })])
+        .mockResolvedValueOnce([toClaimedRow({
+          id: "buf-good",
+          namespace: "apollo",
+          campaignId: "campaign-1",
+          email: "good@acme.com",
+          externalId: "fresh-person",
+          data: { firstName: "Good" },
+          brandIds: ["brand-1"],
+          orgId: "org-1",
+          userId: null,
+        })]);
+
+      // First lead: brand dedup blocks by externalId
+      vi.mocked(isAlreadyServedForBrand)
+        .mockResolvedValueOnce({ blocked: true, reason: "already served for overlapping brand (matched on external_id)" })
+        .mockResolvedValueOnce({ blocked: false });
+
+      vi.mocked(resolveOrCreateLead).mockResolvedValue({ leadId: "lead-good", isNew: true });
+
+      const setMock = vi.fn().mockReturnValue({
+        where: vi.fn().mockResolvedValue(undefined),
+      });
+      vi.mocked(db.update).mockReturnValue({ set: setMock } as never);
+
+      const result = await pullNext({
+        orgId: "org-1",
+        campaignId: "campaign-1",
+        brandIds: ["brand-1"],
+      });
+
+      expect(result.found).toBe(true);
+      expect(result.lead?.email).toBe("good@acme.com");
+      // Critical: apolloEnrich must NOT have been called for the first lead
+      expect(vi.mocked(apolloEnrich)).not.toHaveBeenCalled();
+      // Brand dedup was called with externalId before enrichment
+      expect(vi.mocked(isAlreadyServedForBrand).mock.calls[0][0]).toEqual(
+        expect.objectContaining({ externalId: "already-served-person" })
+      );
+    });
+
     it("skips lead when markServed returns inserted: false (race condition dedup)", async () => {
       // Regression test: two concurrent pullNext calls claim different rows
       // but both have the same email. The second call's markServed returns
