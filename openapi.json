@@ -808,6 +808,9 @@
           },
           "skipped": {
             "type": "number"
+          },
+          "claimed": {
+            "type": "number"
           }
         },
         "required": [
@@ -815,7 +818,8 @@
           "byOutreachStatus",
           "repliesDetail",
           "buffered",
-          "skipped"
+          "skipped",
+          "claimed"
         ]
       },
       "StatsGroupedResponse": {
@@ -975,6 +979,9 @@
                 },
                 "skipped": {
                   "type": "number"
+                },
+                "claimed": {
+                  "type": "number"
                 }
               },
               "required": [
@@ -983,7 +990,8 @@
                 "byOutreachStatus",
                 "repliesDetail",
                 "buffered",
-                "skipped"
+                "skipped",
+                "claimed"
               ]
             }
           }

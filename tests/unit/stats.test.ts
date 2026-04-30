@@ -164,6 +164,7 @@ describe("GET /stats", () => {
     expect(res.body).toHaveProperty("repliesDetail");
     expect(res.body).toHaveProperty("buffered");
     expect(res.body).toHaveProperty("skipped");
+    expect(res.body).toHaveProperty("claimed");
     expect(res.body).not.toHaveProperty("served");
     expect(res.body).not.toHaveProperty("contacted");
     expect(res.body).not.toHaveProperty("apollo");
@@ -237,6 +238,7 @@ describe("GET /stats", () => {
       repliesDetail: ZERO_RECIPIENT_STATS.repliesDetail,
       buffered: 0,
       skipped: 0,
+      claimed: 0,
     });
     expect(mockWhere).not.toHaveBeenCalled();
   });

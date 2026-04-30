@@ -366,6 +366,7 @@ const StatsResponseSchema = z
     repliesDetail: RepliesDetailSchema,
     buffered: z.number(),
     skipped: z.number(),
+    claimed: z.number(),
   })
   .openapi("StatsResponse");
 
@@ -376,6 +377,7 @@ const StatsGroupSchema = z.object({
   repliesDetail: RepliesDetailSchema,
   buffered: z.number(),
   skipped: z.number(),
+  claimed: z.number(),
 });
 
 const StatsGroupedResponseSchema = z

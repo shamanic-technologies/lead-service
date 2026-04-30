@@ -151,6 +151,19 @@ const ZERO_RECIPIENT_STATS: RecipientStats = {
   },
 };
 
+type GroupStats = { totalLeads: number; byOutreachStatus: RecipientStats; repliesDetail: RecipientStats["repliesDetail"]; buffered: number; skipped: number; claimed: number };
+
+function newGroupStats(): GroupStats {
+  return {
+    totalLeads: 0,
+    byOutreachStatus: { ...ZERO_RECIPIENT_STATS, repliesDetail: { ...ZERO_RECIPIENT_STATS.repliesDetail } },
+    repliesDetail: { ...ZERO_RECIPIENT_STATS.repliesDetail },
+    buffered: 0,
+    skipped: 0,
+    claimed: 0,
+  };
+}
+
 function mergeRecipientStats(broadcast?: { recipientStats: RecipientStats }, transactional?: { recipientStats: RecipientStats }): { byOutreachStatus: RecipientStats; repliesDetail: RecipientStats["repliesDetail"] } {
   const bc = broadcast?.recipientStats ?? ZERO_RECIPIENT_STATS;
   const tx = transactional?.recipientStats ?? ZERO_RECIPIENT_STATS;
@@ -183,6 +196,16 @@ function mergeRecipientStats(broadcast?: { recipientStats: RecipientStats }, tra
   return { byOutreachStatus, repliesDetail: byOutreachStatus.repliesDetail };
 }
 
+function applyBufferRows(groups: Map<string, GroupStats>, bufferRows: { key: string; status: string; count: number }[], keyFn: (key: string) => string = (k) => k) {
+  for (const row of bufferRows) {
+    const g = groups.get(keyFn(row.key)) ?? newGroupStats();
+    if (!groups.has(keyFn(row.key))) groups.set(keyFn(row.key), g);
+    if (row.status === "buffered") g.buffered += row.count;
+    if (row.status === "skipped") g.skipped += row.count;
+    if (row.status === "claimed") g.claimed += row.count;
+  }
+}
+
 const ZERO_STATS = { groups: [] };
 
 router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedRequest, res) => {
@@ -209,6 +232,7 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
           repliesDetail: ZERO_RECIPIENT_STATS.repliesDetail,
           buffered: 0,
           skipped: 0,
+          claimed: 0,
         });
       }
       return;
@@ -233,7 +257,6 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       const bufferCol = COLUMN_MAP[dbField].buffer;
       const context = { orgId: req.orgId, userId: req.userId, runId: req.runId };
 
-      // For dynasty groupBy, fetch email-gateway stats grouped by the underlying field
       egParams.groupBy = dbField;
 
       const [dynastyMap, servedRows, egStats, bufferRows] = await Promise.all([
@@ -251,37 +274,25 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
           .groupBy(bufferCol, leadBuffer.status),
       ]);
 
-      const groups = new Map<
-        string,
-        { totalLeads: number; byOutreachStatus: RecipientStats; repliesDetail: RecipientStats["repliesDetail"]; buffered: number; skipped: number }
-      >();
-
-      const getGroup = (dynastyKey: string) => {
-        if (!groups.has(dynastyKey))
-          groups.set(dynastyKey, {
-            totalLeads: 0,
-            byOutreachStatus: { ...ZERO_RECIPIENT_STATS, repliesDetail: { ...ZERO_RECIPIENT_STATS.repliesDetail } },
-            repliesDetail: { ...ZERO_RECIPIENT_STATS.repliesDetail },
-            buffered: 0,
-            skipped: 0,
-          });
-        return groups.get(dynastyKey)!;
-      };
+      const groups = new Map<string, GroupStats>();
 
       const toDynasty = (slug: string | null): string =>
         dynastyMap.get(slug ?? "") ?? slug ?? "unknown";
+
+      const getGroup = (dynastyKey: string) => {
+        if (!groups.has(dynastyKey)) groups.set(dynastyKey, newGroupStats());
+        return groups.get(dynastyKey)!;
+      };
 
       for (const row of servedRows) {
         getGroup(toDynasty(row.key)).totalLeads += row.count;
       }
 
-      // Map email-gateway grouped stats to dynasty slugs
       if ("groups" in egStats) {
         for (const g of (egStats as EmailGatewayGroupedStatsResponse).groups) {
           const dynastyKey = toDynasty(g.key);
           const group = getGroup(dynastyKey);
           const merged = mergeRecipientStats(g.broadcast, g.transactional);
-          // Accumulate (dynasty may map multiple slugs)
           for (const k of Object.keys(merged.byOutreachStatus) as (keyof RecipientStats)[]) {
             if (k === "repliesDetail") continue;
             (group.byOutreachStatus[k] as number) += merged.byOutreachStatus[k] as number;
@@ -293,17 +304,10 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
         }
       }
 
-      for (const row of bufferRows) {
-        const g = getGroup(toDynasty(row.key));
-        if (row.status === "buffered") g.buffered += row.count;
-        if (row.status === "skipped") g.skipped += row.count;
-      }
+      applyBufferRows(groups, bufferRows as any[], (k) => toDynasty(k));
 
       res.json({
-        groups: Array.from(groups.entries()).map(([key, stats]) => ({
-          key,
-          ...stats,
-        })),
+        groups: Array.from(groups.entries()).map(([key, stats]) => ({ key, ...stats })),
       });
       return;
     }
@@ -328,21 +332,11 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
         `) as Promise<{ key: string; status: string; count: number }[]>,
       ]);
 
-      const groups = new Map<
-        string,
-        { totalLeads: number; byOutreachStatus: RecipientStats; repliesDetail: RecipientStats["repliesDetail"]; buffered: number; skipped: number }
-      >();
+      const groups = new Map<string, GroupStats>();
 
       const getGroup = (key: string | null) => {
         const k = key ?? "unknown";
-        if (!groups.has(k))
-          groups.set(k, {
-            totalLeads: 0,
-            byOutreachStatus: { ...ZERO_RECIPIENT_STATS, repliesDetail: { ...ZERO_RECIPIENT_STATS.repliesDetail } },
-            repliesDetail: { ...ZERO_RECIPIENT_STATS.repliesDetail },
-            buffered: 0,
-            skipped: 0,
-          });
+        if (!groups.has(k)) groups.set(k, newGroupStats());
         return groups.get(k)!;
       };
 
@@ -359,17 +353,10 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
         }
       }
 
-      for (const row of bufferRows) {
-        const g = getGroup(row.key);
-        if (row.status === "buffered") g.buffered = row.count;
-        if (row.status === "skipped") g.skipped = row.count;
-      }
+      applyBufferRows(groups, bufferRows as any[]);
 
       res.json({
-        groups: Array.from(groups.entries()).map(([key, stats]) => ({
-          key,
-          ...stats,
-        })),
+        groups: Array.from(groups.entries()).map(([key, stats]) => ({ key, ...stats })),
       });
       return;
     }
@@ -396,21 +383,11 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
           .groupBy(bufferCol, leadBuffer.status),
       ]);
 
-      const groups = new Map<
-        string,
-        { totalLeads: number; byOutreachStatus: RecipientStats; repliesDetail: RecipientStats["repliesDetail"]; buffered: number; skipped: number }
-      >();
+      const groups = new Map<string, GroupStats>();
 
       const getGroup = (key: string | null) => {
         const k = key ?? "unknown";
-        if (!groups.has(k))
-          groups.set(k, {
-            totalLeads: 0,
-            byOutreachStatus: { ...ZERO_RECIPIENT_STATS, repliesDetail: { ...ZERO_RECIPIENT_STATS.repliesDetail } },
-            repliesDetail: { ...ZERO_RECIPIENT_STATS.repliesDetail },
-            buffered: 0,
-            skipped: 0,
-          });
+        if (!groups.has(k)) groups.set(k, newGroupStats());
         return groups.get(k)!;
       };
 
@@ -427,17 +404,10 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
         }
       }
 
-      for (const row of bufferRows) {
-        const g = getGroup(row.key);
-        if (row.status === "buffered") g.buffered += row.count;
-        if (row.status === "skipped") g.skipped += row.count;
-      }
+      applyBufferRows(groups, bufferRows as any[]);
 
       res.json({
-        groups: Array.from(groups.entries()).map(([key, stats]) => ({
-          key,
-          ...stats,
-        })),
+        groups: Array.from(groups.entries()).map(([key, stats]) => ({ key, ...stats })),
       });
       return;
     }
@@ -470,6 +440,7 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       repliesDetail: merged.repliesDetail,
       buffered: bufferByStatus["buffered"] ?? 0,
       skipped: bufferByStatus["skipped"] ?? 0,
+      claimed: bufferByStatus["claimed"] ?? 0,
     });
   } catch (error) {
     console.error("[lead-service] Stats error:", error);
