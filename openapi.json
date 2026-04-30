@@ -634,6 +634,9 @@
           "skipped": {
             "type": "number"
           },
+          "claimed": {
+            "type": "number"
+          },
           "apollo": {
             "type": "object",
             "properties": {
@@ -663,6 +666,7 @@
           "contacted",
           "buffered",
           "skipped",
+          "claimed",
           "apollo"
         ]
       },
@@ -688,6 +692,9 @@
                 },
                 "skipped": {
                   "type": "number"
+                },
+                "claimed": {
+                  "type": "number"
                 }
               },
               "required": [
@@ -695,7 +702,8 @@
                 "served",
                 "contacted",
                 "buffered",
-                "skipped"
+                "skipped",
+                "claimed"
               ]
             }
           }
