@@ -79,7 +79,7 @@ function toClaimedRow(row: {
   namespace: string;
   campaignId: string;
   email: string;
-  externalId: string | null;
+  apolloPersonId: string | null;
   data: unknown;
   status?: string;
   pushRunId?: string | null;
@@ -93,7 +93,7 @@ function toClaimedRow(row: {
     namespace: row.namespace,
     campaign_id: row.campaignId,
     email: row.email,
-    external_id: row.externalId,
+    apollo_person_id: row.apolloPersonId,
     data: row.data,
     status: "claimed",
     push_run_id: row.pushRunId ?? null,
@@ -160,7 +160,7 @@ describe("buffer", () => {
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "hire@example.com",
-          externalId: "apollo-1",
+          apolloPersonId: "apollo-1",
           data: { firstName: "Jane", email: "hire@example.com" },
           brandIds: ["brand-1"],
           orgId: "org-1",
@@ -217,7 +217,7 @@ describe("buffer", () => {
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "alice@acme.com",
-        externalId: "e-1",
+        apolloPersonId: "e-1",
         data: { name: "Alice" },
         brandIds: ["brand-1"],
         orgId: "org-1",
@@ -252,7 +252,7 @@ describe("buffer", () => {
       expect(result.found).toBe(true);
       expect(result.lead?.leadId).toBe("lead-abc");
       expect(result.lead?.email).toBe("alice@acme.com");
-      expect(result.lead?.apolloPersonId).toBeNull();
+      expect(result.lead?.apolloPersonId).toBe("e-1");
       expect(result.lead?.data).toEqual({ name: "Alice", email: "alice@acme.com" });
     });
 
@@ -269,7 +269,7 @@ describe("buffer", () => {
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "svitlana@hashtagweb3.com",
-        externalId: "e-1",
+        apolloPersonId: "e-1",
         data: apolloData,
         brandIds: ["brand-1"],
         orgId: "org-1",
@@ -307,7 +307,7 @@ describe("buffer", () => {
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "alice@acme.com",
-          externalId: "e-1",
+          apolloPersonId: "e-1",
           data: { name: "Alice" },
           brandIds: ["brand-1"],
           orgId: "org-1",
@@ -318,7 +318,7 @@ describe("buffer", () => {
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "bob@acme.com",
-          externalId: "e-2",
+          apolloPersonId: "e-2",
           data: { name: "Bob" },
           brandIds: ["brand-1"],
           orgId: "org-1",
@@ -357,7 +357,7 @@ describe("buffer", () => {
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "new-lead@example.com",
-        externalId: "apollo-1",
+        apolloPersonId: "apollo-1",
         data: { firstName: "New" },
         brandIds: ["brand-1"],
         orgId: "org-1",
@@ -413,7 +413,7 @@ describe("buffer", () => {
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "ctx-lead@example.com",
-        externalId: "apollo-ctx",
+        apolloPersonId: "apollo-ctx",
         data: { firstName: "Ctx" },
         brandIds: ["brand-1"],
         orgId: "org-1",
@@ -482,7 +482,7 @@ describe("buffer", () => {
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "conv@example.com",
-        externalId: "apollo-conv",
+        apolloPersonId: "apollo-conv",
         data: { firstName: "Conv" },
         brandIds: ["brand-1"],
         orgId: "org-1",
@@ -579,7 +579,7 @@ describe("buffer", () => {
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "briannah@example.com",
-        externalId: "apollo-enr-1",
+        apolloPersonId: "apollo-enr-1",
         data: {
           id: "apollo-enr-1",
           firstName: "Briannah",
@@ -688,7 +688,7 @@ describe("buffer", () => {
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "",
-        externalId: "apollo-person-1",
+        apolloPersonId: "apollo-person-1",
         data: { firstName: "Ray" },
         brandIds: ["brand-1"],
         orgId: "org-1",
@@ -744,7 +744,7 @@ describe("buffer", () => {
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "",
-          externalId: "known-no-email",
+          apolloPersonId: "known-no-email",
           data: { firstName: "Ghost" },
           brandIds: ["brand-1"],
           orgId: "org-1",
@@ -755,7 +755,7 @@ describe("buffer", () => {
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "bob@acme.com",
-          externalId: "e-2",
+          apolloPersonId: "e-2",
           data: { name: "Bob" },
           brandIds: ["brand-1"],
           orgId: "org-1",
@@ -800,7 +800,7 @@ describe("buffer", () => {
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "",
-        externalId: "apollo-wf-1",
+        apolloPersonId: "apollo-wf-1",
         data: { firstName: "Workflow" },
         brandIds: ["brand-1"],
         orgId: "org-1",
@@ -872,7 +872,7 @@ describe("buffer", () => {
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "torian@theorion.com",
-        externalId: "e-1",
+        apolloPersonId: "e-1",
         data: { firstName: "Torian", email: null, title: "Director" },
         brandIds: ["brand-1"],
         orgId: "org-1",
@@ -907,14 +907,14 @@ describe("buffer", () => {
       expect(data.title).toBe("Director");
     });
 
-    it("skips buffer rows with no email and no externalId (never returns found: true with empty email)", async () => {
+    it("skips buffer rows with no email and no apolloPersonId (never returns found: true with empty email)", async () => {
       pgSqlMock
         .mockResolvedValueOnce([toClaimedRow({
           id: "buf-no-email",
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "",
-          externalId: null,
+          apolloPersonId: null,
           data: { name: "Ghost" },
           brandIds: ["brand-1"],
           orgId: "org-1",
@@ -946,7 +946,7 @@ describe("buffer", () => {
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "",
-          externalId: "apollo-no-email",
+          apolloPersonId: "apollo-no-email",
           data: { name: "NoEmail" },
           brandIds: ["brand-1"],
           orgId: "org-1",
@@ -957,7 +957,7 @@ describe("buffer", () => {
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "good@acme.com",
-          externalId: "e-good",
+          apolloPersonId: "e-good",
           data: { name: "Good" },
           brandIds: ["brand-1"],
           orgId: "org-1",
@@ -999,7 +999,7 @@ describe("buffer", () => {
         namespace: "campaign-1",
         campaignId: "campaign-1",
         email: "alice@acme.com",
-        externalId: "e-1",
+        apolloPersonId: "e-1",
         data: { name: "Alice" },
         brandIds: ["brand-1"],
         orgId: "org-1",
@@ -1031,8 +1031,8 @@ describe("buffer", () => {
       expect(true).toBe(true);
     });
 
-    it("skips lead via brand dedup by externalId BEFORE calling apolloEnrich (no wasted credits)", async () => {
-      // Lead has no email (needs enrichment) but externalId is already served for this brand.
+    it("skips lead via brand dedup by apolloPersonId BEFORE calling apolloEnrich (no wasted credits)", async () => {
+      // Lead has no email (needs enrichment) but apolloPersonId is already served for this brand.
       // pullNext should skip it WITHOUT calling apolloEnrich.
       pgSqlMock
         .mockResolvedValueOnce([toClaimedRow({
@@ -1040,7 +1040,7 @@ describe("buffer", () => {
           namespace: "apollo",
           campaignId: "campaign-1",
           email: "",
-          externalId: "already-served-person",
+          apolloPersonId: "already-served-person",
           data: { firstName: "Dupe" },
           brandIds: ["brand-1"],
           orgId: "org-1",
@@ -1051,16 +1051,16 @@ describe("buffer", () => {
           namespace: "apollo",
           campaignId: "campaign-1",
           email: "good@acme.com",
-          externalId: "fresh-person",
+          apolloPersonId: "fresh-person",
           data: { firstName: "Good" },
           brandIds: ["brand-1"],
           orgId: "org-1",
           userId: null,
         })]);
 
-      // First lead: brand dedup blocks by externalId
+      // First lead: brand dedup blocks by apolloPersonId
       vi.mocked(isAlreadyServedForBrand)
-        .mockResolvedValueOnce({ blocked: true, reason: "already served for overlapping brand (matched on external_id)" })
+        .mockResolvedValueOnce({ blocked: true, reason: "already served for overlapping brand (matched on apollo_person_id)" })
         .mockResolvedValueOnce({ blocked: false });
 
       vi.mocked(resolveOrCreateLead).mockResolvedValue({ leadId: "lead-good", isNew: true });
@@ -1080,9 +1080,9 @@ describe("buffer", () => {
       expect(result.lead?.email).toBe("good@acme.com");
       // Critical: apolloEnrich must NOT have been called for the first lead
       expect(vi.mocked(apolloEnrich)).not.toHaveBeenCalled();
-      // Brand dedup was called with externalId before enrichment
+      // Brand dedup was called with apolloPersonId before enrichment
       expect(vi.mocked(isAlreadyServedForBrand).mock.calls[0][0]).toEqual(
-        expect.objectContaining({ externalId: "already-served-person" })
+        expect.objectContaining({ apolloPersonId: "already-served-person" })
       );
     });
 
@@ -1096,7 +1096,7 @@ describe("buffer", () => {
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "jserra@elkisconstruction.com",
-          externalId: "e-dup",
+          apolloPersonId: "e-dup",
           data: { name: "J Serra" },
           brandIds: ["brand-1"],
           orgId: "org-1",
@@ -1107,7 +1107,7 @@ describe("buffer", () => {
           namespace: "campaign-1",
           campaignId: "campaign-1",
           email: "unique@other.com",
-          externalId: "e-next",
+          apolloPersonId: "e-next",
           data: { name: "Unique" },
           brandIds: ["brand-1"],
           orgId: "org-1",
@@ -1151,7 +1151,7 @@ describe("buffer", () => {
           namespace: "apollo",
           campaignId: "campaign-uuid-123",
           email: "ns-test@example.com",
-          externalId: "apollo-ns-1",
+          apolloPersonId: "apollo-ns-1",
           data: { firstName: "NsTest" },
           brandIds: ["brand-1"],
           orgId: "org-1",
@@ -1201,7 +1201,7 @@ describe("buffer", () => {
         namespace: "apollo",
         campaignId: "campaign-uuid-789",
         email: "served@example.com",
-        externalId: "e-ms-1",
+        apolloPersonId: "e-ms-1",
         data: { name: "Served" },
         brandIds: ["brand-1"],
         orgId: "org-1",

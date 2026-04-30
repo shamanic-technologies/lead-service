@@ -1,12 +1,13 @@
 import { Router } from "express";
-import { eq, and, count, inArray, or, sql, type SQL } from "drizzle-orm";
+import { eq, and, count, inArray, sql, type SQL } from "drizzle-orm";
 import { type AuthenticatedRequest, type ServiceContext, apiKeyAuth, requireOrgId, getServiceContext } from "../middleware/auth.js";
 import { db } from "../db/index.js";
 import { servedLeads, leadBuffer } from "../db/schema.js";
-import { fetchApolloStats } from "../lib/apollo-client.js";
 import {
-  checkDeliveryStatus,
-  isContacted,
+  fetchEmailGatewayStats,
+  type RecipientStats,
+  type EmailGatewayStatsResponse,
+  type EmailGatewayGroupedStatsResponse,
 } from "../lib/email-gateway-client.js";
 import {
   resolveFeatureDynastySlugs,
@@ -30,6 +31,14 @@ const COLUMN_MAP = {
   workflowSlug: { served: servedLeads.workflowSlug, buffer: leadBuffer.workflowSlug },
   featureSlug: { served: servedLeads.featureSlug, buffer: leadBuffer.featureSlug },
 } as const;
+
+/** Map groupBy param to email-gateway groupBy value */
+const EG_GROUP_BY_MAP: Record<string, string> = {
+  campaignId: "campaignId",
+  brandId: "brandId",
+  workflowSlug: "workflowSlug",
+  featureSlug: "featureSlug",
+};
 
 const router = Router();
 
@@ -103,10 +112,7 @@ function buildConditions(
     if (userIdStr) conds.push(eq(servedLeads.userId, userIdStr));
     if (runIdList.length > 0) {
       conds.push(
-        or(
-          inArray(servedLeads.parentRunId, runIdList),
-          inArray(servedLeads.runId, runIdList),
-        )!,
+        sql`(${servedLeads.parentRunId} = ANY(ARRAY[${sql.join(runIdList.map(id => sql`${id}`), sql`, `)}]) OR ${servedLeads.runId} = ANY(ARRAY[${sql.join(runIdList.map(id => sql`${id}`), sql`, `)}]))`,
       );
     }
     if (dynastyResolved.workflowSlugs && dynastyResolved.workflowSlugs.length > 0) {
@@ -135,205 +141,46 @@ function buildConditions(
   return { conds, runIdList, brandIdStr, campaignIdStr, orgIdStr };
 }
 
-/**
- * Count distinct contacted leads by querying email-gateway for delivery status.
- * Groups served leads by first brandId + campaignId, calls email-gateway per group,
- * and returns the count of unique leadIds confirmed contacted.
- */
-async function countContacted(
-  servedConds: SQL[],
-  context: ServiceContext,
-): Promise<number> {
-  const rows = await db
-    .select({
-      leadId: servedLeads.leadId,
-      email: servedLeads.email,
-      brandIds: servedLeads.brandIds,
-      campaignId: servedLeads.campaignId,
-    })
-    .from(servedLeads)
-    .where(and(...servedConds));
+const ZERO_RECIPIENT_STATS: RecipientStats = {
+  contacted: 0, sent: 0, delivered: 0, opened: 0, bounced: 0, clicked: 0,
+  unsubscribed: 0, repliesPositive: 0, repliesNegative: 0, repliesNeutral: 0,
+  repliesAutoReply: 0,
+  repliesDetail: {
+    interested: 0, meetingBooked: 0, closed: 0, notInterested: 0,
+    wrongPerson: 0, unsubscribe: 0, neutral: 0, autoReply: 0, outOfOffice: 0,
+  },
+};
 
-  if (rows.length === 0) return 0;
+function mergeRecipientStats(broadcast?: { recipientStats: RecipientStats }, transactional?: { recipientStats: RecipientStats }): { byOutreachStatus: RecipientStats; repliesDetail: RecipientStats["repliesDetail"] } {
+  const bc = broadcast?.recipientStats ?? ZERO_RECIPIENT_STATS;
+  const tx = transactional?.recipientStats ?? ZERO_RECIPIENT_STATS;
 
-  // Group by first brandId + campaignId since email-gateway scopes status per brand/campaign
-  const groups = new Map<string, { brandId: string; campaignId: string; items: { leadId: string; email: string }[] }>();
-  for (const row of rows) {
-    if (!row.leadId) continue;
-    const primaryBrandId = row.brandIds[0] ?? "unknown";
-    const key = `${primaryBrandId}::${row.campaignId}`;
-    if (!groups.has(key)) {
-      groups.set(key, { brandId: primaryBrandId, campaignId: row.campaignId, items: [] });
-    }
-    groups.get(key)!.items.push({ leadId: row.leadId, email: row.email });
-  }
+  const byOutreachStatus: RecipientStats = {
+    contacted: bc.contacted + tx.contacted,
+    sent: bc.sent + tx.sent,
+    delivered: bc.delivered + tx.delivered,
+    opened: bc.opened + tx.opened,
+    bounced: bc.bounced + tx.bounced,
+    clicked: bc.clicked + tx.clicked,
+    unsubscribed: bc.unsubscribed + tx.unsubscribed,
+    repliesPositive: bc.repliesPositive + tx.repliesPositive,
+    repliesNegative: bc.repliesNegative + tx.repliesNegative,
+    repliesNeutral: bc.repliesNeutral + tx.repliesNeutral,
+    repliesAutoReply: bc.repliesAutoReply + tx.repliesAutoReply,
+    repliesDetail: {
+      interested: (bc.repliesDetail?.interested ?? 0) + (tx.repliesDetail?.interested ?? 0),
+      meetingBooked: (bc.repliesDetail?.meetingBooked ?? 0) + (tx.repliesDetail?.meetingBooked ?? 0),
+      closed: (bc.repliesDetail?.closed ?? 0) + (tx.repliesDetail?.closed ?? 0),
+      notInterested: (bc.repliesDetail?.notInterested ?? 0) + (tx.repliesDetail?.notInterested ?? 0),
+      wrongPerson: (bc.repliesDetail?.wrongPerson ?? 0) + (tx.repliesDetail?.wrongPerson ?? 0),
+      unsubscribe: (bc.repliesDetail?.unsubscribe ?? 0) + (tx.repliesDetail?.unsubscribe ?? 0),
+      neutral: (bc.repliesDetail?.neutral ?? 0) + (tx.repliesDetail?.neutral ?? 0),
+      autoReply: (bc.repliesDetail?.autoReply ?? 0) + (tx.repliesDetail?.autoReply ?? 0),
+      outOfOffice: (bc.repliesDetail?.outOfOffice ?? 0) + (tx.repliesDetail?.outOfOffice ?? 0),
+    },
+  };
 
-  const contactedLeadIds = new Set<string>();
-
-  await Promise.all(
-    Array.from(groups.values()).map(async (group) => {
-      const response = await checkDeliveryStatus(
-        group.brandId,
-        group.campaignId,
-        group.items.map((i) => ({ email: i.email })),
-        context,
-      );
-      if (!response) return;
-      for (const result of response.results) {
-        if (isContacted(result)) {
-          // Find the leadId for this email
-          const item = group.items.find((i) => i.email === result.email);
-          if (item?.leadId) contactedLeadIds.add(item.leadId);
-        }
-      }
-    }),
-  );
-
-  return contactedLeadIds.size;
-}
-
-/**
- * Count contacted leads per groupBy dimension.
- * For brandId groupBy, unnests brand_ids to get per-brand counts.
- */
-async function countContactedGrouped(
-  servedConds: SQL[],
-  groupByField: "campaignId" | "workflowSlug" | "featureSlug",
-  context: ServiceContext,
-): Promise<Map<string, number>> {
-  const groupCol = COLUMN_MAP[groupByField].served;
-
-  const rows = await db
-    .select({
-      leadId: servedLeads.leadId,
-      email: servedLeads.email,
-      brandIds: servedLeads.brandIds,
-      campaignId: servedLeads.campaignId,
-      groupKey: groupCol,
-    })
-    .from(servedLeads)
-    .where(and(...servedConds));
-
-  if (rows.length === 0) return new Map();
-
-  // Group by first brandId + campaignId for email-gateway calls
-  const callGroups = new Map<string, { brandId: string; campaignId: string; items: { leadId: string; email: string; groupKey: string }[] }>();
-  for (const row of rows) {
-    if (!row.leadId) continue;
-    const primaryBrandId = row.brandIds[0] ?? "unknown";
-    const key = `${primaryBrandId}::${row.campaignId}`;
-    if (!callGroups.has(key)) {
-      callGroups.set(key, { brandId: primaryBrandId, campaignId: row.campaignId, items: [] });
-    }
-    callGroups.get(key)!.items.push({
-      leadId: row.leadId,
-      email: row.email,
-      groupKey: row.groupKey ?? "unknown",
-    });
-  }
-
-  // Track contacted leadIds per groupBy key
-  const contactedPerGroup = new Map<string, Set<string>>();
-
-  await Promise.all(
-    Array.from(callGroups.values()).map(async (group) => {
-      const response = await checkDeliveryStatus(
-        group.brandId,
-        group.campaignId,
-        group.items.map((i) => ({ email: i.email })),
-        context,
-      );
-      if (!response) return;
-      for (const result of response.results) {
-        if (isContacted(result)) {
-          const item = group.items.find((i) => i.email === result.email);
-          if (item) {
-            if (!contactedPerGroup.has(item.groupKey)) {
-              contactedPerGroup.set(item.groupKey, new Set());
-            }
-            contactedPerGroup.get(item.groupKey)!.add(item.leadId);
-          }
-        }
-      }
-    }),
-  );
-
-  const result = new Map<string, number>();
-  for (const [key, set] of contactedPerGroup) {
-    result.set(key, set.size);
-  }
-  return result;
-}
-
-/**
- * Count contacted leads grouped by individual brand ID (unnesting brand_ids).
- */
-async function countContactedGroupedByBrand(
-  servedConds: SQL[],
-  context: ServiceContext,
-): Promise<Map<string, number>> {
-  const rows = await db
-    .select({
-      leadId: servedLeads.leadId,
-      email: servedLeads.email,
-      brandIds: servedLeads.brandIds,
-      campaignId: servedLeads.campaignId,
-    })
-    .from(servedLeads)
-    .where(and(...servedConds));
-
-  if (rows.length === 0) return new Map();
-
-  // Group by first brandId + campaignId for email-gateway calls
-  const callGroups = new Map<string, { brandId: string; campaignId: string; items: { leadId: string; email: string; brandIds: string[] }[] }>();
-  for (const row of rows) {
-    if (!row.leadId) continue;
-    const primaryBrandId = row.brandIds[0] ?? "unknown";
-    const key = `${primaryBrandId}::${row.campaignId}`;
-    if (!callGroups.has(key)) {
-      callGroups.set(key, { brandId: primaryBrandId, campaignId: row.campaignId, items: [] });
-    }
-    callGroups.get(key)!.items.push({
-      leadId: row.leadId,
-      email: row.email,
-      brandIds: row.brandIds,
-    });
-  }
-
-  // Track contacted leadIds per brand
-  const contactedPerBrand = new Map<string, Set<string>>();
-
-  await Promise.all(
-    Array.from(callGroups.values()).map(async (group) => {
-      const response = await checkDeliveryStatus(
-        group.brandId,
-        group.campaignId,
-        group.items.map((i) => ({ email: i.email })),
-        context,
-      );
-      if (!response) return;
-      for (const result of response.results) {
-        if (isContacted(result)) {
-          const item = group.items.find((i) => i.email === result.email);
-          if (item) {
-            // Attribute to each brand in the array
-            for (const bid of item.brandIds) {
-              if (!contactedPerBrand.has(bid)) {
-                contactedPerBrand.set(bid, new Set());
-              }
-              contactedPerBrand.get(bid)!.add(item.leadId);
-            }
-          }
-        }
-      }
-    }),
-  );
-
-  const result = new Map<string, number>();
-  for (const [key, set] of contactedPerBrand) {
-    result.set(key, set.size);
-  }
-  return result;
+  return { byOutreachStatus, repliesDetail: byOutreachStatus.repliesDetail };
 }
 
 const ZERO_STATS = { groups: [] };
@@ -353,16 +200,15 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
     // Resolve dynasty slugs (if provided) before building conditions
     const dynastyResolved = await resolveDynastySlugs(req);
     if (dynastyResolved.emptyDynasty) {
-      // Dynasty resolved to zero slugs — return zero stats immediately
       if (groupByParam) {
         res.json(ZERO_STATS);
       } else {
         res.json({
-          served: 0,
-          contacted: 0,
+          totalLeads: 0,
+          byOutreachStatus: ZERO_RECIPIENT_STATS,
+          repliesDetail: ZERO_RECIPIENT_STATS.repliesDetail,
           buffered: 0,
           skipped: 0,
-          apollo: { enrichedLeadsCount: 0, searchCount: 0, fetchedPeopleCount: 0, totalMatchingPeople: 0 },
         });
       }
       return;
@@ -372,6 +218,13 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
     const buffer = buildConditions(req, "buffer", dynastyResolved);
     const egContext = getServiceContext(req);
 
+    // Build email-gateway stats params
+    const egParams: Parameters<typeof fetchEmailGatewayStats>[0] = {};
+    if (served.brandIdStr) egParams.brandId = served.brandIdStr;
+    if (served.campaignIdStr) egParams.campaignId = served.campaignIdStr;
+    if (dynastyResolved.workflowSlugs) egParams.workflowSlugs = dynastyResolved.workflowSlugs.join(",");
+    if (dynastyResolved.featureSlugs) egParams.featureSlugs = dynastyResolved.featureSlugs.join(",");
+
     // --- Dynasty groupBy (requires reverse map) ---
     if (groupByParam === "workflowDynastySlug" || groupByParam === "featureDynastySlug") {
       const isWorkflow = groupByParam === "workflowDynastySlug";
@@ -380,14 +233,17 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       const bufferCol = COLUMN_MAP[dbField].buffer;
       const context = { orgId: req.orgId, userId: req.userId, runId: req.runId };
 
-      const [dynastyMap, servedRows, contactedMap, bufferRows] = await Promise.all([
+      // For dynasty groupBy, fetch email-gateway stats grouped by the underlying field
+      egParams.groupBy = dbField;
+
+      const [dynastyMap, servedRows, egStats, bufferRows] = await Promise.all([
         isWorkflow ? fetchWorkflowDynastyMap(context) : fetchFeatureDynastyMap(context),
         db
           .select({ key: servedCol, count: count() })
           .from(servedLeads)
           .where(and(...served.conds))
           .groupBy(servedCol),
-        countContactedGrouped(served.conds, dbField, egContext),
+        fetchEmailGatewayStats(egParams, egContext),
         db
           .select({ key: bufferCol, status: leadBuffer.status, count: count() })
           .from(leadBuffer)
@@ -395,15 +251,20 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
           .groupBy(bufferCol, leadBuffer.status),
       ]);
 
-      // Aggregate by dynasty slug using reverse map
       const groups = new Map<
         string,
-        { served: number; contacted: number; buffered: number; skipped: number }
+        { totalLeads: number; byOutreachStatus: RecipientStats; repliesDetail: RecipientStats["repliesDetail"]; buffered: number; skipped: number }
       >();
 
       const getGroup = (dynastyKey: string) => {
         if (!groups.has(dynastyKey))
-          groups.set(dynastyKey, { served: 0, contacted: 0, buffered: 0, skipped: 0 });
+          groups.set(dynastyKey, {
+            totalLeads: 0,
+            byOutreachStatus: { ...ZERO_RECIPIENT_STATS, repliesDetail: { ...ZERO_RECIPIENT_STATS.repliesDetail } },
+            repliesDetail: { ...ZERO_RECIPIENT_STATS.repliesDetail },
+            buffered: 0,
+            skipped: 0,
+          });
         return groups.get(dynastyKey)!;
       };
 
@@ -411,11 +272,27 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
         dynastyMap.get(slug ?? "") ?? slug ?? "unknown";
 
       for (const row of servedRows) {
-        getGroup(toDynasty(row.key)).served += row.count;
+        getGroup(toDynasty(row.key)).totalLeads += row.count;
       }
-      for (const [key, contacted] of contactedMap) {
-        getGroup(toDynasty(key)).contacted += contacted;
+
+      // Map email-gateway grouped stats to dynasty slugs
+      if ("groups" in egStats) {
+        for (const g of (egStats as EmailGatewayGroupedStatsResponse).groups) {
+          const dynastyKey = toDynasty(g.key);
+          const group = getGroup(dynastyKey);
+          const merged = mergeRecipientStats(g.broadcast, g.transactional);
+          // Accumulate (dynasty may map multiple slugs)
+          for (const k of Object.keys(merged.byOutreachStatus) as (keyof RecipientStats)[]) {
+            if (k === "repliesDetail") continue;
+            (group.byOutreachStatus[k] as number) += merged.byOutreachStatus[k] as number;
+          }
+          for (const k of Object.keys(merged.repliesDetail) as (keyof RecipientStats["repliesDetail"])[]) {
+            (group.repliesDetail[k] as number) += merged.repliesDetail[k] as number;
+            (group.byOutreachStatus.repliesDetail[k] as number) += merged.repliesDetail[k] as number;
+          }
+        }
       }
+
       for (const row of bufferRows) {
         const g = getGroup(toDynasty(row.key));
         if (row.status === "buffered") g.buffered += row.count;
@@ -433,16 +310,16 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
 
     // --- brandId groupBy (unnest brand_ids) ---
     if (groupByParam === "brandId") {
-      const [servedRows, contactedMap, bufferRows] = await Promise.all([
-        // Unnest brand_ids for per-brand served counts
+      egParams.groupBy = "brandId";
+
+      const [servedRows, egStats, bufferRows] = await Promise.all([
         db.execute(sql`
           SELECT unnest(brand_ids) AS key, COUNT(*)::int AS count
           FROM served_leads
           WHERE ${and(...served.conds)}
           GROUP BY key
         `) as Promise<{ key: string; count: number }[]>,
-        countContactedGroupedByBrand(served.conds, egContext),
-        // Unnest brand_ids for per-brand buffer counts
+        fetchEmailGatewayStats(egParams, egContext),
         db.execute(sql`
           SELECT unnest(brand_ids) AS key, status, COUNT(*)::int AS count
           FROM lead_buffer
@@ -453,22 +330,35 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
 
       const groups = new Map<
         string,
-        { served: number; contacted: number; buffered: number; skipped: number }
+        { totalLeads: number; byOutreachStatus: RecipientStats; repliesDetail: RecipientStats["repliesDetail"]; buffered: number; skipped: number }
       >();
 
       const getGroup = (key: string | null) => {
         const k = key ?? "unknown";
         if (!groups.has(k))
-          groups.set(k, { served: 0, contacted: 0, buffered: 0, skipped: 0 });
+          groups.set(k, {
+            totalLeads: 0,
+            byOutreachStatus: { ...ZERO_RECIPIENT_STATS, repliesDetail: { ...ZERO_RECIPIENT_STATS.repliesDetail } },
+            repliesDetail: { ...ZERO_RECIPIENT_STATS.repliesDetail },
+            buffered: 0,
+            skipped: 0,
+          });
         return groups.get(k)!;
       };
 
       for (const row of servedRows) {
-        getGroup(row.key).served = row.count;
+        getGroup(row.key).totalLeads = row.count;
       }
-      for (const [key, contacted] of contactedMap) {
-        getGroup(key).contacted = contacted;
+
+      if ("groups" in egStats) {
+        for (const g of (egStats as EmailGatewayGroupedStatsResponse).groups) {
+          const group = getGroup(g.key);
+          const merged = mergeRecipientStats(g.broadcast, g.transactional);
+          group.byOutreachStatus = merged.byOutreachStatus;
+          group.repliesDetail = merged.repliesDetail;
+        }
       }
+
       for (const row of bufferRows) {
         const g = getGroup(row.key);
         if (row.status === "buffered") g.buffered = row.count;
@@ -490,13 +380,15 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       const servedCol = COLUMN_MAP[field].served;
       const bufferCol = COLUMN_MAP[field].buffer;
 
-      const [servedRows, contactedMap, bufferRows] = await Promise.all([
+      egParams.groupBy = EG_GROUP_BY_MAP[field] ?? field;
+
+      const [servedRows, egStats, bufferRows] = await Promise.all([
         db
           .select({ key: servedCol, count: count() })
           .from(servedLeads)
           .where(and(...served.conds))
           .groupBy(servedCol),
-        countContactedGrouped(served.conds, field, egContext),
+        fetchEmailGatewayStats(egParams, egContext),
         db
           .select({ key: bufferCol, status: leadBuffer.status, count: count() })
           .from(leadBuffer)
@@ -504,29 +396,41 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
           .groupBy(bufferCol, leadBuffer.status),
       ]);
 
-      // Merge into a map keyed by groupBy value
       const groups = new Map<
         string,
-        { served: number; contacted: number; buffered: number; skipped: number }
+        { totalLeads: number; byOutreachStatus: RecipientStats; repliesDetail: RecipientStats["repliesDetail"]; buffered: number; skipped: number }
       >();
 
       const getGroup = (key: string | null) => {
         const k = key ?? "unknown";
         if (!groups.has(k))
-          groups.set(k, { served: 0, contacted: 0, buffered: 0, skipped: 0 });
+          groups.set(k, {
+            totalLeads: 0,
+            byOutreachStatus: { ...ZERO_RECIPIENT_STATS, repliesDetail: { ...ZERO_RECIPIENT_STATS.repliesDetail } },
+            repliesDetail: { ...ZERO_RECIPIENT_STATS.repliesDetail },
+            buffered: 0,
+            skipped: 0,
+          });
         return groups.get(k)!;
       };
 
       for (const row of servedRows) {
-        getGroup(row.key).served = row.count;
+        getGroup(row.key).totalLeads = row.count;
       }
-      for (const [key, contacted] of contactedMap) {
-        getGroup(key).contacted = contacted;
+
+      if ("groups" in egStats) {
+        for (const g of (egStats as EmailGatewayGroupedStatsResponse).groups) {
+          const group = getGroup(g.key);
+          const merged = mergeRecipientStats(g.broadcast, g.transactional);
+          group.byOutreachStatus = merged.byOutreachStatus;
+          group.repliesDetail = merged.repliesDetail;
+        }
       }
+
       for (const row of bufferRows) {
         const g = getGroup(row.key);
-        if (row.status === "buffered") g.buffered = row.count;
-        if (row.status === "skipped") g.skipped = row.count;
+        if (row.status === "buffered") g.buffered += row.count;
+        if (row.status === "skipped") g.skipped += row.count;
       }
 
       res.json({
@@ -539,40 +443,33 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
     }
 
     // --- Flat response ---
-    const apolloFilters: Record<string, unknown> = {};
-    if (served.brandIdStr) apolloFilters.brandId = served.brandIdStr;
-    if (served.campaignIdStr) apolloFilters.campaignId = served.campaignIdStr;
-    if (served.runIdList.length > 0) apolloFilters.runIds = served.runIdList;
-
-    const [servedResult, contacted, bufferRows, apollo] = await Promise.all([
+    const [servedResult, egStats, bufferRows] = await Promise.all([
       db
         .select({ count: count() })
         .from(servedLeads)
         .where(and(...served.conds))
         .then(([r]) => r),
-      countContacted(served.conds, egContext),
+      fetchEmailGatewayStats(egParams, egContext),
       db
         .select({ status: leadBuffer.status, count: count() })
         .from(leadBuffer)
         .where(and(...buffer.conds))
         .groupBy(leadBuffer.status),
-      fetchApolloStats(
-        apolloFilters as Parameters<typeof fetchApolloStats>[0],
-        served.orgIdStr ?? req.orgId,
-        egContext,
-      ),
     ]);
 
     const bufferByStatus = Object.fromEntries(
       bufferRows.map((r) => [r.status, r.count]),
     );
 
+    const egFlat = egStats as EmailGatewayStatsResponse;
+    const merged = mergeRecipientStats(egFlat.broadcast, egFlat.transactional);
+
     res.json({
-      served: servedResult?.count ?? 0,
-      contacted,
+      totalLeads: servedResult?.count ?? 0,
+      byOutreachStatus: merged.byOutreachStatus,
+      repliesDetail: merged.repliesDetail,
       buffered: bufferByStatus["buffered"] ?? 0,
       skipped: bufferByStatus["skipped"] ?? 0,
-      apollo,
     });
   } catch (error) {
     console.error("[lead-service] Stats error:", error);

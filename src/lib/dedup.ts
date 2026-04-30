@@ -8,18 +8,20 @@ import {
 } from "./email-gateway-client.js";
 
 const RACE_WINDOW_MINUTES = 60;
+const BRAND_DEDUP_TTL_MONTHS = 6;
 
 /**
  * Check if a lead has already been served for any overlapping brand,
- * cross-campaign, using 3 axes: leadId, email, externalId.
+ * cross-campaign, using 3 axes: leadId, email, apolloPersonId.
  * Uses the && (array overlap) operator on brand_ids.
+ * TTL: only blocks if served within the last 6 months.
  */
 export async function isAlreadyServedForBrand(params: {
   orgId: string;
   brandIds: string[];
   leadId?: string | null;
   email?: string | null;
-  externalId?: string | null;
+  apolloPersonId?: string | null;
 }): Promise<{ blocked: boolean; reason?: string }> {
   if (params.brandIds.length === 0) return { blocked: false };
 
@@ -40,18 +42,19 @@ export async function isAlreadyServedForBrand(params: {
     values.push(params.email);
     paramIdx++;
   }
-  if (params.externalId) {
-    conditions.push(`external_id = $${paramIdx}`);
-    values.push(params.externalId);
+  if (params.apolloPersonId) {
+    conditions.push(`apollo_person_id = $${paramIdx}`);
+    values.push(params.apolloPersonId);
     paramIdx++;
   }
 
   if (conditions.length === 0) return { blocked: false };
 
   const rows = await pgSql.unsafe(
-    `SELECT lead_id, email, external_id FROM served_leads
+    `SELECT lead_id, email, apollo_person_id FROM served_leads
      WHERE org_id = $1
        AND brand_ids && $2::text[]
+       AND served_at >= now() - interval '${BRAND_DEDUP_TTL_MONTHS} months'
        AND (${conditions.join(" OR ")})
      LIMIT 1`,
     values as string[],
@@ -62,7 +65,7 @@ export async function isAlreadyServedForBrand(params: {
     const axes: string[] = [];
     if (params.leadId && match.lead_id === params.leadId) axes.push("lead_id");
     if (params.email && match.email === params.email) axes.push("email");
-    if (params.externalId && match.external_id === params.externalId) axes.push("external_id");
+    if (params.apolloPersonId && match.apollo_person_id === params.apolloPersonId) axes.push("apollo_person_id");
     return {
       blocked: true,
       reason: `already served for overlapping brand (matched on ${axes.join(", ") || "unknown axis"})`,
@@ -144,7 +147,7 @@ export async function markServed(params: {
   campaignId: string;
   email: string;
   leadId?: string | null;
-  externalId?: string | null;
+  apolloPersonId?: string | null;
   metadata?: unknown;
   parentRunId?: string | null;
   runId?: string | null;
@@ -159,7 +162,7 @@ export async function markServed(params: {
       namespace: params.namespace,
       email: params.email,
       leadId: params.leadId ?? null,
-      externalId: params.externalId ?? null,
+      apolloPersonId: params.apolloPersonId ?? null,
       metadata: params.metadata ?? null,
       parentRunId: params.parentRunId ?? null,
       runId: params.runId ?? null,
