@@ -284,6 +284,9 @@ const LeadDetailSchema = z
     emailStatus: z.string().nullable().openapi({
       description: "Email verification status from Apollo (verified, extrapolated, etc.)",
     }),
+    status: z.enum(["buffered", "skipped", "claimed", "served"]).openapi({
+      description: "Lead lifecycle status. 'buffered'/'skipped'/'claimed' = in lead_buffer, 'served' = pulled and served to a workflow.",
+    }),
     metadata: ApolloPersonDataSchema.nullable(),
     parentRunId: z.string().nullable(),
     runId: z.string().nullable(),
@@ -291,7 +294,7 @@ const LeadDetailSchema = z
     campaignId: z.string(),
     orgId: z.string(),
     userId: z.string().nullable(),
-    servedAt: z.string(),
+    servedAt: z.string().nullable(),
     enrichment: ApolloPersonDataSchema.nullable(),
     contacted: z.boolean(),
     sent: z.boolean(),
@@ -469,11 +472,14 @@ registry.registerPath({
 registry.registerPath({
   method: "get",
   path: "/orgs/leads",
-  summary: "List served leads with enrichment and delivery status",
+  summary: "List leads with enrichment and delivery status",
   description:
-    "Returns served leads with Apollo enrichment data, apolloPersonId, emailStatus, and full delivery status " +
+    "Returns leads from both served_leads and lead_buffer tables. Each lead includes a 'status' field: " +
+    "'served' (pulled from buffer), 'buffered'/'skipped'/'claimed' (still in buffer). " +
+    "Served leads include Apollo enrichment data, apolloPersonId, emailStatus, and full delivery status " +
     "(contacted, sent, delivered, opened, clicked, bounced, unsubscribed, replied, replyClassification, lastDeliveredAt, global). " +
-    "Status is fetched from email-gateway when brandId or campaignId is provided. " +
+    "Buffer entries have delivery fields defaulted to false/null. " +
+    "Delivery status is fetched from email-gateway when brandId or campaignId is provided. " +
     "With campaignId: campaign-scoped status. With brandId only: brand-scoped (cross-campaign). " +
     "Without either: status fields default to false/null.",
   parameters: [

@@ -540,6 +540,16 @@
             "nullable": true,
             "description": "Email verification status from Apollo (verified, extrapolated, etc.)"
           },
+          "status": {
+            "type": "string",
+            "enum": [
+              "buffered",
+              "skipped",
+              "claimed",
+              "served"
+            ],
+            "description": "Lead lifecycle status. 'buffered'/'skipped'/'claimed' = in lead_buffer, 'served' = pulled and served to a workflow."
+          },
           "metadata": {
             "$ref": "#/components/schemas/ApolloPersonData"
           },
@@ -568,7 +578,8 @@
             "nullable": true
           },
           "servedAt": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           },
           "enrichment": {
             "$ref": "#/components/schemas/ApolloPersonData"
@@ -637,6 +648,7 @@
           "email",
           "apolloPersonId",
           "emailStatus",
+          "status",
           "metadata",
           "parentRunId",
           "runId",
@@ -1417,8 +1429,8 @@
     },
     "/orgs/leads": {
       "get": {
-        "summary": "List served leads with enrichment and delivery status",
-        "description": "Returns served leads with Apollo enrichment data, apolloPersonId, emailStatus, and full delivery status (contacted, sent, delivered, opened, clicked, bounced, unsubscribed, replied, replyClassification, lastDeliveredAt, global). Status is fetched from email-gateway when brandId or campaignId is provided. With campaignId: campaign-scoped status. With brandId only: brand-scoped (cross-campaign). Without either: status fields default to false/null.",
+        "summary": "List leads with enrichment and delivery status",
+        "description": "Returns leads from both served_leads and lead_buffer tables. Each lead includes a 'status' field: 'served' (pulled from buffer), 'buffered'/'skipped'/'claimed' (still in buffer). Served leads include Apollo enrichment data, apolloPersonId, emailStatus, and full delivery status (contacted, sent, delivered, opened, clicked, bounced, unsubscribed, replied, replyClassification, lastDeliveredAt, global). Buffer entries have delivery fields defaulted to false/null. Delivery status is fetched from email-gateway when brandId or campaignId is provided. With campaignId: campaign-scoped status. With brandId only: brand-scoped (cross-campaign). Without either: status fields default to false/null.",
         "parameters": [
           {
             "in": "header",

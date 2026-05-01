@@ -2,7 +2,7 @@ import { Router } from "express";
 import { eq, and, sql, type SQL } from "drizzle-orm";
 import { type AuthenticatedRequest, apiKeyAuth, requireOrgId, getServiceContext } from "../middleware/auth.js";
 import { db } from "../db/index.js";
-import { servedLeads } from "../db/schema.js";
+import { servedLeads, leadBuffer } from "../db/schema.js";
 import {
   checkDeliveryStatus,
   type StatusResult,
@@ -129,28 +129,39 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
     if (req.runId) traceEvent(req.runId, { service: "lead-service", event: "leads-query-start", detail: `orgId=${req.orgId}` }, req.headers).catch(() => {});
     const { brandId, campaignId, orgId, userId } = req.query;
 
-    // Build filter conditions
-    const conditions: SQL[] = [eq(servedLeads.orgId, req.orgId!)];
+    // Build filter conditions for served_leads
+    const servedConditions: SQL[] = [eq(servedLeads.orgId, req.orgId!)];
+    // Build filter conditions for lead_buffer
+    const bufferConditions: SQL[] = [eq(leadBuffer.orgId, req.orgId!)];
 
     if (brandId && typeof brandId === "string") {
-      conditions.push(sql`${brandId} = ANY(${servedLeads.brandIds})`);
+      servedConditions.push(sql`${brandId} = ANY(${servedLeads.brandIds})`);
+      bufferConditions.push(sql`${brandId} = ANY(${leadBuffer.brandIds})`);
     }
     if (campaignId && typeof campaignId === "string") {
-      conditions.push(eq(servedLeads.campaignId, campaignId));
+      servedConditions.push(eq(servedLeads.campaignId, campaignId));
+      bufferConditions.push(eq(leadBuffer.campaignId, campaignId));
     }
     if (orgId && typeof orgId === "string") {
-      conditions.push(eq(servedLeads.orgId, orgId));
+      servedConditions.push(eq(servedLeads.orgId, orgId));
+      bufferConditions.push(eq(leadBuffer.orgId, orgId));
     }
     if (userId && typeof userId === "string") {
-      conditions.push(eq(servedLeads.userId, userId));
+      servedConditions.push(eq(servedLeads.userId, userId));
+      bufferConditions.push(eq(leadBuffer.userId, userId));
     }
 
-    // Get served leads
-    const rows = await db.query.servedLeads.findMany({
-      where: and(...conditions),
-    });
+    // Get served leads and buffer entries in parallel
+    const [servedRows, bufferRows] = await Promise.all([
+      db.query.servedLeads.findMany({
+        where: and(...servedConditions),
+      }),
+      db.query.leadBuffer.findMany({
+        where: and(...bufferConditions),
+      }),
+    ]);
 
-    // Fetch delivery status from email-gateway
+    // Fetch delivery status from email-gateway (only for served leads)
     const campaignIdStr = typeof campaignId === "string" ? campaignId : undefined;
     const brandIdStr = typeof brandId === "string" ? brandId : undefined;
     const hasScopeForStatus = !!(campaignIdStr || brandIdStr);
@@ -162,7 +173,7 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
     if (hasScopeForStatus) {
       // Group by first brandId since email-gateway scopes status per brand
       const groups = new Map<string, { brandId: string; items: DeliveryStatusItem[] }>();
-      for (const row of rows) {
+      for (const row of servedRows) {
         if (!row.leadId) continue;
         const primaryBrandId = row.brandIds[0] ?? "unknown";
         if (!groups.has(primaryBrandId)) {
@@ -186,9 +197,10 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       );
     }
 
-    const enrichedLeads = rows.map((lead) => {
+    // Map served leads
+    const enrichedServed = servedRows.map((lead) => {
       const statusResult = statusMap.get(lead.email);
-      const status = hasScopeForStatus
+      const deliveryStatus = hasScopeForStatus
         ? (statusResult ? flatten(statusResult) : DEFAULT_STATUS)
         : DEFAULT_STATUS;
 
@@ -197,16 +209,47 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
 
       return {
         ...lead,
+        status: "served" as const,
         leadId: lead.leadId ?? null,
         apolloPersonId: lead.apolloPersonId ?? null,
         emailStatus,
         enrichment,
-        ...status,
+        ...deliveryStatus,
       };
     });
 
-    if (req.runId) traceEvent(req.runId, { service: "lead-service", event: "leads-query-done", detail: `count=${enrichedLeads.length}`, data: { count: enrichedLeads.length } }, req.headers).catch(() => {});
-    res.json({ leads: enrichedLeads });
+    // Map buffer entries
+    const enrichedBuffer = bufferRows.map((row) => {
+      const enrichment = extractEnrichment(row.data);
+      const emailStatus = (enrichment?.emailStatus as string) ?? null;
+
+      return {
+        id: row.id,
+        leadId: null,
+        namespace: row.namespace,
+        email: row.email,
+        apolloPersonId: row.apolloPersonId ?? null,
+        metadata: row.data,
+        parentRunId: null,
+        runId: null,
+        brandIds: row.brandIds ?? [],
+        campaignId: row.campaignId,
+        orgId: row.orgId,
+        userId: row.userId ?? null,
+        workflowSlug: row.workflowSlug ?? null,
+        featureSlug: row.featureSlug ?? null,
+        servedAt: null,
+        status: row.status as "buffered" | "skipped" | "claimed",
+        emailStatus,
+        enrichment,
+        ...DEFAULT_STATUS,
+      };
+    });
+
+    const allLeads = [...enrichedServed, ...enrichedBuffer];
+
+    if (req.runId) traceEvent(req.runId, { service: "lead-service", event: "leads-query-done", detail: `count=${allLeads.length}`, data: { count: allLeads.length, served: enrichedServed.length, buffered: enrichedBuffer.length } }, req.headers).catch(() => {});
+    res.json({ leads: allLeads });
   } catch (error) {
     console.error("[lead-service] Leads error:", error);
     res.status(500).json({ error: "Internal server error" });
