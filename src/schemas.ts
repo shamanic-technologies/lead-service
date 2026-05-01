@@ -317,6 +317,12 @@ const LeadDetailSchema = z
           "'neutral' = ambiguous or informational. " +
           "null when no reply detected.",
       }),
+    statusReason: z.string().nullable().openapi({
+      description: "Why this lead was skipped or placed in its current status (e.g. 'already_contacted', 'bounced'). Only set for buffer leads.",
+    }),
+    statusDetails: z.string().nullable().openapi({
+      description: "Human-readable details about the status reason. Only set for buffer leads.",
+    }),
     lastDeliveredAt: z.string().nullable(),
     global: z.object({
       bounced: z.boolean(),

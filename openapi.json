@@ -620,6 +620,16 @@
             ],
             "description": "Classification of the most recent reply from email-gateway. 'positive' = interested or willing to meet, 'negative' = not interested, 'neutral' = ambiguous or informational. null when no reply detected."
           },
+          "statusReason": {
+            "type": "string",
+            "nullable": true,
+            "description": "Why this lead was skipped or placed in its current status (e.g. 'already_contacted', 'bounced'). Only set for buffer leads."
+          },
+          "statusDetails": {
+            "type": "string",
+            "nullable": true,
+            "description": "Human-readable details about the status reason. Only set for buffer leads."
+          },
           "lastDeliveredAt": {
             "type": "string",
             "nullable": true
@@ -667,6 +677,8 @@
           "unsubscribed",
           "replied",
           "replyClassification",
+          "statusReason",
+          "statusDetails",
           "lastDeliveredAt",
           "global"
         ]

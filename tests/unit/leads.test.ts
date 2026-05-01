@@ -340,6 +340,70 @@ describe("GET /orgs/leads", () => {
     expect(items[0].email).toBe("alice@acme.com");
   });
 
+  it("returns statusReason and statusDetails as null for served leads", async () => {
+    mockFindMany.mockResolvedValue([makeServedLead()]);
+
+    const app = createApp();
+    const res = await request(app).get("/orgs/leads");
+    expect(res.status).toBe(200);
+    expect(res.body.leads[0].statusReason).toBeNull();
+    expect(res.body.leads[0].statusDetails).toBeNull();
+  });
+
+  it("returns statusReason and statusDetails from buffer leads", async () => {
+    mockBufferFindMany.mockResolvedValue([{
+      id: "buf-1",
+      namespace: "apollo",
+      email: "bob@acme.com",
+      apolloPersonId: null,
+      data: null,
+      status: "skipped",
+      pushRunId: null,
+      brandIds: ["b1"],
+      campaignId: "c1",
+      orgId: "org-1",
+      userId: null,
+      workflowSlug: null,
+      featureSlug: null,
+      statusReason: "already_contacted",
+      statusDetails: "Contacted via campaign c0 on 2026-03-15",
+      createdAt: "2026-04-01T00:00:00Z",
+    }]);
+
+    const app = createApp();
+    const res = await request(app).get("/orgs/leads");
+    expect(res.status).toBe(200);
+    expect(res.body.leads[0].statusReason).toBe("already_contacted");
+    expect(res.body.leads[0].statusDetails).toBe("Contacted via campaign c0 on 2026-03-15");
+  });
+
+  it("returns statusReason and statusDetails as null when buffer lead has no values", async () => {
+    mockBufferFindMany.mockResolvedValue([{
+      id: "buf-2",
+      namespace: "apollo",
+      email: "carol@acme.com",
+      apolloPersonId: null,
+      data: null,
+      status: "buffered",
+      pushRunId: null,
+      brandIds: ["b1"],
+      campaignId: "c1",
+      orgId: "org-1",
+      userId: null,
+      workflowSlug: null,
+      featureSlug: null,
+      statusReason: null,
+      statusDetails: null,
+      createdAt: "2026-04-01T00:00:00Z",
+    }]);
+
+    const app = createApp();
+    const res = await request(app).get("/orgs/leads");
+    expect(res.status).toBe(200);
+    expect(res.body.leads[0].statusReason).toBeNull();
+    expect(res.body.leads[0].statusDetails).toBeNull();
+  });
+
   it("still returns enrichment alongside status", async () => {
     const metadata = { firstName: "Alice", lastName: "Smith", email: "alice@acme.com" };
     mockFindMany.mockResolvedValue([
