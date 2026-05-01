@@ -367,8 +367,8 @@ export async function pullNext(params: {
           .update(leadBuffer)
           .set({
             status: "skipped",
-            skipReason: "pre_enrich_brand_dedup",
-            skipDetails: `Already served for brand (pre-enrich check), apolloPersonId=${row.apolloPersonId}, campaignId=${params.campaignId}, brandIds=${params.brandIds.join(",")}, reason=${preCheck.reason}`,
+            statusReason: "pre_enrich_brand_dedup",
+            statusDetails: `Already served for brand (pre-enrich check), apolloPersonId=${row.apolloPersonId}, campaignId=${params.campaignId}, brandIds=${params.brandIds.join(",")}, reason=${preCheck.reason}`,
           })
           .where(eq(leadBuffer.id, row.id));
         continue;
@@ -394,8 +394,8 @@ export async function pullNext(params: {
               .update(leadBuffer)
               .set({
                 status: "skipped",
-                skipReason: "invalid_email_status",
-                skipDetails: `Cached email status "${cached.emailStatus}" is not valid (requires verified/extrapolated), email=${cached.email}, apolloPersonId=${row.apolloPersonId}, campaignId=${params.campaignId}`,
+                statusReason: "invalid_email_status",
+                statusDetails: `Cached email status "${cached.emailStatus}" is not valid (requires verified/extrapolated), email=${cached.email}, apolloPersonId=${row.apolloPersonId}, campaignId=${params.campaignId}`,
               })
               .where(eq(leadBuffer.id, row.id));
             continue;
@@ -409,8 +409,8 @@ export async function pullNext(params: {
             .update(leadBuffer)
             .set({
               status: "skipped",
-              skipReason: "no_email_cached",
-              skipDetails: `Previously enriched but no email found (cache still fresh), apolloPersonId=${row.apolloPersonId}, campaignId=${params.campaignId}`,
+              statusReason: "no_email_cached",
+              statusDetails: `Previously enriched but no email found (cache still fresh), apolloPersonId=${row.apolloPersonId}, campaignId=${params.campaignId}`,
             })
             .where(eq(leadBuffer.id, row.id));
           continue;
@@ -446,8 +446,8 @@ export async function pullNext(params: {
             .update(leadBuffer)
             .set({
               status: "skipped",
-              skipReason: "no_email",
-              skipDetails: `Apollo enrichment returned no email, apolloPersonId=${row.apolloPersonId}, campaignId=${params.campaignId}`,
+              statusReason: "no_email",
+              statusDetails: `Apollo enrichment returned no email, apolloPersonId=${row.apolloPersonId}, campaignId=${params.campaignId}`,
             })
             .where(eq(leadBuffer.id, row.id));
           continue;
@@ -476,8 +476,8 @@ export async function pullNext(params: {
             .update(leadBuffer)
             .set({
               status: "skipped",
-              skipReason: "invalid_email_status",
-              skipDetails: `Fresh enrichment email status "${freshEmailStatus}" is not valid (requires verified/extrapolated), email=${enrichResult.person.email}, apolloPersonId=${row.apolloPersonId}, campaignId=${params.campaignId}`,
+              statusReason: "invalid_email_status",
+              statusDetails: `Fresh enrichment email status "${freshEmailStatus}" is not valid (requires verified/extrapolated), email=${enrichResult.person.email}, apolloPersonId=${row.apolloPersonId}, campaignId=${params.campaignId}`,
             })
             .where(eq(leadBuffer.id, row.id));
           continue;
@@ -516,8 +516,8 @@ export async function pullNext(params: {
         .update(leadBuffer)
         .set({
           status: "skipped",
-          skipReason: "no_email",
-          skipDetails: `No email available after all enrichment attempts, apolloPersonId=${row.apolloPersonId ?? "none"}, bufferId=${row.id}, campaignId=${params.campaignId}`,
+          statusReason: "no_email",
+          statusDetails: `No email available after all enrichment attempts, apolloPersonId=${row.apolloPersonId ?? "none"}, bufferId=${row.id}, campaignId=${params.campaignId}`,
         })
         .where(eq(leadBuffer.id, row.id));
       continue;
@@ -545,8 +545,8 @@ export async function pullNext(params: {
         .update(leadBuffer)
         .set({
           status: "skipped",
-          skipReason: "brand_dedup",
-          skipDetails: `Already served for brand (post-enrich check), email=${email}, apolloPersonId=${row.apolloPersonId ?? "none"}, leadId=${leadId}, brandIds=${params.brandIds.join(",")}, campaignId=${params.campaignId}, reason=${brandCheck.reason}`,
+          statusReason: "brand_dedup",
+          statusDetails: `Already served for brand (post-enrich check), email=${email}, apolloPersonId=${row.apolloPersonId ?? "none"}, leadId=${leadId}, brandIds=${params.brandIds.join(",")}, campaignId=${params.campaignId}, reason=${brandCheck.reason}`,
         })
         .where(eq(leadBuffer.id, row.id));
       continue;
@@ -566,8 +566,8 @@ export async function pullNext(params: {
         .update(leadBuffer)
         .set({
           status: "skipped",
-          skipReason: "race_window",
-          skipDetails: `Another buffer row for same brand was recently claimed/served, email=${email}, apolloPersonId=${row.apolloPersonId ?? "none"}, brandIds=${params.brandIds.join(",")}, campaignId=${params.campaignId}`,
+          statusReason: "race_window",
+          statusDetails: `Another buffer row for same brand was recently claimed/served, email=${email}, apolloPersonId=${row.apolloPersonId ?? "none"}, brandIds=${params.brandIds.join(",")}, campaignId=${params.campaignId}`,
         })
         .where(eq(leadBuffer.id, row.id));
       continue;
@@ -592,8 +592,8 @@ export async function pullNext(params: {
         .update(leadBuffer)
         .set({
           status: "skipped",
-          skipReason: "contacted",
-          skipDetails: `Already contacted via email-gateway, email=${email}, apolloPersonId=${row.apolloPersonId ?? "none"}, leadId=${leadId}, campaignId=${params.campaignId}, brandIds=${params.brandIds.join(",")}`,
+          statusReason: "contacted",
+          statusDetails: `Already contacted via email-gateway, email=${email}, apolloPersonId=${row.apolloPersonId ?? "none"}, leadId=${leadId}, campaignId=${params.campaignId}, brandIds=${params.brandIds.join(",")}`,
         })
         .where(eq(leadBuffer.id, row.id));
       continue;
@@ -604,8 +604,8 @@ export async function pullNext(params: {
         .update(leadBuffer)
         .set({
           status: "skipped",
-          skipReason: "bounced",
-          skipDetails: `Email previously bounced, email=${email}, apolloPersonId=${row.apolloPersonId ?? "none"}, leadId=${leadId}, campaignId=${params.campaignId}, brandIds=${params.brandIds.join(",")}`,
+          statusReason: "bounced",
+          statusDetails: `Email previously bounced, email=${email}, apolloPersonId=${row.apolloPersonId ?? "none"}, leadId=${leadId}, campaignId=${params.campaignId}, brandIds=${params.brandIds.join(",")}`,
         })
         .where(eq(leadBuffer.id, row.id));
       continue;
@@ -616,8 +616,8 @@ export async function pullNext(params: {
         .update(leadBuffer)
         .set({
           status: "skipped",
-          skipReason: "unsubscribed",
-          skipDetails: `Email unsubscribed, email=${email}, apolloPersonId=${row.apolloPersonId ?? "none"}, leadId=${leadId}, campaignId=${params.campaignId}, brandIds=${params.brandIds.join(",")}`,
+          statusReason: "unsubscribed",
+          statusDetails: `Email unsubscribed, email=${email}, apolloPersonId=${row.apolloPersonId ?? "none"}, leadId=${leadId}, campaignId=${params.campaignId}, brandIds=${params.brandIds.join(",")}`,
         })
         .where(eq(leadBuffer.id, row.id));
       continue;
@@ -645,8 +645,8 @@ export async function pullNext(params: {
         .update(leadBuffer)
         .set({
           status: "skipped",
-          skipReason: "serve_dedup",
-          skipDetails: `Another request already served this email for org+campaign, email=${email}, apolloPersonId=${row.apolloPersonId ?? "none"}, leadId=${leadId}, campaignId=${params.campaignId}`,
+          statusReason: "serve_dedup",
+          statusDetails: `Another request already served this email for org+campaign, email=${email}, apolloPersonId=${row.apolloPersonId ?? "none"}, leadId=${leadId}, campaignId=${params.campaignId}`,
         })
         .where(eq(leadBuffer.id, row.id));
       continue;
@@ -654,7 +654,11 @@ export async function pullNext(params: {
 
     await db
       .update(leadBuffer)
-      .set({ status: "served" })
+      .set({
+        status: "served",
+        statusReason: "served",
+        statusDetails: `Lead served successfully, email=${email}, leadId=${leadId}, apolloPersonId=${row.apolloPersonId ?? "none"}, campaignId=${params.campaignId}, brandIds=${params.brandIds.join(",")}`,
+      })
       .where(eq(leadBuffer.id, row.id));
 
     // Ensure data.email always matches the canonical email
