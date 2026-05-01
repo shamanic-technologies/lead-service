@@ -104,7 +104,7 @@ router.post("/orgs/buffer/next", apiKeyAuth, requireOrgId, async (req: Authentic
 
     traceEvent(serveRunId, { service: "lead-service", event: "buffer-next-done", detail: `found=${result.found}`, data: { found: result.found } }, req.headers).catch(() => {});
 
-    const runStatus = result.found ? "completed" : "failed";
+    const runStatus = "completed";
     await updateRun(serveRunId, runStatus, runMeta);
 
     res.json(result);
