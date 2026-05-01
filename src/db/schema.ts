@@ -77,8 +77,8 @@ export const leadBuffer = pgTable(
     userId: text("user_id"),
     workflowSlug: text("workflow_slug"),
     featureSlug: text("feature_slug"),
-    skipReason: text("skip_reason"),
-    skipDetails: text("skip_details"),
+    statusReason: text("status_reason"),
+    statusDetails: text("status_details"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
