@@ -68,7 +68,7 @@ describe("POST /buffer/next run status", () => {
     mockUpdateRun.mockResolvedValue(undefined);
   });
 
-  it("marks run as failed when pullNext returns found: false", async () => {
+  it("marks run as completed when pullNext returns found: false (buffer exhausted is not a failure)", async () => {
     mockPullNext.mockResolvedValue({ found: false });
 
     const app = createApp();
@@ -82,7 +82,7 @@ describe("POST /buffer/next run status", () => {
     expect(res.body.found).toBe(false);
     expect(mockUpdateRun).toHaveBeenCalledWith(
       "mock-run-id",
-      "failed",
+      "completed",
       expect.objectContaining({ campaignId: "c1", brandId: "b1" })
     );
   });
