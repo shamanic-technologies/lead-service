@@ -2,11 +2,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Mock db
 const mockFindMany = vi.fn();
+const mockBufferFindMany = vi.fn();
 vi.mock("../../src/db/index.js", () => ({
   db: {
     query: {
       servedLeads: {
         findMany: (...args: unknown[]) => mockFindMany(...args),
+      },
+      leadBuffer: {
+        findMany: (...args: unknown[]) => mockBufferFindMany(...args),
       },
     },
   },
@@ -162,6 +166,7 @@ describe("GET /orgs/leads", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockFindMany.mockResolvedValue([]);
+    mockBufferFindMany.mockResolvedValue([]);
     mockCheckDeliveryStatus.mockResolvedValue({ results: [] });
   });
 

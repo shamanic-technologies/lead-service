@@ -359,6 +359,7 @@ describe("API Integration Tests", { timeout: 30000 }, () => {
       const lead = res.body.leads.find((l: { email: string }) => l.email === "diana@example.com");
       expect(lead).toBeDefined();
       expect(lead.enrichment).not.toBeNull();
+      expect(lead.status).toBe("served");
 
       expect(lead.enrichment.firstName).toBe("Diana");
       expect(lead.enrichment.lastName).toBe("Prince");
@@ -373,6 +374,97 @@ describe("API Integration Tests", { timeout: 30000 }, () => {
       expect(lead.enrichment.seniority).toBe("founder");
       expect(lead.enrichment.departments).toEqual(["executive"]);
       expect(lead.enrichment.photoUrl).toBe("https://example.com/diana.jpg");
+    });
+
+    it("returns buffer entries with status field", async () => {
+      const bufferCampaign = `campaign-buffer-status-${Date.now()}`;
+      await seedBuffer({
+        campaignId: bufferCampaign,
+        brandId: "brand-buffer-status",
+        leads: [
+          { email: "buffered1@example.com", data: { firstName: "Buffered", lastName: "Lead", email: "buffered1@example.com", organizationName: "Buffer Corp" } },
+          { email: "buffered2@example.com" },
+        ],
+      });
+
+      const res = await request(app)
+        .get(`/orgs/leads?campaignId=${bufferCampaign}`)
+        .set(getAuthHeaders());
+
+      expect(res.status).toBe(200);
+      expect(res.body.leads.length).toBe(2);
+
+      const lead1 = res.body.leads.find((l: { email: string }) => l.email === "buffered1@example.com");
+      expect(lead1).toBeDefined();
+      expect(lead1.status).toBe("buffered");
+      expect(lead1.enrichment).not.toBeNull();
+      expect(lead1.enrichment.firstName).toBe("Buffered");
+      expect(lead1.enrichment.organizationName).toBe("Buffer Corp");
+      // Delivery booleans default to false
+      expect(lead1.contacted).toBe(false);
+      expect(lead1.sent).toBe(false);
+      expect(lead1.delivered).toBe(false);
+      expect(lead1.servedAt).toBeNull();
+
+      const lead2 = res.body.leads.find((l: { email: string }) => l.email === "buffered2@example.com");
+      expect(lead2).toBeDefined();
+      expect(lead2.status).toBe("buffered");
+      expect(lead2.enrichment).toBeNull();
+    });
+
+    it("returns both served and buffered leads with correct statuses", async () => {
+      const mixedCampaign = `campaign-mixed-${Date.now()}`;
+
+      // Seed two leads, pull one to make it served
+      await seedBuffer({
+        campaignId: mixedCampaign,
+        brandId: "brand-mixed",
+        leads: [
+          { email: "will-serve@example.com", data: { firstName: "Served", lastName: "One", organizationName: "Served Corp" } },
+          { email: "stays-buffered@example.com", data: { firstName: "Buffered", lastName: "Two", organizationName: "Buffer Corp" } },
+        ],
+      });
+
+      // Pull one to served_leads
+      await request(app)
+        .post("/orgs/buffer/next")
+        .set(getAuthHeaders({ campaignId: mixedCampaign, brandId: "brand-mixed", runId: uniqueRunId() }))
+        .send({});
+
+      const res = await request(app)
+        .get(`/orgs/leads?campaignId=${mixedCampaign}`)
+        .set(getAuthHeaders());
+
+      expect(res.status).toBe(200);
+      // At least 2: one served + one still buffered (the pulled one changes status to "claimed" in buffer, then moved to served)
+      const served = res.body.leads.filter((l: { status: string }) => l.status === "served");
+      const buffered = res.body.leads.filter((l: { status: string }) => l.status === "buffered" || l.status === "claimed" || l.status === "skipped");
+
+      expect(served.length).toBeGreaterThanOrEqual(1);
+      expect(buffered.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("brandId filter works on buffer entries", async () => {
+      const brandFilterCampaign = `campaign-brand-filter-${Date.now()}`;
+      await seedBuffer({
+        campaignId: brandFilterCampaign,
+        brandId: "brand-filter-match",
+        leads: [{ email: "match@example.com" }],
+      });
+      await seedBuffer({
+        campaignId: brandFilterCampaign,
+        brandId: "brand-filter-nomatch",
+        leads: [{ email: "nomatch@example.com" }],
+      });
+
+      const res = await request(app)
+        .get(`/orgs/leads?campaignId=${brandFilterCampaign}&brandId=brand-filter-match`)
+        .set(getAuthHeaders());
+
+      expect(res.status).toBe(200);
+      const emails = res.body.leads.map((l: { email: string }) => l.email);
+      expect(emails).toContain("match@example.com");
+      expect(emails).not.toContain("nomatch@example.com");
     });
 
     it("returns null enrichment when metadata is empty", async () => {
