@@ -1962,3 +1962,138 @@ registry.registerPath({
     404: { description: "Spec not generated" },
   },
 });
+
+// --- Conversion tracking (beta) ---
+
+const ConversionIngestRequestSchema = z
+  .object({
+    event: z.enum(["signup", "meeting_booked"]).openapi({
+      description: "The conversion that happened on the client's website.",
+      example: "signup",
+    }),
+    email: z.string().optional().openapi({ example: "jane@acme.com" }),
+    phone: z.string().optional().openapi({ example: "+1 (415) 555-0142" }),
+    firstName: z.string().optional().openapi({ example: "Jane" }),
+    lastName: z.string().optional().openapi({ example: "Doe" }),
+    companyUrl: z.string().optional().openapi({ example: "https://acme.com" }),
+    dedupeKey: z.string().optional().openapi({
+      description:
+        "Client-supplied idempotency key. When present, uniqueness is per (brand, dedupeKey). " +
+        "When absent, dedupe is per (brand, event, email-or-phone, calendar-day).",
+    }),
+    valueCents: z.number().int().optional().openapi({
+      description: "Optional conversion value in cents.",
+      example: 4900,
+    }),
+  })
+  .openapi("ConversionIngestRequest", {
+    description: "A conversion event reported by a client's website pixel.",
+  });
+
+const ConversionIngestResponseSchema = z
+  .object({ received: z.boolean().openapi({ example: true }) })
+  .openapi("ConversionIngestResponse", {
+    description:
+      "Always { received: true } on success. The match/attribution result is NEVER leaked to the public caller.",
+  });
+
+const ConversionTokenResponseSchema = z
+  .object({
+    token: z.string().openapi({
+      description:
+        "Publishable write-key for this brand. Returned in FULL (it is embedded in a client-side pixel, so not a secret). Can only WRITE conversion events for its one brand.",
+      example: "pk_conv_9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c",
+    }),
+    ingestUrl: z.string().openapi({
+      description: "Full public URL a third party hits for POST /public/conversions.",
+      example: "https://api.distribute.you/public/conversions",
+    }),
+  })
+  .openapi("ConversionTokenResponse", {
+    description: "The brand's publishable conversion write-key plus the public ingest URL.",
+  });
+
+const ConversionTokenHeader = [
+  {
+    in: "header" as const,
+    name: "x-conversion-token",
+    required: false,
+    schema: { type: "string" as const },
+    description:
+      "Brand publishable write-token. Alternatively pass it as `Authorization: Bearer <token>`.",
+  },
+];
+
+const BrandIdPathParam = z.object({
+  brandId: z.string().openapi({
+    param: { name: "brandId", in: "path" },
+    example: "20000000-0000-0000-0000-000000000001",
+  }),
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/public/conversions",
+  summary: "Ingest a conversion event from a client's website (token-auth, public)",
+  description:
+    "Called directly by the CLIENT's website code (token-auth, NO Clerk). Authenticates the brand " +
+    "publishable token, records the conversion, and attributes it to a lead we emailed for that brand " +
+    "via a confidence-tiered match waterfall (email/phone → deterministic; domain+lastName → strong; " +
+    "name-only → probabilistic/needs_review). NEVER leaks the match result — always { received: true } " +
+    "on success. Dedupe: per (brand, dedupeKey) when supplied, else per (brand, event, email-or-phone, day).",
+  request: {
+    body: {
+      content: { "application/json": { schema: ConversionIngestRequestSchema } },
+    },
+  },
+  parameters: ConversionTokenHeader,
+  responses: {
+    200: {
+      description: "Event received (match result intentionally not disclosed)",
+      content: { "application/json": { schema: ConversionIngestResponseSchema } },
+    },
+    400: {
+      description: "Missing or invalid event",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: { description: "Missing or invalid conversion token" },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/orgs/brands/{brandId}/conversion-token",
+  summary: "Get-or-create the brand's publishable conversion write-token",
+  description:
+    "Returns the brand's publishable conversion token (creating it on first call) plus the public ingest URL. " +
+    "The token is returned in full — it is a publishable write-key, not a secret.",
+  request: { params: BrandIdPathParam },
+  parameters: AuthHeaders,
+  responses: {
+    200: {
+      description: "The brand's conversion token and ingest URL",
+      content: { "application/json": { schema: ConversionTokenResponseSchema } },
+    },
+    400: { description: "Missing x-org-id" },
+    401: { description: "Unauthorized" },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/orgs/brands/{brandId}/conversion-token/rotate",
+  summary: "Rotate the brand's publishable conversion write-token",
+  description:
+    "Replaces the brand's token with a fresh one and invalidates the old token (it immediately 401s on ingest). " +
+    "Rotation is the abuse remedy for a leaked publishable key.",
+  request: { params: BrandIdPathParam },
+  parameters: AuthHeaders,
+  responses: {
+    200: {
+      description: "The new conversion token and ingest URL",
+      content: { "application/json": { schema: ConversionTokenResponseSchema } },
+    },
+    400: { description: "Missing x-org-id" },
+    401: { description: "Unauthorized" },
+  },
+});

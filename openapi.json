@@ -1927,6 +1927,86 @@
           "workflowSlug"
         ],
         "description": "One distinct (org, brand, workflow) combination that has leads for a requested feature."
+      },
+      "ConversionIngestResponse": {
+        "type": "object",
+        "properties": {
+          "received": {
+            "type": "boolean",
+            "example": true
+          }
+        },
+        "required": [
+          "received"
+        ],
+        "description": "Always { received: true } on success. The match/attribution result is NEVER leaked to the public caller."
+      },
+      "ConversionIngestRequest": {
+        "type": "object",
+        "properties": {
+          "event": {
+            "type": "string",
+            "enum": [
+              "signup",
+              "meeting_booked"
+            ],
+            "description": "The conversion that happened on the client's website.",
+            "example": "signup"
+          },
+          "email": {
+            "type": "string",
+            "example": "jane@acme.com"
+          },
+          "phone": {
+            "type": "string",
+            "example": "+1 (415) 555-0142"
+          },
+          "firstName": {
+            "type": "string",
+            "example": "Jane"
+          },
+          "lastName": {
+            "type": "string",
+            "example": "Doe"
+          },
+          "companyUrl": {
+            "type": "string",
+            "example": "https://acme.com"
+          },
+          "dedupeKey": {
+            "type": "string",
+            "description": "Client-supplied idempotency key. When present, uniqueness is per (brand, dedupeKey). When absent, dedupe is per (brand, event, email-or-phone, calendar-day)."
+          },
+          "valueCents": {
+            "type": "integer",
+            "description": "Optional conversion value in cents.",
+            "example": 4900
+          }
+        },
+        "required": [
+          "event"
+        ],
+        "description": "A conversion event reported by a client's website pixel."
+      },
+      "ConversionTokenResponse": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "Publishable write-key for this brand. Returned in FULL (it is embedded in a client-side pixel, so not a secret). Can only WRITE conversion events for its one brand.",
+            "example": "pk_conv_9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c"
+          },
+          "ingestUrl": {
+            "type": "string",
+            "description": "Full public URL a third party hits for POST /public/conversions.",
+            "example": "https://api.distribute.you/public/conversions"
+          }
+        },
+        "required": [
+          "token",
+          "ingestUrl"
+        ],
+        "description": "The brand's publishable conversion write-key plus the public ingest URL."
       }
     },
     "parameters": {},
@@ -2702,6 +2782,343 @@
           },
           "404": {
             "description": "Spec not generated"
+          }
+        }
+      }
+    },
+    "/public/conversions": {
+      "post": {
+        "summary": "Ingest a conversion event from a client's website (token-auth, public)",
+        "description": "Called directly by the CLIENT's website code (token-auth, NO Clerk). Authenticates the brand publishable token, records the conversion, and attributes it to a lead we emailed for that brand via a confidence-tiered match waterfall (email/phone → deterministic; domain+lastName → strong; name-only → probabilistic/needs_review). NEVER leaks the match result — always { received: true } on success. Dedupe: per (brand, dedupeKey) when supplied, else per (brand, event, email-or-phone, day).",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-conversion-token",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Brand publishable write-token. Alternatively pass it as `Authorization: Bearer <token>`."
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversionIngestRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Event received (match result intentionally not disclosed)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversionIngestResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or invalid event",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid conversion token"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/conversion-token": {
+      "get": {
+        "summary": "Get-or-create the brand's publishable conversion write-token",
+        "description": "Returns the brand's publishable conversion token (creating it on first call) plus the public ingest URL. The token is returned in full — it is a publishable write-key, not a secret.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "API key for authenticating requests"
+          },
+          {
+            "in": "header",
+            "name": "x-org-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Internal organization UUID from client-service"
+          },
+          {
+            "in": "header",
+            "name": "x-user-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Internal user UUID from client-service"
+          },
+          {
+            "in": "header",
+            "name": "x-run-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The caller's run ID (used as parentRunId when creating this service's own run)"
+          },
+          {
+            "in": "header",
+            "name": "x-campaign-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Campaign identifier (auto-injected by workflow-service)"
+          },
+          {
+            "in": "header",
+            "name": "x-brand-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Brand identifier(s), comma-separated for multi-brand campaigns (auto-injected by workflow-service). Example: uuid1,uuid2,uuid3"
+          },
+          {
+            "in": "header",
+            "name": "x-workflow-slug",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Workflow slug (auto-injected by workflow-service)"
+          },
+          {
+            "in": "header",
+            "name": "x-feature-slug",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Feature slug for tracking (propagated through the call chain)"
+          },
+          {
+            "in": "header",
+            "name": "x-goal",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Active goal enum/name for the campaign activity, when explicitly tagged by the caller."
+          },
+          {
+            "in": "header",
+            "name": "x-active-goal-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Active goal identifier for the campaign activity, when explicitly tagged by the caller."
+          },
+          {
+            "in": "header",
+            "name": "x-brand-profile-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Brand profile identifier for persona-scoped attribution, when explicitly tagged by the caller."
+          },
+          {
+            "in": "header",
+            "name": "x-audience-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Audience identifier (human-service audience.id) for attribution, when explicitly tagged by the caller."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "example": "20000000-0000-0000-0000-000000000001"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The brand's conversion token and ingest URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversionTokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing x-org-id"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/orgs/brands/{brandId}/conversion-token/rotate": {
+      "post": {
+        "summary": "Rotate the brand's publishable conversion write-token",
+        "description": "Replaces the brand's token with a fresh one and invalidates the old token (it immediately 401s on ingest). Rotation is the abuse remedy for a leaked publishable key.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "API key for authenticating requests"
+          },
+          {
+            "in": "header",
+            "name": "x-org-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Internal organization UUID from client-service"
+          },
+          {
+            "in": "header",
+            "name": "x-user-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Internal user UUID from client-service"
+          },
+          {
+            "in": "header",
+            "name": "x-run-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The caller's run ID (used as parentRunId when creating this service's own run)"
+          },
+          {
+            "in": "header",
+            "name": "x-campaign-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Campaign identifier (auto-injected by workflow-service)"
+          },
+          {
+            "in": "header",
+            "name": "x-brand-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Brand identifier(s), comma-separated for multi-brand campaigns (auto-injected by workflow-service). Example: uuid1,uuid2,uuid3"
+          },
+          {
+            "in": "header",
+            "name": "x-workflow-slug",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Workflow slug (auto-injected by workflow-service)"
+          },
+          {
+            "in": "header",
+            "name": "x-feature-slug",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Feature slug for tracking (propagated through the call chain)"
+          },
+          {
+            "in": "header",
+            "name": "x-goal",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Active goal enum/name for the campaign activity, when explicitly tagged by the caller."
+          },
+          {
+            "in": "header",
+            "name": "x-active-goal-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Active goal identifier for the campaign activity, when explicitly tagged by the caller."
+          },
+          {
+            "in": "header",
+            "name": "x-brand-profile-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Brand profile identifier for persona-scoped attribution, when explicitly tagged by the caller."
+          },
+          {
+            "in": "header",
+            "name": "x-audience-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Audience identifier (human-service audience.id) for attribution, when explicitly tagged by the caller."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "example": "20000000-0000-0000-0000-000000000001"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The new conversion token and ingest URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversionTokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing x-org-id"
+          },
+          "401": {
+            "description": "Unauthorized"
           }
         }
       }

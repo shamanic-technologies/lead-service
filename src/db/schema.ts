@@ -227,6 +227,72 @@ export const idempotencyCache = pgTable(
   (table) => [uniqueIndex("idx_idempotency_key").on(table.idempotencyKey)],
 );
 
+// --- Conversion tracking (beta) ---
+// One publishable write-key per brand. The token is embedded in a client-side
+// JS pixel on the brand's own website, so it is NOT a secret — stored plaintext,
+// returned in full. It can only write conversion events for its one brand; it can
+// never read anything. Rotation is the abuse remedy (old token → 401).
+export const brandConversionTokens = pgTable(
+  "brand_conversion_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: text("brand_id").notNull(),
+    orgId: text("org_id").notNull(),
+    token: text("token").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    rotatedAt: timestamp("rotated_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("idx_bct_brand_id").on(table.brandId),
+    uniqueIndex("idx_bct_token").on(table.token),
+  ],
+);
+
+// A conversion event reported by a client's website, plus the attribution result.
+// Every row is fail-loud provenance: it stores every identity field received and the
+// full match decision (method, confidence, status, candidateCount) so a reviewer can
+// audit exactly why a conversion was (or was not) credited to a lead.
+export const conversionEvents = pgTable(
+  "conversion_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: text("brand_id").notNull(),
+    orgId: text("org_id").notNull(),
+    event: text("event").notNull(), // "signup" | "meeting_booked"
+    email: text("email"),
+    phone: text("phone"),
+    firstName: text("first_name"),
+    lastName: text("last_name"),
+    companyUrl: text("company_url"),
+    dedupeKey: text("dedupe_key"), // client-provided key, verbatim (provenance)
+    // Effective uniqueness signature. Null when there is no dedupe basis
+    // (no dedupeKey and no email/phone) — such rows always insert. The unique
+    // index is partial (WHERE dedupe_signature IS NOT NULL).
+    dedupeSignature: text("dedupe_signature"),
+    valueCents: integer("value_cents"),
+    matchedLeadId: uuid("matched_lead_id").references(() => leads.id, {
+      onDelete: "set null",
+    }),
+    // "email" | "phone" | "domain_name" | "full_name" | "last_name" | null
+    matchMethod: text("match_method"),
+    // "deterministic" | "strong" | "probabilistic" | "unmatched"
+    matchConfidence: text("match_confidence").notNull(),
+    // "attributed" | "needs_review" | "unmatched"
+    attributionStatus: text("attribution_status").notNull(),
+    candidateCount: integer("candidate_count").notNull().default(0),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_ce_brand_dedupe_signature")
+      .on(table.brandId, table.dedupeSignature)
+      .where(sql`dedupe_signature IS NOT NULL`),
+    index("idx_ce_brand_event").on(table.brandId, table.event),
+    index("idx_ce_matched_lead").on(table.matchedLeadId),
+  ],
+);
+
 // --- Type exports ---
 export type Lead = typeof leads.$inferSelect;
 export type NewLead = typeof leads.$inferInsert;
@@ -242,3 +308,7 @@ export type CampaignApolloStrategies = typeof campaignsApolloStrategies.$inferSe
 export type NewCampaignApolloStrategies = typeof campaignsApolloStrategies.$inferInsert;
 export type IdempotencyCacheRow = typeof idempotencyCache.$inferSelect;
 export type NewIdempotencyCacheRow = typeof idempotencyCache.$inferInsert;
+export type BrandConversionToken = typeof brandConversionTokens.$inferSelect;
+export type NewBrandConversionToken = typeof brandConversionTokens.$inferInsert;
+export type ConversionEvent = typeof conversionEvents.$inferSelect;
+export type NewConversionEvent = typeof conversionEvents.$inferInsert;
