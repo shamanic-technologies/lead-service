@@ -54,6 +54,17 @@ export const WORKFLOW_SERVICE_API_KEY = required("WORKFLOW_SERVICE_API_KEY");
 export const CHAT_SERVICE_URL = required("CHAT_SERVICE_URL");
 export const CHAT_SERVICE_API_KEY = required("CHAT_SERVICE_API_KEY");
 
+// --- Conversion tracking (beta) ---
+// Public origin a client's website hits for POST /public/conversions. This is the
+// api-service PUBLIC gateway host, NOT the internal lead-service URL. Fleet-shared:
+// same value across every service that emits a public ingest URL. Optional with a
+// sane default so boot never fails; MUST be set to the real public host in Railway.
+export const PUBLIC_GATEWAY_ORIGIN = optional(
+  "PUBLIC_GATEWAY_ORIGIN",
+  "https://api.distribute.you",
+);
+export const CONVERSION_INGEST_URL = `${PUBLIC_GATEWAY_ORIGIN.replace(/\/+$/, "")}/public/conversions`;
+
 // --- Buffer / strategy tuning ---
 export const TARGET_BUFFER_SIZE = 20;
 export const MAX_STRATEGY_GENERATION_ROUNDS = 15;
