@@ -102,9 +102,10 @@ describe("isConversionEvent", () => {
     expect(isConversionEvent("signup")).toBe(true);
     expect(isConversionEvent("meeting_booked")).toBe(true);
     expect(isConversionEvent("form_submission")).toBe(true);
+    expect(isConversionEvent("purchase")).toBe(true);
   });
   it("rejects everything else", () => {
-    expect(isConversionEvent("purchase")).toBe(false);
+    expect(isConversionEvent("nonsense")).toBe(false);
     expect(isConversionEvent(undefined)).toBe(false);
   });
   it("rejects ping (a heartbeat is NOT a conversion)", () => {

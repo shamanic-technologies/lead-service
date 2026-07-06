@@ -1950,6 +1950,7 @@
               "signup",
               "meeting_booked",
               "form_submission",
+              "purchase",
               "ping"
             ],
             "description": "The conversion that happened on the client's website. The special value \"ping\" is a liveness heartbeat the on-page tag fires on page-load — it is NOT a conversion (no attribution, not counted, excluded from eventTypesSeen), it only proves the tag is alive.",

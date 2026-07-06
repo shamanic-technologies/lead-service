@@ -8,12 +8,13 @@ import { db } from "../db/index.js";
 export type MatchConfidence = "deterministic" | "strong" | "probabilistic" | "unmatched";
 export type MatchMethod = "email" | "phone" | "domain_name" | "full_name" | "last_name" | null;
 export type AttributionStatus = "attributed" | "needs_review" | "unmatched";
-export type ConversionEventName = "signup" | "meeting_booked" | "form_submission";
+export type ConversionEventName = "signup" | "meeting_booked" | "form_submission" | "purchase";
 
 export const CONVERSION_EVENTS: readonly ConversionEventName[] = [
   "signup",
   "meeting_booked",
   "form_submission",
+  "purchase",
 ];
 
 export function isConversionEvent(value: unknown): value is ConversionEventName {
