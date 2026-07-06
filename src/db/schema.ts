@@ -259,7 +259,7 @@ export const conversionEvents = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     brandId: text("brand_id").notNull(),
     orgId: text("org_id").notNull(),
-    event: text("event").notNull(), // "signup" | "meeting_booked"
+    event: text("event").notNull(), // "signup" | "meeting_booked" | "form_submission"
     email: text("email"),
     phone: text("phone"),
     firstName: text("first_name"),
