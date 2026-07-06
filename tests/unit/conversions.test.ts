@@ -96,9 +96,10 @@ describe("resolveAttributionStatus", () => {
 });
 
 describe("isConversionEvent", () => {
-  it("accepts the two valid events", () => {
+  it("accepts the valid events", () => {
     expect(isConversionEvent("signup")).toBe(true);
     expect(isConversionEvent("meeting_booked")).toBe(true);
+    expect(isConversionEvent("form_submission")).toBe(true);
   });
   it("rejects everything else", () => {
     expect(isConversionEvent("purchase")).toBe(false);
