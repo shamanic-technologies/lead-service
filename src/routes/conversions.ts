@@ -6,11 +6,14 @@ import { apiKeyAuth, requireOrgId, AuthenticatedRequest } from "../middleware/au
 import { CONVERSION_INGEST_URL } from "../config.js";
 import {
   isConversionEvent,
+  isPingEvent,
+  deriveConversionStatus,
   generateConversionToken,
   computeDedupeSignature,
   matchConversion,
   type ConversionEventName,
 } from "../lib/conversions.js";
+import { toIsoTimestamp } from "../lib/basic-leads.js";
 
 const router = Router();
 
@@ -96,7 +99,26 @@ router.post("/public/conversions", conversionTokenAuth, wrap(async (req: Convers
   const orgId = req.conversionOrgId!;
 
   const parsed = ConversionIngestBodySchema.safeParse(req.body);
-  if (!parsed.success || !isConversionEvent(parsed.data.event)) {
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid or missing event" });
+    return;
+  }
+
+  // Liveness heartbeat. The tag fires this on page-load: authenticate the token exactly
+  // like a real event (already done above), stamp last_ping_at, and STOP — no attribution,
+  // no conversion_events row, no dedupe, never counted as a conversion. Same opaque
+  // { received: true } so the public caller learns nothing.
+  if (isPingEvent(parsed.data.event)) {
+    await db.execute(sql`
+      UPDATE brand_conversion_tokens
+      SET last_ping_at = now()
+      WHERE brand_id = ${brandId}
+    `);
+    res.json({ received: true });
+    return;
+  }
+
+  if (!isConversionEvent(parsed.data.event)) {
     res.status(400).json({ error: "Invalid or missing event" });
     return;
   }
@@ -175,10 +197,38 @@ router.get(
       INSERT INTO brand_conversion_tokens (brand_id, org_id, token)
       VALUES (${brandId}, ${orgId}, ${token})
       ON CONFLICT (brand_id) DO UPDATE SET updated_at = now()
-      RETURNING token
-    `)) as unknown as Array<{ token: string }>;
+      RETURNING token, last_ping_at
+    `)) as unknown as Array<{ token: string; last_ping_at: Date | string | null }>;
 
-    res.json({ token: rows[0].token, ingestUrl: CONVERSION_INGEST_URL });
+    // Liveness overlay, DERIVED from received signals (never self-attested). Real events
+    // live in conversion_events; ping never lands there, so eventTypesSeen excludes it
+    // for free. array_agg over zero rows → null → [].
+    const agg = (await db.execute(sql`
+      SELECT max(received_at) AS last_event_at,
+             array_agg(DISTINCT event) AS event_types
+      FROM conversion_events
+      WHERE brand_id = ${brandId}
+    `)) as unknown as Array<{
+      last_event_at: Date | string | null;
+      event_types: string[] | null;
+    }>;
+
+    const lastEventAt = toIsoTimestamp(agg[0]?.last_event_at ?? null);
+    const lastPingAt = toIsoTimestamp(rows[0].last_ping_at ?? null);
+    const eventTypesSeen = agg[0]?.event_types ?? [];
+    const status = deriveConversionStatus({
+      hasRealEvent: lastEventAt !== null,
+      hasPing: lastPingAt !== null,
+    });
+
+    res.json({
+      token: rows[0].token,
+      ingestUrl: CONVERSION_INGEST_URL,
+      status,
+      lastEventAt,
+      lastPingAt,
+      eventTypesSeen,
+    });
   }),
 );
 
