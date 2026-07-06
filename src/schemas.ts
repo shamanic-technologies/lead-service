@@ -2039,7 +2039,9 @@ registry.registerPath({
     "Called directly by the CLIENT's website code (token-auth, NO Clerk). Authenticates the brand " +
     "publishable token, records the conversion, and attributes it to a lead we emailed for that brand " +
     "via a confidence-tiered match waterfall (email/phone → deterministic; domain+lastName → strong; " +
-    "name-only → probabilistic/needs_review). NEVER leaks the match result — always { received: true } " +
+    "name-only → probabilistic, auto-attributed to the top candidate). Only strong-ambiguous " +
+    "(domain+lastName with >1 candidate) is held for review. NEVER leaks the match result — " +
+    "always { received: true } " +
     "on success. Dedupe: per (brand, dedupeKey) when supplied, else per (brand, event, email-or-phone, day).",
   request: {
     body: {
