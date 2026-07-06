@@ -172,6 +172,34 @@ describe("POST /public/conversions", () => {
       .send({ event: "signup", email: "x@y.com" });
     expect(res.status).toBe(500);
   });
+
+  it("ping heartbeat → 200 {received:true}, stamps last_ping_at, NO attribution/insert", async () => {
+    execute.mockResolvedValueOnce([{ brand_id: "brand-1", org_id: "org-1" }]); // token
+    execute.mockResolvedValueOnce([]); // update last_ping_at
+    const res = await request(app)
+      .post("/public/conversions")
+      .set("x-conversion-token", "pk_conv_ok")
+      .send({ event: "ping" });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ received: true });
+    // ping never runs the match waterfall and never touches conversion_events.
+    expect(matchConversion).not.toHaveBeenCalled();
+    expect(execute).toHaveBeenCalledTimes(2); // token lookup + last_ping_at update only
+    const updateSql = lastSql();
+    expect(updateSql).toContain("update brand_conversion_tokens");
+    expect(updateSql).toContain("last_ping_at");
+    expect(updateSql).not.toContain("conversion_events");
+  });
+
+  it("ping still requires a valid token (401, no update)", async () => {
+    execute.mockResolvedValueOnce([]); // token lookup → no row
+    const res = await request(app)
+      .post("/public/conversions")
+      .set("x-conversion-token", "pk_conv_nope")
+      .send({ event: "ping" });
+    expect(res.status).toBe(401);
+    expect(execute).toHaveBeenCalledTimes(1); // only the token lookup
+  });
 });
 
 describe("GET /orgs/brands/:brandId/conversion-token", () => {
@@ -193,8 +221,9 @@ describe("GET /orgs/brands/:brandId/conversion-token", () => {
     expect(res.status).toBe(400);
   });
 
-  it("get-or-create returns {token, ingestUrl}", async () => {
-    execute.mockResolvedValueOnce([{ token: "pk_conv_existing" }]);
+  it("nothing received → not_set_up, both timestamps null, eventTypesSeen []", async () => {
+    execute.mockResolvedValueOnce([{ token: "pk_conv_existing", last_ping_at: null }]); // upsert
+    execute.mockResolvedValueOnce([{ last_event_at: null, event_types: null }]); // agg
     const res = await request(app)
       .get("/orgs/brands/brand-1/conversion-token")
       .set("x-api-key", "test-api-key")
@@ -203,10 +232,50 @@ describe("GET /orgs/brands/:brandId/conversion-token", () => {
     expect(res.body).toEqual({
       token: "pk_conv_existing",
       ingestUrl: "https://api.distribute.you/public/conversions",
+      status: "not_set_up",
+      lastEventAt: null,
+      lastPingAt: null,
+      eventTypesSeen: [],
     });
     expect(sqlAt(0)).toContain("insert into brand_conversion_tokens");
     expect(sqlAt(0)).toContain("on conflict");
     expect(sqlAt(0)).not.toContain("excluded.token"); // GET must NOT replace the token
+    expect(sqlAt(0)).toContain("last_ping_at"); // RETURNING now carries the ping time
+    expect(sqlAt(1)).toContain("from conversion_events"); // liveness overlay aggregate
+  });
+
+  it("ping received, no real conversion → live_waiting, lastPingAt set, eventTypesSeen still []", async () => {
+    execute.mockResolvedValueOnce([
+      { token: "pk_conv_existing", last_ping_at: new Date("2026-07-06T11:59:00.000Z") },
+    ]);
+    execute.mockResolvedValueOnce([{ last_event_at: null, event_types: null }]);
+    const res = await request(app)
+      .get("/orgs/brands/brand-1/conversion-token")
+      .set("x-api-key", "test-api-key")
+      .set("x-org-id", "org-1");
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("live_waiting");
+    expect(res.body.lastPingAt).toBe("2026-07-06T11:59:00.000Z");
+    expect(res.body.lastEventAt).toBeNull();
+    expect(res.body.eventTypesSeen).toEqual([]);
+  });
+
+  it("real conversion received → live, lastEventAt set, eventTypesSeen has signup (never ping)", async () => {
+    execute.mockResolvedValueOnce([
+      { token: "pk_conv_existing", last_ping_at: new Date("2026-07-06T11:59:00.000Z") },
+    ]);
+    execute.mockResolvedValueOnce([
+      { last_event_at: "2026-07-06T12:00:00.000Z", event_types: ["signup"] },
+    ]);
+    const res = await request(app)
+      .get("/orgs/brands/brand-1/conversion-token")
+      .set("x-api-key", "test-api-key")
+      .set("x-org-id", "org-1");
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("live");
+    expect(res.body.lastEventAt).toBe("2026-07-06T12:00:00.000Z");
+    expect(res.body.eventTypesSeen).toEqual(["signup"]);
+    expect(res.body.eventTypesSeen).not.toContain("ping");
   });
 });
 
