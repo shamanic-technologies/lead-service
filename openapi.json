@@ -1949,9 +1949,10 @@
             "enum": [
               "signup",
               "meeting_booked",
-              "form_submission"
+              "form_submission",
+              "ping"
             ],
-            "description": "The conversion that happened on the client's website.",
+            "description": "The conversion that happened on the client's website. The special value \"ping\" is a liveness heartbeat the on-page tag fires on page-load — it is NOT a conversion (no attribution, not counted, excluded from eventTypesSeen), it only proves the tag is alive.",
             "example": "signup"
           },
           "email": {
@@ -2001,13 +2002,49 @@
             "type": "string",
             "description": "Full public URL a third party hits for POST /public/conversions.",
             "example": "https://api.distribute.you/public/conversions"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "not_set_up",
+              "live_waiting",
+              "live"
+            ],
+            "description": "Tracker liveness, DERIVED from received signals (never self-attested). not_set_up — nothing received yet; live_waiting — a ping proves the tag is alive but no real conversion yet; live — at least one real conversion received.",
+            "example": "live_waiting"
+          },
+          "lastEventAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "ISO-8601 timestamp of the last REAL conversion event (signup/meeting_booked/form_submission), or null.",
+            "example": "2026-07-06T12:00:00.000Z"
+          },
+          "lastPingAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "ISO-8601 timestamp of the last liveness ping, or null.",
+            "example": "2026-07-06T11:59:00.000Z"
+          },
+          "eventTypesSeen": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Distinct REAL conversion event types actually received. Always EXCLUDES \"ping\".",
+            "example": [
+              "signup"
+            ]
           }
         },
         "required": [
           "token",
-          "ingestUrl"
+          "ingestUrl",
+          "status",
+          "lastEventAt",
+          "lastPingAt",
+          "eventTypesSeen"
         ],
-        "description": "The brand's publishable conversion write-key plus the public ingest URL."
+        "description": "The brand's publishable conversion write-key, the public ingest URL, and a derived liveness overlay (status + last event/ping timestamps + event types seen)."
       }
     },
     "parameters": {},
@@ -2790,7 +2827,7 @@
     "/public/conversions": {
       "post": {
         "summary": "Ingest a conversion event from a client's website (token-auth, public)",
-        "description": "Called directly by the CLIENT's website code (token-auth, NO Clerk). Authenticates the brand publishable token, records the conversion, and attributes it to a lead we emailed for that brand via a confidence-tiered match waterfall (email/phone → deterministic; domain+lastName → strong; name-only → probabilistic, auto-attributed to the top candidate). Only strong-ambiguous (domain+lastName with >1 candidate) is held for review. NEVER leaks the match result — always { received: true } on success. Dedupe: per (brand, dedupeKey) when supplied, else per (brand, event, email-or-phone, day).",
+        "description": "Called directly by the CLIENT's website code (token-auth, NO Clerk). Authenticates the brand publishable token, records the conversion, and attributes it to a lead we emailed for that brand via a confidence-tiered match waterfall (email/phone → deterministic; domain+lastName → strong; name-only → probabilistic, auto-attributed to the top candidate). Only strong-ambiguous (domain+lastName with >1 candidate) is held for review. NEVER leaks the match result — always { received: true } on success. Dedupe: per (brand, dedupeKey) when supplied, else per (brand, event, email-or-phone, day). The special event \"ping\" is a liveness heartbeat: it stamps the brand's last-ping time and returns { received: true } WITHOUT running attribution, storing a conversion, or counting toward stats.",
         "parameters": [
           {
             "in": "header",

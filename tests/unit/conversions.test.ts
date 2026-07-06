@@ -15,6 +15,8 @@ const {
   computeDedupeSignature,
   resolveAttributionStatus,
   isConversionEvent,
+  isPingEvent,
+  deriveConversionStatus,
   generateConversionToken,
   matchConversion,
 } = await import("../../src/lib/conversions.js");
@@ -104,6 +106,30 @@ describe("isConversionEvent", () => {
   it("rejects everything else", () => {
     expect(isConversionEvent("purchase")).toBe(false);
     expect(isConversionEvent(undefined)).toBe(false);
+  });
+  it("rejects ping (a heartbeat is NOT a conversion)", () => {
+    expect(isConversionEvent("ping")).toBe(false);
+  });
+});
+
+describe("isPingEvent", () => {
+  it("accepts only the ping value", () => {
+    expect(isPingEvent("ping")).toBe(true);
+    expect(isPingEvent("signup")).toBe(false);
+    expect(isPingEvent(undefined)).toBe(false);
+  });
+});
+
+describe("deriveConversionStatus", () => {
+  it("nothing received → not_set_up", () => {
+    expect(deriveConversionStatus({ hasRealEvent: false, hasPing: false })).toBe("not_set_up");
+  });
+  it("ping only → live_waiting", () => {
+    expect(deriveConversionStatus({ hasRealEvent: false, hasPing: true })).toBe("live_waiting");
+  });
+  it("real event → live (regardless of ping)", () => {
+    expect(deriveConversionStatus({ hasRealEvent: true, hasPing: false })).toBe("live");
+    expect(deriveConversionStatus({ hasRealEvent: true, hasPing: true })).toBe("live");
   });
 });
 

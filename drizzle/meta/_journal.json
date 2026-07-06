@@ -183,6 +183,13 @@
       "when": 1782000000000,
       "tag": "0025_conversion_tracking",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1782086400000,
+      "tag": "0026_conversion_ping_liveness",
+      "breakpoints": true
     }
   ]
 }

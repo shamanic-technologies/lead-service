@@ -20,6 +20,31 @@ export function isConversionEvent(value: unknown): value is ConversionEventName 
   return typeof value === "string" && (CONVERSION_EVENTS as readonly string[]).includes(value);
 }
 
+// A liveness heartbeat the client's on-page tag fires on page-load. NOT a conversion:
+// it never runs attribution, never lands in conversion_events, never counts toward
+// eventTypesSeen or dedupe. It only stamps last_ping_at so the dashboard can derive
+// "the tracker is alive" before any real conversion arrives.
+export const PING_EVENT = "ping" as const;
+
+export function isPingEvent(value: unknown): value is typeof PING_EVENT {
+  return value === PING_EVENT;
+}
+
+// Consumer-observable liveness, derived (never self-attested):
+//   not_set_up   — nothing received yet (no ping, no real conversion)
+//   live_waiting — a ping proves the tag is alive, but no real conversion yet
+//   live         — at least one real conversion received
+export type ConversionTrackerStatus = "not_set_up" | "live_waiting" | "live";
+
+export function deriveConversionStatus(params: {
+  hasRealEvent: boolean;
+  hasPing: boolean;
+}): ConversionTrackerStatus {
+  if (params.hasRealEvent) return "live";
+  if (params.hasPing) return "live_waiting";
+  return "not_set_up";
+}
+
 /** Generate a publishable write-key. Not a secret (embedded in a client-side pixel). */
 export function generateConversionToken(): string {
   return `pk_conv_${randomBytes(24).toString("base64url")}`;

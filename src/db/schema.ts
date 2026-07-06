@@ -242,6 +242,10 @@ export const brandConversionTokens = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     rotatedAt: timestamp("rotated_at", { withTimezone: true }),
+    // Liveness heartbeat: last time the client's on-page tag fired a { event: "ping" }.
+    // Derives the "tracker is alive" signal BEFORE any real conversion arrives. A ping
+    // is NOT a conversion — it never lands in conversion_events, never runs attribution.
+    lastPingAt: timestamp("last_ping_at", { withTimezone: true }),
   },
   (table) => [
     uniqueIndex("idx_bct_brand_id").on(table.brandId),

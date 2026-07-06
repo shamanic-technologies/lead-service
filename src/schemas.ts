@@ -1967,8 +1967,11 @@ registry.registerPath({
 
 const ConversionIngestRequestSchema = z
   .object({
-    event: z.enum(["signup", "meeting_booked", "form_submission"]).openapi({
-      description: "The conversion that happened on the client's website.",
+    event: z.enum(["signup", "meeting_booked", "form_submission", "ping"]).openapi({
+      description:
+        "The conversion that happened on the client's website. The special value \"ping\" is a " +
+        "liveness heartbeat the on-page tag fires on page-load — it is NOT a conversion (no " +
+        "attribution, not counted, excluded from eventTypesSeen), it only proves the tag is alive.",
       example: "signup",
     }),
     email: z.string().optional().openapi({ example: "jane@acme.com" }),
@@ -2008,9 +2011,32 @@ const ConversionTokenResponseSchema = z
       description: "Full public URL a third party hits for POST /public/conversions.",
       example: "https://api.distribute.you/public/conversions",
     }),
+    status: z.enum(["not_set_up", "live_waiting", "live"]).openapi({
+      description:
+        "Tracker liveness, DERIVED from received signals (never self-attested). " +
+        "not_set_up — nothing received yet; live_waiting — a ping proves the tag is alive but " +
+        "no real conversion yet; live — at least one real conversion received.",
+      example: "live_waiting",
+    }),
+    lastEventAt: z.string().nullable().openapi({
+      description:
+        "ISO-8601 timestamp of the last REAL conversion event (signup/meeting_booked/form_submission), or null.",
+      example: "2026-07-06T12:00:00.000Z",
+    }),
+    lastPingAt: z.string().nullable().openapi({
+      description: "ISO-8601 timestamp of the last liveness ping, or null.",
+      example: "2026-07-06T11:59:00.000Z",
+    }),
+    eventTypesSeen: z.array(z.string()).openapi({
+      description:
+        "Distinct REAL conversion event types actually received. Always EXCLUDES \"ping\".",
+      example: ["signup"],
+    }),
   })
   .openapi("ConversionTokenResponse", {
-    description: "The brand's publishable conversion write-key plus the public ingest URL.",
+    description:
+      "The brand's publishable conversion write-key, the public ingest URL, and a derived " +
+      "liveness overlay (status + last event/ping timestamps + event types seen).",
   });
 
 const ConversionTokenHeader = [
@@ -2042,7 +2068,9 @@ registry.registerPath({
     "name-only → probabilistic, auto-attributed to the top candidate). Only strong-ambiguous " +
     "(domain+lastName with >1 candidate) is held for review. NEVER leaks the match result — " +
     "always { received: true } " +
-    "on success. Dedupe: per (brand, dedupeKey) when supplied, else per (brand, event, email-or-phone, day).",
+    "on success. Dedupe: per (brand, dedupeKey) when supplied, else per (brand, event, email-or-phone, day). " +
+    "The special event \"ping\" is a liveness heartbeat: it stamps the brand's last-ping time and returns " +
+    "{ received: true } WITHOUT running attribution, storing a conversion, or counting toward stats.",
   request: {
     body: {
       content: { "application/json": { schema: ConversionIngestRequestSchema } },
