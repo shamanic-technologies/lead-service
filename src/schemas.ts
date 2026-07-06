@@ -1967,7 +1967,7 @@ registry.registerPath({
 
 const ConversionIngestRequestSchema = z
   .object({
-    event: z.enum(["signup", "meeting_booked", "form_submission", "ping"]).openapi({
+    event: z.enum(["signup", "meeting_booked", "form_submission", "purchase", "ping"]).openapi({
       description:
         "The conversion that happened on the client's website. The special value \"ping\" is a " +
         "liveness heartbeat the on-page tag fires on page-load — it is NOT a conversion (no " +
