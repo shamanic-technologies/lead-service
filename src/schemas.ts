@@ -1967,7 +1967,7 @@ registry.registerPath({
 
 const ConversionIngestRequestSchema = z
   .object({
-    event: z.enum(["signup", "meeting_booked"]).openapi({
+    event: z.enum(["signup", "meeting_booked", "form_submission"]).openapi({
       description: "The conversion that happened on the client's website.",
       example: "signup",
     }),

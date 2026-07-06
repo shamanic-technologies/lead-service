@@ -1948,7 +1948,8 @@
             "type": "string",
             "enum": [
               "signup",
-              "meeting_booked"
+              "meeting_booked",
+              "form_submission"
             ],
             "description": "The conversion that happened on the client's website.",
             "example": "signup"
