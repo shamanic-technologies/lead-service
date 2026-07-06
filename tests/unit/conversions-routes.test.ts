@@ -34,6 +34,21 @@ function sqlAt(i: number): string {
   return compile(execute.mock.calls[i][0]).sql.toLowerCase();
 }
 
+// Faithfully reproduce postgres.js `Bind`: a raw `sql` template hands params straight to
+// the driver, which cannot serialize a JS `Date` (it does `Buffer.byteLength(value)` and
+// throws `ERR_INVALID_ARG_TYPE ... Received an instance of Date`). The plain vi.fn() mock
+// never serializes params, which is exactly why the 100%-broken handler shipped green
+// (#357). Assert-on-bind here so a raw-Date param 500s in tests just like it did in prod.
+function assertBindable(call: unknown): void {
+  for (const p of compile(call).params) {
+    if (p instanceof Date) {
+      throw new TypeError(
+        'The "string" argument must be of type string or an instance of Buffer or ArrayBuffer. Received an instance of Date',
+      );
+    }
+  }
+}
+
 async function buildApp() {
   const { default: route } = await import("../../src/routes/conversions.js");
   const app = express();
@@ -106,6 +121,79 @@ describe("POST /public/conversions", () => {
     expect(insertParams).toContain("attributed");
     expect(insertParams).toContain("deterministic");
     expect(insertParams).toContain("lead-1");
+  });
+
+  // Regression for #357: the INSERT bound `received_at` as a raw `Date`, which threw at
+  // postgres.js Bind time (a client-side throw invisible to raw-SQL/EXECUTE tests), so
+  // EVERY real conversion 500'd in prod while ping (SQL `now()`, no Date param) worked.
+  // These tests drive the real handler through a Bind-faithful mock: they FAIL (500) on
+  // the old `${now}` code and PASS on the `${now.toISOString()}` fix.
+  it("real signup conversion → 200 + persists conversion_events with a serializable received_at (AC1)", async () => {
+    const rowsByCall: unknown[][] = [
+      [{ brand_id: "brand-1", org_id: "org-1" }], // token lookup
+      [], // dedupe check → no dup
+      [], // insert
+    ];
+    let i = 0;
+    execute.mockImplementation((call: unknown) => {
+      assertBindable(call); // throws on a raw Date param, exactly like postgres.js in prod
+      return Promise.resolve(rowsByCall[i++] ?? []);
+    });
+    matchConversion.mockResolvedValueOnce({
+      matchedLeadId: "lead-1",
+      matchMethod: "email",
+      matchConfidence: "deterministic",
+      attributionStatus: "attributed",
+      candidateCount: 1,
+    });
+
+    const res = await request(app)
+      .post("/public/conversions")
+      .set("x-conversion-token", "pk_conv_ok")
+      .send({ event: "signup", email: "Jane@Acme.com", firstName: "Jane", lastName: "Doe" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ received: true });
+    // the insert actually ran (3rd execute call) …
+    const insert = compile(execute.mock.calls[2][0]);
+    expect(insert.sql.toLowerCase()).toContain("insert into conversion_events");
+    expect(insert.params).toContain("attributed");
+    expect(insert.params).toContain("lead-1");
+    // … with every bound param serializable — received_at is an ISO string, never a Date.
+    expect(insert.params.some((p) => p instanceof Date)).toBe(false);
+    expect(insert.params).toContainEqual(expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/));
+  });
+
+  it("bare signup (no identity) → 200 + persists unmatched row, null dedupe_signature, no Date param (AC2)", async () => {
+    const rowsByCall: unknown[][] = [
+      [{ brand_id: "brand-1", org_id: "org-1" }], // token lookup
+      [], // insert (no dedupe SELECT: no dedupeKey/email/phone → signature null)
+    ];
+    let i = 0;
+    execute.mockImplementation((call: unknown) => {
+      assertBindable(call);
+      return Promise.resolve(rowsByCall[i++] ?? []);
+    });
+    matchConversion.mockResolvedValueOnce({
+      matchedLeadId: null,
+      matchMethod: null,
+      matchConfidence: "unmatched",
+      attributionStatus: "unmatched",
+      candidateCount: 0,
+    });
+
+    const res = await request(app)
+      .post("/public/conversions")
+      .set("x-conversion-token", "pk_conv_ok")
+      .send({ event: "signup" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ received: true });
+    expect(execute).toHaveBeenCalledTimes(2); // token lookup + insert only (no dedupe SELECT)
+    const insert = compile(execute.mock.calls[1][0]);
+    expect(insert.sql.toLowerCase()).toContain("insert into conversion_events");
+    expect(insert.params).toContain("unmatched");
+    expect(insert.params.some((p) => p instanceof Date)).toBe(false);
   });
 
   it("accepts Authorization: Bearer token", async () => {
