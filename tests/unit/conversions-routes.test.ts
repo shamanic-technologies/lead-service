@@ -125,14 +125,14 @@ describe("POST /public/conversions", () => {
     expect(res.body).toEqual({ received: true });
   });
 
-  it("lastName-only match stores needs_review, NOT attributed", async () => {
+  it("lastName-only match stores attributed (name is enough), NOT needs_review", async () => {
     execute.mockResolvedValueOnce([{ brand_id: "brand-1", org_id: "org-1" }]); // token
     execute.mockResolvedValueOnce([]); // dedupe (signature null → actually skipped; see below)
     matchConversion.mockResolvedValueOnce({
       matchedLeadId: "lead-7",
       matchMethod: "last_name",
       matchConfidence: "probabilistic",
-      attributionStatus: "needs_review",
+      attributionStatus: "attributed",
       candidateCount: 2,
     });
     const res = await request(app)
@@ -143,8 +143,9 @@ describe("POST /public/conversions", () => {
     // no email/phone/dedupeKey → dedupe signature is null → no dedupe SELECT, straight to insert.
     expect(lastSql()).toContain("insert into conversion_events");
     const insertParams = compile(execute.mock.calls[execute.mock.calls.length - 1][0]).params;
-    expect(insertParams).toContain("needs_review");
-    expect(insertParams).not.toContain("attributed");
+    expect(insertParams).toContain("attributed");
+    expect(insertParams).toContain("lead-7");
+    expect(insertParams).not.toContain("needs_review");
   });
 
   it("duplicate dedupeKey → 200, no second attribution insert", async () => {
