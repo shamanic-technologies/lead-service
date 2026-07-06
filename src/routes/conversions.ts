@@ -160,6 +160,13 @@ router.post("/public/conversions", conversionTokenAuth, wrap(async (req: Convers
 
   // Race-safe insert: if a concurrent request already claimed this signature, the
   // partial unique index makes this a no-op and we still return 200.
+  //
+  // received_at is bound as `now.toISOString()`, NOT a raw `Date`: a raw `sql` template
+  // hands params straight to postgres.js `Bind`, which does not serialize a Date (only
+  // drizzle's typed insert builder / postgres.js's own tagged template do). Binding a
+  // `Date` throws `ERR_INVALID_ARG_TYPE ... Received an instance of Date` at Bind time —
+  // a client-side throw invisible to raw-SQL/EXECUTE tests — which 500'd every real
+  // conversion in prod (#357). The ISO string casts to timestamptz for the column.
   await db.execute(sql`
     INSERT INTO conversion_events (
       brand_id, org_id, event, email, phone, first_name, last_name, company_url,
@@ -170,7 +177,7 @@ router.post("/public/conversions", conversionTokenAuth, wrap(async (req: Convers
       ${body.firstName ?? null}, ${body.lastName ?? null}, ${body.companyUrl ?? null},
       ${body.dedupeKey ?? null}, ${dedupeSignature}, ${body.valueCents ?? null},
       ${match.matchedLeadId}, ${match.matchMethod}, ${match.matchConfidence},
-      ${match.attributionStatus}, ${match.candidateCount}, ${now}
+      ${match.attributionStatus}, ${match.candidateCount}, ${now.toISOString()}
     )
     ON CONFLICT (brand_id, dedupe_signature) WHERE dedupe_signature IS NOT NULL DO NOTHING
   `);
