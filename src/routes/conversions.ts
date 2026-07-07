@@ -11,6 +11,7 @@ import {
   generateConversionToken,
   computeDedupeSignature,
   matchConversion,
+  CONVERSION_EVENTS,
   type ConversionEventName,
 } from "../lib/conversions.js";
 import { toIsoTimestamp } from "../lib/basic-leads.js";
@@ -261,6 +262,51 @@ router.post(
     `)) as unknown as Array<{ token: string }>;
 
     res.json({ token: rows[0].token, ingestUrl: CONVERSION_INGEST_URL });
+  }),
+);
+
+/**
+ * GET /internal/brands/:brandId/conversion-counts
+ *
+ * INTERNAL (service-auth: x-api-key — same tier as other /internal/* routes, NO Clerk).
+ * Returns the per-event-type COUNT of REAL, attributed conversions for the brand, so
+ * features-service can compute real signups / cost-per-signup for the dashboard.
+ *
+ * Each count = deduped, attributed conversion events of that type:
+ *  - Rows in conversion_events are already deduped at WRITE (partial unique index on
+ *    (brand_id, dedupe_signature)), so counting stored rows is inherently deduped per the
+ *    same rules POST /public/conversions applies.
+ *  - `attribution_status = 'attributed'` keeps only conversions credited to a lead we
+ *    emailed for this brand (auto-accepted); excludes needs_review (held) + unmatched.
+ *    This is the "counts toward the brand's real outcomes" set.
+ *  - "ping" is a liveness heartbeat that never lands in conversion_events → excluded for free.
+ *
+ * All four event-type keys are ALWAYS present (0 when none received). Never 404 — a brand
+ * with zero conversions returns all-zero counts.
+ */
+router.get(
+  "/internal/brands/:brandId/conversion-counts",
+  apiKeyAuth,
+  wrap(async (req: Request, res: Response) => {
+    const brandId = req.params.brandId;
+
+    const rows = (await db.execute(sql`
+      SELECT event, count(*)::int AS n
+      FROM conversion_events
+      WHERE brand_id = ${brandId}
+        AND attribution_status = 'attributed'
+      GROUP BY event
+    `)) as unknown as Array<{ event: string; n: number }>;
+
+    const counts = Object.fromEntries(
+      CONVERSION_EVENTS.map((e) => [e, 0]),
+    ) as Record<ConversionEventName, number>;
+
+    for (const row of rows) {
+      if (isConversionEvent(row.event)) counts[row.event] = row.n;
+    }
+
+    res.json({ counts });
   }),
 );
 

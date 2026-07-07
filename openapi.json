@@ -2046,6 +2046,43 @@
           "eventTypesSeen"
         ],
         "description": "The brand's publishable conversion write-key, the public ingest URL, and a derived liveness overlay (status + last event/ping timestamps + event types seen)."
+      },
+      "ConversionCountsResponse": {
+        "type": "object",
+        "properties": {
+          "counts": {
+            "type": "object",
+            "properties": {
+              "signup": {
+                "type": "integer",
+                "example": 12
+              },
+              "meeting_booked": {
+                "type": "integer",
+                "example": 3
+              },
+              "form_submission": {
+                "type": "integer",
+                "example": 7
+              },
+              "purchase": {
+                "type": "integer",
+                "example": 2
+              }
+            },
+            "required": [
+              "signup",
+              "meeting_booked",
+              "form_submission",
+              "purchase"
+            ],
+            "description": "Count of REAL, deduped, attributed conversion events per event type. All four keys are ALWAYS present (0 when none received). Excludes the \"ping\" liveness heartbeat, needs_review, and unmatched events."
+          }
+        },
+        "required": [
+          "counts"
+        ],
+        "description": "Per-brand real conversion counts by event type, for features-service to compute real signups / cost-per-signup."
       }
     },
     "parameters": {},
@@ -3155,6 +3192,47 @@
           },
           "400": {
             "description": "Missing x-org-id"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/internal/brands/{brandId}/conversion-counts": {
+      "get": {
+        "summary": "Real conversion counts per event type for a brand (internal, service-auth)",
+        "description": "INTERNAL (service-auth: x-api-key — same tier as other /internal/* routes, NO Clerk). Returns the per-event-type COUNT of REAL, attributed conversions for the brand. Each count is deduped (rows are deduped at write via the (brand_id, dedupe_signature) partial unique index) and filtered to attribution_status = 'attributed' (credited to a lead we emailed for the brand; excludes needs_review and unmatched). The \"ping\" liveness heartbeat never lands in conversion_events, so it is excluded. All four keys are ALWAYS present (0 when none received); a brand with zero conversions returns all-zero counts (200, never 404).",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "API key for authenticating requests"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "example": "20000000-0000-0000-0000-000000000001"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Per-event-type real conversion counts for the brand",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversionCountsResponse"
+                }
+              }
+            }
           },
           "401": {
             "description": "Unauthorized"

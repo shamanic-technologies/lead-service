@@ -367,6 +367,90 @@ describe("GET /orgs/brands/:brandId/conversion-token", () => {
   });
 });
 
+describe("GET /internal/brands/:brandId/conversion-counts", () => {
+  let app: express.Express;
+  beforeAll(async () => {
+    app = await buildApp();
+  }, 30_000);
+  beforeEach(() => execute.mockReset().mockResolvedValue([]));
+
+  it("401 without x-api-key", async () => {
+    const res = await request(app).get("/internal/brands/brand-1/conversion-counts");
+    expect(res.status).toBe(401);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("zero conversions → 200 with all four keys at 0 (never 404)", async () => {
+    execute.mockResolvedValueOnce([]); // count query → no rows
+    const res = await request(app)
+      .get("/internal/brands/brand-1/conversion-counts")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      counts: { signup: 0, meeting_booked: 0, form_submission: 0, purchase: 0 },
+    });
+  });
+
+  it("counts real attributed events per type; missing types default to 0", async () => {
+    execute.mockResolvedValueOnce([
+      { event: "signup", n: 12 },
+      { event: "purchase", n: 2 },
+    ]);
+    const res = await request(app)
+      .get("/internal/brands/brand-1/conversion-counts")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      counts: { signup: 12, meeting_booked: 0, form_submission: 0, purchase: 2 },
+    });
+  });
+
+  it("query is deduped-at-write, attributed-only, and ping-excluded", async () => {
+    execute.mockResolvedValueOnce([]);
+    await request(app)
+      .get("/internal/brands/brand-1/conversion-counts")
+      .set("x-api-key", "test-api-key");
+    const q = sqlAt(0);
+    // Counts stored conversion_events rows (already deduped at write via the partial
+    // unique index), grouped per event type.
+    expect(q).toContain("from conversion_events");
+    expect(q).toContain("group by event");
+    // Only conversions credited to a lead we emailed for the brand.
+    expect(q).toContain("attribution_status = 'attributed'");
+    // "ping" never lands in conversion_events, so it cannot leak into the counts —
+    // and the handler only ever emits the four real event-type keys.
+    expect(q).not.toContain("ping");
+    const params = compile(execute.mock.calls[0][0]).params;
+    expect(params).toContain("brand-1");
+  });
+
+  it("an unexpected event value in a row never leaks into the response", async () => {
+    execute.mockResolvedValueOnce([
+      { event: "signup", n: 3 },
+      { event: "ping", n: 99 }, // must be ignored (isConversionEvent guard)
+      { event: "garbage", n: 7 }, // must be ignored
+    ]);
+    const res = await request(app)
+      .get("/internal/brands/brand-1/conversion-counts")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      counts: { signup: 3, meeting_booked: 0, form_submission: 0, purchase: 0 },
+    });
+    expect(Object.keys(res.body.counts).sort()).toEqual(
+      ["form_submission", "meeting_booked", "purchase", "signup"].sort(),
+    );
+  });
+
+  it("500 when the DB errors (fail loud)", async () => {
+    execute.mockRejectedValueOnce(new Error("db down"));
+    const res = await request(app)
+      .get("/internal/brands/brand-1/conversion-counts")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(500);
+  });
+});
+
 describe("POST /orgs/brands/:brandId/conversion-token/rotate", () => {
   let app: express.Express;
   beforeAll(async () => {
