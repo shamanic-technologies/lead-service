@@ -2127,3 +2127,48 @@ registry.registerPath({
     401: { description: "Unauthorized" },
   },
 });
+
+const ConversionCountsResponseSchema = z
+  .object({
+    counts: z
+      .object({
+        signup: z.number().int().openapi({ example: 12 }),
+        meeting_booked: z.number().int().openapi({ example: 3 }),
+        form_submission: z.number().int().openapi({ example: 7 }),
+        purchase: z.number().int().openapi({ example: 2 }),
+      })
+      .openapi({
+        description:
+          "Count of REAL, deduped, attributed conversion events per event type. All four keys " +
+          "are ALWAYS present (0 when none received). Excludes the \"ping\" liveness heartbeat, " +
+          "needs_review, and unmatched events.",
+      }),
+  })
+  .openapi("ConversionCountsResponse", {
+    description:
+      "Per-brand real conversion counts by event type, for features-service to compute real " +
+      "signups / cost-per-signup.",
+  });
+
+registry.registerPath({
+  method: "get",
+  path: "/internal/brands/{brandId}/conversion-counts",
+  summary: "Real conversion counts per event type for a brand (internal, service-auth)",
+  description:
+    "INTERNAL (service-auth: x-api-key — same tier as other /internal/* routes, NO Clerk). Returns the " +
+    "per-event-type COUNT of REAL, attributed conversions for the brand. Each count is deduped (rows are " +
+    "deduped at write via the (brand_id, dedupe_signature) partial unique index) and filtered to " +
+    "attribution_status = 'attributed' (credited to a lead we emailed for the brand; excludes needs_review " +
+    "and unmatched). The \"ping\" liveness heartbeat never lands in conversion_events, so it is excluded. " +
+    "All four keys are ALWAYS present (0 when none received); a brand with zero conversions returns all-zero " +
+    "counts (200, never 404).",
+  request: { params: BrandIdPathParam },
+  parameters: FeatureMembershipApiKeyHeader,
+  responses: {
+    200: {
+      description: "Per-event-type real conversion counts for the brand",
+      content: { "application/json": { schema: ConversionCountsResponseSchema } },
+    },
+    401: { description: "Unauthorized" },
+  },
+});
