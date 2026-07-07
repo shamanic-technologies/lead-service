@@ -451,6 +451,105 @@ describe("GET /internal/brands/:brandId/conversion-counts", () => {
   });
 });
 
+describe("GET /internal/brands/:brandId/converted-lead-emails", () => {
+  let app: express.Express;
+  beforeAll(async () => {
+    app = await buildApp();
+  }, 30_000);
+  beforeEach(() => execute.mockReset().mockResolvedValue([]));
+
+  it("401 without x-api-key", async () => {
+    const res = await request(app).get(
+      "/internal/brands/brand-1/converted-lead-emails?event=form_submission",
+    );
+    expect(res.status).toBe(401);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("400 when event is missing", async () => {
+    const res = await request(app)
+      .get("/internal/brands/brand-1/converted-lead-emails")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(400);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("400 when event is not a real conversion type (ping/garbage rejected)", async () => {
+    for (const bad of ["ping", "garbage"]) {
+      execute.mockClear();
+      const res = await request(app)
+        .get(`/internal/brands/brand-1/converted-lead-emails?event=${bad}`)
+        .set("x-api-key", "test-api-key");
+      expect(res.status).toBe(400);
+      expect(execute).not.toHaveBeenCalled();
+    }
+  });
+
+  it("zero attributed conversions → 200 empty set (never 404)", async () => {
+    execute.mockResolvedValueOnce([]); // email query → no rows
+    const res = await request(app)
+      .get("/internal/brands/brand-1/converted-lead-emails?event=form_submission")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ event: "form_submission", emails: [] });
+  });
+
+  it("returns the deduped, lowercased matched-lead canonical emails, echoing the event", async () => {
+    execute.mockResolvedValueOnce([
+      { email: "jane@acme.com" },
+      { email: "bob@globex.com" },
+    ]);
+    const res = await request(app)
+      .get("/internal/brands/brand-1/converted-lead-emails?event=form_submission")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      event: "form_submission",
+      emails: ["jane@acme.com", "bob@globex.com"],
+    });
+  });
+
+  it("query is attributed-only, filters by brand + the requested event, joins the lead's canonical email", async () => {
+    execute.mockResolvedValueOnce([]);
+    await request(app)
+      .get("/internal/brands/brand-1/converted-lead-emails?event=signup")
+      .set("x-api-key", "test-api-key");
+    const q = sqlAt(0);
+    expect(q).toContain("from conversion_events");
+    // Only conversions credited to a lead we emailed for the brand.
+    expect(q).toContain("attribution_status = 'attributed'");
+    // Canonical email = the matched lead's primary (earliest) email contact method.
+    expect(q).toContain("lead_contact_methods");
+    expect(q).toContain("lower(canonical.value)");
+    expect(q).toContain("distinct");
+    // brand + event are bound params, never interpolated.
+    const params = compile(execute.mock.calls[0][0]).params;
+    expect(params).toContain("brand-1");
+    expect(params).toContain("signup");
+  });
+
+  it("drops null/empty emails defensively", async () => {
+    execute.mockResolvedValueOnce([
+      { email: "jane@acme.com" },
+      { email: null },
+      { email: "" },
+    ]);
+    const res = await request(app)
+      .get("/internal/brands/brand-1/converted-lead-emails?event=purchase")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ event: "purchase", emails: ["jane@acme.com"] });
+  });
+
+  it("500 when the DB errors (fail loud)", async () => {
+    execute.mockRejectedValueOnce(new Error("db down"));
+    const res = await request(app)
+      .get("/internal/brands/brand-1/converted-lead-emails?event=form_submission")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(500);
+  });
+});
+
 describe("POST /orgs/brands/:brandId/conversion-token/rotate", () => {
   let app: express.Express;
   beforeAll(async () => {
