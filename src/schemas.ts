@@ -2172,3 +2172,67 @@ registry.registerPath({
     401: { description: "Unauthorized" },
   },
 });
+
+const ConvertedLeadEmailsResponseSchema = z
+  .object({
+    event: z
+      .enum(["signup", "meeting_booked", "form_submission", "purchase"])
+      .openapi({
+        description: "The conversion event type the emails were filtered to (echoes the query param).",
+        example: "form_submission",
+      }),
+    emails: z
+      .array(z.string())
+      .openapi({
+        description:
+          "Deduped, lowercased canonical emails of the leads-we-emailed that have >=1 attributed " +
+          "conversion of `event` for this brand. This is the emails-we-served join key (the matched " +
+          "lead's PRIMARY email), NOT the raw email a visitor typed on the client's site. Intersect it " +
+          "with each audience's email membership (also email-keyed) to get a per-audience conversion " +
+          "count. Empty array when the brand has no attributed conversions of `event`.",
+        example: ["jane@acme.com", "bob@globex.com"],
+      }),
+  })
+  .openapi("ConvertedLeadEmailsResponse", {
+    description:
+      "Per-brand set of matched-lead canonical emails with an attributed conversion of a given event " +
+      "type, so features-service can attribute conversions to audiences by email-membership intersection.",
+  });
+
+registry.registerPath({
+  method: "get",
+  path: "/internal/brands/{brandId}/converted-lead-emails",
+  summary: "Matched-lead canonical emails with an attributed conversion of a given type (internal, service-auth)",
+  description:
+    "INTERNAL (service-auth: x-api-key — same tier as conversion-counts, NO Clerk). Returns the SET of " +
+    "matched-lead canonical emails (the emails-we-served identity) that have at least one REAL, attributed " +
+    "conversion of the `event` type for the brand. features-service intersects this set with each audience's " +
+    "email membership (which it already resolves by email) to count conversions per audience. Only " +
+    "attribution_status = 'attributed' rows count (the SAME set conversion-counts uses; excludes needs_review " +
+    "+ unmatched). The returned identity is the matched lead's PRIMARY email (earliest email contact method), " +
+    "NOT the raw email a visitor typed. Emails are lowercased + DISTINCT. `event` is required and must be one " +
+    "of signup | meeting_booked | form_submission | purchase (missing/invalid → 400). A brand with zero " +
+    "attributed conversions of `event` returns an empty array (200, never 404).",
+  request: { params: BrandIdPathParam },
+  parameters: [
+    ...FeatureMembershipApiKeyHeader,
+    {
+      in: "query" as const,
+      name: "event",
+      required: true,
+      schema: {
+        type: "string" as const,
+        enum: ["signup", "meeting_booked", "form_submission", "purchase"],
+      },
+      description: "Conversion event type to filter to. Required.",
+    },
+  ],
+  responses: {
+    200: {
+      description: "The set of matched-lead canonical emails with an attributed conversion of `event`",
+      content: { "application/json": { schema: ConvertedLeadEmailsResponseSchema } },
+    },
+    400: { description: "Invalid or missing event" },
+    401: { description: "Unauthorized" },
+  },
+});

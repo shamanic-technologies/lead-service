@@ -310,4 +310,65 @@ router.get(
   }),
 );
 
+/**
+ * GET /internal/brands/:brandId/converted-lead-emails?event=<type>
+ *
+ * INTERNAL (service-auth: x-api-key — same tier as conversion-counts, NO Clerk).
+ * Returns the SET of matched-lead canonical emails (the emails-we-served identity) that
+ * have at least one REAL, attributed conversion of `event` for the brand — so
+ * features-service can intersect it with each audience's email membership and count
+ * conversions per audience.
+ *
+ *  - `event` is REQUIRED and must be one of the four conversion event types
+ *    (signup | meeting_booked | form_submission | purchase). Missing/invalid → 400.
+ *    "ping" is a liveness heartbeat, never a conversion → not accepted here.
+ *  - Only `attribution_status = 'attributed'` rows count (credited to a lead we emailed
+ *    for the brand; excludes needs_review + unmatched) — the SAME set conversion-counts uses.
+ *  - The returned identity is the MATCHED LEAD's canonical (primary) email — the earliest
+ *    email contact method for the lead — NOT the raw email a visitor typed on the client's
+ *    site (which may differ, or be absent for a phone/name match). This is the join key
+ *    features-service already holds from human-service audience membership. Lowercased +
+ *    DISTINCT so the intersection is case-robust and de-duplicated.
+ *  - A matched lead with no email contact method yields no join key → excluded (INNER
+ *    LATERAL). Rows are already deduped at write via the (brand_id, dedupe_signature)
+ *    partial unique index.
+ *
+ * Never 404 — a brand with zero attributed conversions of `event` returns an empty set (200).
+ */
+router.get(
+  "/internal/brands/:brandId/converted-lead-emails",
+  apiKeyAuth,
+  wrap(async (req: Request, res: Response) => {
+    const brandId = req.params.brandId;
+    const event = req.query.event;
+
+    if (!isConversionEvent(event)) {
+      res.status(400).json({ error: "Invalid or missing event" });
+      return;
+    }
+
+    const rows = (await db.execute(sql`
+      SELECT DISTINCT lower(canonical.value) AS email
+      FROM conversion_events ce
+      JOIN LATERAL (
+        SELECT cm.value
+        FROM lead_contact_methods cm
+        WHERE cm.lead_id = ce.matched_lead_id AND cm.channel = 'email'
+        ORDER BY cm.created_at ASC NULLS LAST, cm.value ASC
+        LIMIT 1
+      ) canonical ON true
+      WHERE ce.brand_id = ${brandId}
+        AND ce.attribution_status = 'attributed'
+        AND ce.event = ${event}
+        AND canonical.value IS NOT NULL
+    `)) as unknown as Array<{ email: string | null }>;
+
+    const emails = rows
+      .map((r) => r.email)
+      .filter((e): e is string => typeof e === "string" && e.length > 0);
+
+    res.json({ event, emails });
+  }),
+);
+
 export default router;
