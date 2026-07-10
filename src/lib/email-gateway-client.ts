@@ -15,6 +15,11 @@ export interface ScopedStatus {
   replyClassification: "positive" | "negative" | "neutral" | null;
   bounced: boolean;
   unsubscribed: boolean;
+  // Count of emails actually sent to this recipient in this scope (sequence:
+  // initial + follow-ups). Populated by the providers from their event stores,
+  // forwarded whole by email-gateway. Optional/absent-safe: the deployed gateway
+  // omits it until the parallel `sentCount` contract change ships → treat as 0.
+  sentCount?: number | null;
   lastDeliveredAt: string | null;
   firstContactedAt: string | null;
   firstSentAt: string | null;
