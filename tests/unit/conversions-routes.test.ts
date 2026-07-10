@@ -451,6 +451,138 @@ describe("GET /internal/brands/:brandId/conversion-counts", () => {
   });
 });
 
+describe("GET /internal/brands/:brandId/conversion-counts-by-day", () => {
+  let app: express.Express;
+  beforeAll(async () => {
+    app = await buildApp();
+  }, 30_000);
+  beforeEach(() => execute.mockReset().mockResolvedValue([]));
+
+  it("401 without x-api-key", async () => {
+    const res = await request(app).get("/internal/brands/brand-1/conversion-counts-by-day");
+    expect(res.status).toBe(401);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("zero conversions → 200, all four byDay empty + all-zero undated (never 404)", async () => {
+    execute.mockResolvedValueOnce([]); // per-day query → no rows
+    const res = await request(app)
+      .get("/internal/brands/brand-1/conversion-counts-by-day")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      byDay: { signup: {}, meeting_booked: {}, form_submission: {}, purchase: {} },
+      undated: { signup: 0, meeting_booked: 0, form_submission: 0, purchase: 0 },
+    });
+  });
+
+  it("buckets attributed conversions by day per event type; missing types stay empty/0", async () => {
+    execute.mockResolvedValueOnce([
+      { event: "signup", day: "2026-07-08", n: 2 },
+      { event: "signup", day: "2026-07-09", n: 1 },
+      { event: "form_submission", day: "2026-07-09", n: 3 },
+    ]);
+    const res = await request(app)
+      .get("/internal/brands/brand-1/conversion-counts-by-day")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      byDay: {
+        signup: { "2026-07-08": 2, "2026-07-09": 1 },
+        meeting_booked: {},
+        form_submission: { "2026-07-09": 3 },
+        purchase: {},
+      },
+      undated: { signup: 0, meeting_booked: 0, form_submission: 0, purchase: 0 },
+    });
+  });
+
+  it("a null day is counted as undated (explicit), never dropped nor dated (AC2/AC4)", async () => {
+    execute.mockResolvedValueOnce([
+      { event: "signup", day: "2026-07-08", n: 2 },
+      { event: "signup", day: null, n: 1 },
+      { event: "purchase", day: null, n: 4 },
+    ]);
+    const res = await request(app)
+      .get("/internal/brands/brand-1/conversion-counts-by-day")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(200);
+    expect(res.body.byDay.signup).toEqual({ "2026-07-08": 2 });
+    expect(res.body.undated).toEqual({
+      signup: 1,
+      meeting_booked: 0,
+      form_submission: 0,
+      purchase: 4,
+    });
+  });
+
+  it("sum(byDay) + undated reconciles to the conversion-counts total per event (AC3)", async () => {
+    // Same brand, same attributed set — /conversion-counts would return signup: 4 (3 dated + 1 undated).
+    execute.mockResolvedValueOnce([
+      { event: "signup", day: "2026-07-08", n: 2 },
+      { event: "signup", day: "2026-07-09", n: 1 },
+      { event: "signup", day: null, n: 1 },
+    ]);
+    const res = await request(app)
+      .get("/internal/brands/brand-1/conversion-counts-by-day")
+      .set("x-api-key", "test-api-key");
+    const dated = Object.values(res.body.byDay.signup as Record<string, number>).reduce(
+      (a, b) => a + b,
+      0,
+    );
+    expect(dated + res.body.undated.signup).toBe(4);
+  });
+
+  it("query is attributed-only, deduped-at-write, buckets by UTC day, and never fabricates a date", async () => {
+    execute.mockResolvedValueOnce([]);
+    await request(app)
+      .get("/internal/brands/brand-1/conversion-counts-by-day")
+      .set("x-api-key", "test-api-key");
+    const q = sqlAt(0);
+    expect(q).toContain("from conversion_events");
+    expect(q).toContain("group by event, day");
+    // Same attributed-only set as /conversion-counts (reconciliation guarantee).
+    expect(q).toContain("attribution_status = 'attributed'");
+    // UTC calendar-day bucketing, matching the ingest dedupe UTC-day convention.
+    expect(q).toContain("at time zone 'utc'");
+    // Undated stays undated — a NULL received_at is bucketed as NULL, never coalesced to a date.
+    expect(q).toContain("received_at is null");
+    expect(q).not.toContain("ping");
+    const params = compile(execute.mock.calls[0][0]).params;
+    expect(params).toContain("brand-1");
+  });
+
+  it("an unexpected event value in a row never leaks into the response", async () => {
+    execute.mockResolvedValueOnce([
+      { event: "signup", day: "2026-07-08", n: 3 },
+      { event: "ping", day: "2026-07-08", n: 99 }, // must be ignored (isConversionEvent guard)
+      { event: "garbage", day: null, n: 7 }, // must be ignored
+    ]);
+    const res = await request(app)
+      .get("/internal/brands/brand-1/conversion-counts-by-day")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(200);
+    expect(res.body.byDay.signup).toEqual({ "2026-07-08": 3 });
+    expect(Object.keys(res.body.byDay).sort()).toEqual(
+      ["form_submission", "meeting_booked", "purchase", "signup"].sort(),
+    );
+    expect(res.body.undated).toEqual({
+      signup: 0,
+      meeting_booked: 0,
+      form_submission: 0,
+      purchase: 0,
+    });
+  });
+
+  it("500 when the DB errors (fail loud)", async () => {
+    execute.mockRejectedValueOnce(new Error("db down"));
+    const res = await request(app)
+      .get("/internal/brands/brand-1/conversion-counts-by-day")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(500);
+  });
+});
+
 describe("GET /internal/brands/:brandId/converted-lead-emails", () => {
   let app: express.Express;
   beforeAll(async () => {

@@ -311,6 +311,76 @@ router.get(
 );
 
 /**
+ * GET /internal/brands/:brandId/conversion-counts-by-day
+ *
+ * INTERNAL (service-auth: x-api-key — same tier as conversion-counts, NO Clerk).
+ * Returns the SAME set of REAL, attributed conversions as conversion-counts, but broken
+ * down by the CALENDAR DAY each conversion was received, so features-service can draw a
+ * truthful per-day observed series on the Overview outreach-activity graph (instead of a
+ * clicks × rate projection) for today AND past days.
+ *
+ *  - Same set as /conversion-counts: stored conversion_events rows (deduped at write via
+ *    the (brand_id, dedupe_signature) partial unique index), filtered to
+ *    attribution_status = 'attributed'. "ping" never lands in conversion_events → excluded.
+ *  - `byDay[event]` maps a UTC calendar day (YYYY-MM-DD) → count. Days are bucketed by
+ *    `received_at AT TIME ZONE 'UTC'`, matching the UTC-day convention the ingest dedupe
+ *    signature already uses (`now.toISOString().slice(0,10)`). A day key appears only when
+ *    its count > 0. All four event keys are ALWAYS present (empty object when none).
+ *  - `undated[event]` counts attributed conversions whose day genuinely cannot be
+ *    determined (received_at IS NULL). received_at is NOT NULL DEFAULT now() today, so this
+ *    is 0 in practice — but it is surfaced EXPLICITLY, never dropped and never assigned a
+ *    fabricated date, so the contract stays honest if an undated row ever exists.
+ *  - Reconciliation guarantee: for every event, sum(byDay[event] values) + undated[event]
+ *    === the count /conversion-counts returns for that event (same rows, same filter). No
+ *    per-day figure exceeds or contradicts the total.
+ *
+ * Never 404 — a brand with zero attributed conversions returns all-empty byDay + all-zero
+ * undated (200).
+ */
+router.get(
+  "/internal/brands/:brandId/conversion-counts-by-day",
+  apiKeyAuth,
+  wrap(async (req: Request, res: Response) => {
+    const brandId = req.params.brandId;
+
+    // day is NULL only when received_at IS NULL (an undated conversion). Otherwise the UTC
+    // calendar day as a YYYY-MM-DD text (cast date->text is ISO + deterministic regardless
+    // of the session timezone). Same attributed-only, deduped-at-write set as /conversion-counts.
+    const rows = (await db.execute(sql`
+      SELECT
+        event,
+        CASE
+          WHEN received_at IS NULL THEN NULL
+          ELSE (received_at AT TIME ZONE 'UTC')::date::text
+        END AS day,
+        count(*)::int AS n
+      FROM conversion_events
+      WHERE brand_id = ${brandId}
+        AND attribution_status = 'attributed'
+      GROUP BY event, day
+    `)) as unknown as Array<{ event: string; day: string | null; n: number }>;
+
+    const byDay = Object.fromEntries(
+      CONVERSION_EVENTS.map((e) => [e, {} as Record<string, number>]),
+    ) as Record<ConversionEventName, Record<string, number>>;
+    const undated = Object.fromEntries(
+      CONVERSION_EVENTS.map((e) => [e, 0]),
+    ) as Record<ConversionEventName, number>;
+
+    for (const row of rows) {
+      if (!isConversionEvent(row.event)) continue;
+      if (row.day === null) {
+        undated[row.event] += row.n;
+      } else {
+        byDay[row.event][row.day] = (byDay[row.event][row.day] ?? 0) + row.n;
+      }
+    }
+
+    res.json({ byDay, undated });
+  }),
+);
+
+/**
  * GET /internal/brands/:brandId/converted-lead-emails?event=<type>
  *
  * INTERNAL (service-auth: x-api-key — same tier as conversion-counts, NO Clerk).
