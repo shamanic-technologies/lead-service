@@ -2090,6 +2090,93 @@
         ],
         "description": "Per-brand real conversion counts by event type, for features-service to compute real signups / cost-per-signup."
       },
+      "ConversionCountsByDayResponse": {
+        "type": "object",
+        "properties": {
+          "byDay": {
+            "type": "object",
+            "properties": {
+              "signup": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer"
+                }
+              },
+              "meeting_booked": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer"
+                }
+              },
+              "form_submission": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer"
+                }
+              },
+              "purchase": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer"
+                }
+              }
+            },
+            "required": [
+              "signup",
+              "meeting_booked",
+              "form_submission",
+              "purchase"
+            ],
+            "description": "Per event type, a map of UTC calendar day (YYYY-MM-DD) -> count of REAL, deduped, attributed conversions received that day. Days are bucketed by received_at AT TIME ZONE 'UTC' (matching the ingest dedupe UTC-day convention). A day key appears only when its count > 0. All four event keys are ALWAYS present (empty object when none). Excludes the \"ping\" liveness heartbeat, needs_review, and unmatched events — the SAME set as /conversion-counts, just placed on the day each conversion occurred.",
+            "example": {
+              "signup": {
+                "2026-07-08": 2,
+                "2026-07-09": 1
+              },
+              "meeting_booked": {},
+              "form_submission": {
+                "2026-07-09": 3
+              },
+              "purchase": {}
+            }
+          },
+          "undated": {
+            "type": "object",
+            "properties": {
+              "signup": {
+                "type": "integer"
+              },
+              "meeting_booked": {
+                "type": "integer"
+              },
+              "form_submission": {
+                "type": "integer"
+              },
+              "purchase": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "signup",
+              "meeting_booked",
+              "form_submission",
+              "purchase"
+            ],
+            "description": "Per event type, the count of attributed conversions whose day genuinely cannot be determined (received_at IS NULL) — counted explicitly, NEVER dropped and NEVER assigned a fabricated date. received_at is NOT NULL DEFAULT now() today, so this is 0 in practice, but the field is always present so the contract stays honest. Reconciliation: for every event, sum(byDay[event] values) + undated[event] === the /conversion-counts total for that event.",
+            "example": {
+              "signup": 0,
+              "meeting_booked": 0,
+              "form_submission": 0,
+              "purchase": 0
+            }
+          }
+        },
+        "required": [
+          "byDay",
+          "undated"
+        ],
+        "description": "Per-brand real conversion counts broken down by the calendar day each conversion was received (plus an explicit undated bucket), so features-service can draw a truthful per-day observed series instead of a projection. Reconciles exactly to /conversion-counts totals."
+      },
       "ConvertedLeadEmailsResponse": {
         "type": "object",
         "properties": {
@@ -3268,6 +3355,47 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ConversionCountsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/internal/brands/{brandId}/conversion-counts-by-day": {
+      "get": {
+        "summary": "Real conversion counts per event type broken down by calendar day for a brand (internal, service-auth)",
+        "description": "INTERNAL (service-auth: x-api-key — same tier as conversion-counts, NO Clerk). Returns the SAME set of REAL, attributed, deduped-at-write conversions as /conversion-counts, but broken down by the UTC calendar day each conversion was received — so features-service can render a truthful per-day observed series (today AND past days) instead of a clicks × rate projection. byDay[event] maps YYYY-MM-DD -> count (day key present only when > 0); undated[event] counts conversions with no determinable day (received_at IS NULL — 0 in practice, but always present and never fabricated). All four event keys are ALWAYS present. For every event, sum(byDay values) + undated === the /conversion-counts total. A brand with zero attributed conversions returns all-empty byDay + all-zero undated (200, never 404).",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "API key for authenticating requests"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "example": "20000000-0000-0000-0000-000000000001"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Per-event-type real conversion counts broken down by calendar day for the brand",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversionCountsByDayResponse"
                 }
               }
             }
