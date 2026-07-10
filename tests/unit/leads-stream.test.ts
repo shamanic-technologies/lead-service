@@ -404,6 +404,7 @@ describe("GET /orgs/leads chunked streaming", () => {
             campaign: null,
             brand: {
               contacted: true, sent: true, delivered: true, opened: true,
+              sentCount: 3,
               firstContactedAt: "2026-01-01T00:00:00.000Z",
               firstSentAt: "2026-01-01T00:01:00.000Z",
               firstDeliveredAt: "2026-01-01T00:02:00.000Z",
@@ -444,6 +445,9 @@ describe("GET /orgs/leads chunked streaming", () => {
     // A row with no status result at all carries all-null timeline fields.
     expect(res.body.leads[1].firstContactedAt).toBeNull();
     expect(res.body.leads[1].firstOpenedAt).toBeNull();
+    // sentCount forwarded from the brand scope; absent-safe 0 for the no-status row.
+    expect(res.body.leads[0].sentCount).toBe(3);
+    expect(res.body.leads[1].sentCount).toBe(0);
   });
 
   it("view absent returns the full lead shape (backward-compatible)", async () => {
@@ -488,10 +492,42 @@ describe("GET /orgs/leads chunked streaming", () => {
     expect(res.status).toBe(200);
     expect(res.body.leads[0].delivered).toBe(true);
     expect(res.body.leads[0].sent).toBe(true);
+    // Source scope omits sentCount (mirrors the currently-deployed gateway before
+    // the parallel `sentCount` contract ships): absent-safe 0, never undefined.
+    expect(res.body.leads[0].sentCount).toBe(0);
     // Per-event first-occurrence timestamps mapped through onto the full row too.
     expect(res.body.leads[0].firstContactedAt).toBe("2026-01-01T00:00:00.000Z");
     expect(res.body.leads[0].firstOpenedAt).toBe("2026-01-02T00:00:00.000Z");
     expect(res.body.leads[0].firstRepliedAt).toBeNull();
     expect(checkDeliveryStatusMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("sums sentCount across broadcast + transactional providers", async () => {
+    mockRows = [rawRow(1, "served")];
+    checkDeliveryStatusMock.mockResolvedValue({
+      results: [
+        {
+          email: "lead-1@example.com",
+          broadcast: {
+            campaign: null,
+            brand: { contacted: true, sent: true, sentCount: 2 },
+            global: null,
+          },
+          transactional: {
+            campaign: null,
+            brand: { contacted: true, sent: true, sentCount: 1 },
+            global: null,
+          },
+        },
+      ],
+    });
+    const res = await request(app)
+      .get(`/orgs/leads?brandId=${BRAND}`)
+      .set("x-api-key", "test-api-key")
+      .set("x-org-id", ORG);
+
+    expect(res.status).toBe(200);
+    // Broadcast + transactional are disjoint sending channels → total = 2 + 1.
+    expect(res.body.leads[0].sentCount).toBe(3);
   });
 });
