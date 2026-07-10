@@ -1332,6 +1332,17 @@ const LeadDetailSchema = z
         description: "An email send has been attempted.",
         example: true,
       }),
+    sentCount: z
+      .number()
+      .openapi({
+        description:
+          "Count of emails actually sent to this lead in the outreach sequence " +
+          "(initial + follow-ups), summed across providers. Passed through from " +
+          "email-gateway delivery status, scoped identically to `sent` " +
+          "(brand-scoped when brandId is passed, campaign-scoped when campaignId is passed). " +
+          "0 when no send has occurred (or the source count is absent).",
+        example: 2,
+      }),
     delivered: z
       .boolean()
       .openapi({
@@ -1590,7 +1601,7 @@ registry.registerPath({
   summary: "List leads with full enrichment and delivery status",
   description:
     "Returns leads_campaigns rows. Each row includes the full canonical lead payload (FullLead — see schema) under `lead`, " +
-    "plus delivery status (contacted, sent, delivered, opened, clicked, bounced, unsubscribed, replied, replyClassification, lastDeliveredAt, firstClickedAt, global). " +
+    "plus delivery status (contacted, sent, sentCount, delivered, opened, clicked, bounced, unsubscribed, replied, replyClassification, lastDeliveredAt, firstClickedAt, global). " +
     "Delivery status is fetched from email-gateway when brandId or campaignId is provided. " +
     "With campaignId: campaign-scoped status. With brandId only: brand-scoped (cross-campaign). " +
     "Without either: status fields default to false/null.",

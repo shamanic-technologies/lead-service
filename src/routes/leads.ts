@@ -26,6 +26,7 @@ interface FlattenedStatus {
   unsubscribed: boolean;
   replied: boolean;
   replyClassification: "positive" | "negative" | "neutral" | null;
+  sentCount: number;
   lastDeliveredAt: string | null;
   firstContactedAt: string | null;
   firstSentAt: string | null;
@@ -56,6 +57,7 @@ function pickScoped(s: ScopedStatus | null | undefined) {
     unsubscribed: !!s?.unsubscribed,
     replied: !!s?.replied,
     replyClassification: s?.replyClassification ?? null,
+    sentCount: s?.sentCount ?? 0,
     lastDeliveredAt: s?.lastDeliveredAt ?? null,
     firstContactedAt: s?.firstContactedAt ?? null,
     firstSentAt: s?.firstSentAt ?? null,
@@ -89,6 +91,9 @@ function mergeProviders(
     unsubscribed: bcScope.unsubscribed || txScope.unsubscribed,
     replied: bcScope.replied || txScope.replied,
     replyClassification: bcScope.replyClassification ?? txScope.replyClassification ?? null,
+    // Broadcast (Instantly) and transactional (Postmark) are disjoint sending
+    // channels, so the total emails sent to this lead = sum across providers.
+    sentCount: bcScope.sentCount + txScope.sentCount,
     lastDeliveredAt: bcScope.lastDeliveredAt ?? txScope.lastDeliveredAt ?? null,
     firstContactedAt: earliestIso(bcScope.firstContactedAt, txScope.firstContactedAt),
     firstSentAt: earliestIso(bcScope.firstSentAt, txScope.firstSentAt),
@@ -118,7 +123,7 @@ export function flattenBrandStatus(result: StatusResult): FlattenedStatus {
 
 const DEFAULT_STATUS: FlattenedStatus = {
   contacted: false, sent: false, delivered: false, opened: false, clicked: false,
-  bounced: false, unsubscribed: false, replied: false, replyClassification: null, lastDeliveredAt: null,
+  bounced: false, unsubscribed: false, replied: false, replyClassification: null, sentCount: 0, lastDeliveredAt: null,
   firstContactedAt: null, firstSentAt: null, firstDeliveredAt: null, firstOpenedAt: null,
   firstClickedAt: null, firstRepliedAt: null, firstBouncedAt: null, firstUnsubscribedAt: null,
   global: { bounced: false, unsubscribed: false },
