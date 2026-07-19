@@ -5,7 +5,7 @@ import { db } from "../db/index.js";
 import { apiKeyAuth, requireOrgId, AuthenticatedRequest } from "../middleware/auth.js";
 import { CONVERSION_INGEST_URL } from "../config.js";
 import {
-  isConversionEvent,
+  canonicalizeConversionEvent,
   isPingEvent,
   deriveConversionStatus,
   generateConversionToken,
@@ -26,6 +26,16 @@ function wrap<Req extends Request = Request>(
   return (req: Request, res: Response, next: NextFunction) => {
     fn(req as Req, res, next).catch(next);
   };
+}
+
+// Transition alias for the "purchase" → "sale" rename. The internal count contracts emit the
+// canonical "sale" key AND a legacy "purchase" key mirroring the same value, so consumers still
+// reading `purchase` (features-service conversion-counts clients) stay green while they migrate
+// to `sale`. Drop the mirror once every consumer reads `sale`.
+function withLegacyPurchaseAlias<T>(
+  byEvent: Record<ConversionEventName, T>,
+): Record<string, T> {
+  return { ...byEvent, purchase: byEvent.sale };
 }
 
 // --- Public ingest token auth ---
@@ -119,13 +129,16 @@ router.post("/public/conversions", conversionTokenAuth, wrap(async (req: Convers
     return;
   }
 
-  if (!isConversionEvent(parsed.data.event)) {
+  // Accept the canonical "sale" AND the legacy "purchase" spelling: canonicalize BEFORE
+  // dedupe + storage so a legacy client firing "purchase" is stored/attributed/deduped
+  // exactly like a "sale". Anything unrecognized (garbage) → fail loud 400.
+  const event = canonicalizeConversionEvent(parsed.data.event);
+  if (!event) {
     res.status(400).json({ error: "Invalid or missing event" });
     return;
   }
 
   const body = parsed.data;
-  const event = body.event as ConversionEventName;
   const now = new Date();
 
   const dedupeSignature = computeDedupeSignature({
@@ -281,8 +294,11 @@ router.post(
  *    This is the "counts toward the brand's real outcomes" set.
  *  - "ping" is a liveness heartbeat that never lands in conversion_events → excluded for free.
  *
- * All four event-type keys are ALWAYS present (0 when none received). Never 404 — a brand
- * with zero conversions returns all-zero counts.
+ * All four canonical event-type keys (signup | meeting_booked | form_submission | sale) are
+ * ALWAYS present (0 when none received). The terminal "customer paid" event was renamed
+ * "purchase" → "sale"; for the migration window the response ALSO carries a legacy "purchase"
+ * key mirroring "sale" so consumers still reading `purchase` stay green until they migrate.
+ * Never 404 — a brand with zero conversions returns all-zero counts.
  */
 router.get(
   "/internal/brands/:brandId/conversion-counts",
@@ -303,10 +319,12 @@ router.get(
     ) as Record<ConversionEventName, number>;
 
     for (const row of rows) {
-      if (isConversionEvent(row.event)) counts[row.event] = row.n;
+      // Fold canonical + any legacy-spelled historical row into its canonical bucket.
+      const canonical = canonicalizeConversionEvent(row.event);
+      if (canonical) counts[canonical] += row.n;
     }
 
-    res.json({ counts });
+    res.json({ counts: withLegacyPurchaseAlias(counts) });
   }),
 );
 
@@ -325,7 +343,8 @@ router.get(
  *  - `byDay[event]` maps a UTC calendar day (YYYY-MM-DD) → count. Days are bucketed by
  *    `received_at AT TIME ZONE 'UTC'`, matching the UTC-day convention the ingest dedupe
  *    signature already uses (`now.toISOString().slice(0,10)`). A day key appears only when
- *    its count > 0. All four event keys are ALWAYS present (empty object when none).
+ *    its count > 0. All four canonical event keys (…, sale) are ALWAYS present (empty object
+ *    when none), plus a legacy "purchase" key mirroring "sale" for the rename migration window.
  *  - `undated[event]` counts attributed conversions whose day genuinely cannot be
  *    determined (received_at IS NULL). received_at is NOT NULL DEFAULT now() today, so this
  *    is 0 in practice — but it is surfaced EXPLICITLY, never dropped and never assigned a
@@ -368,15 +387,20 @@ router.get(
     ) as Record<ConversionEventName, number>;
 
     for (const row of rows) {
-      if (!isConversionEvent(row.event)) continue;
+      // Fold canonical + any legacy-spelled historical row into its canonical bucket.
+      const canonical = canonicalizeConversionEvent(row.event);
+      if (!canonical) continue;
       if (row.day === null) {
-        undated[row.event] += row.n;
+        undated[canonical] += row.n;
       } else {
-        byDay[row.event][row.day] = (byDay[row.event][row.day] ?? 0) + row.n;
+        byDay[canonical][row.day] = (byDay[canonical][row.day] ?? 0) + row.n;
       }
     }
 
-    res.json({ byDay, undated });
+    res.json({
+      byDay: withLegacyPurchaseAlias(byDay),
+      undated: withLegacyPurchaseAlias(undated),
+    });
   }),
 );
 
@@ -390,8 +414,9 @@ router.get(
  * conversions per audience.
  *
  *  - `event` is REQUIRED and must be one of the four conversion event types
- *    (signup | meeting_booked | form_submission | purchase). Missing/invalid → 400.
- *    "ping" is a liveness heartbeat, never a conversion → not accepted here.
+ *    (signup | meeting_booked | form_submission | sale). The legacy spelling "purchase"
+ *    is still accepted and normalized to "sale". Missing/invalid → 400. "ping" is a
+ *    liveness heartbeat, never a conversion → not accepted here.
  *  - Only `attribution_status = 'attributed'` rows count (credited to a lead we emailed
  *    for the brand; excludes needs_review + unmatched) — the SAME set conversion-counts uses.
  *  - The returned identity is the MATCHED LEAD's canonical (primary) email — the earliest
@@ -410,9 +435,11 @@ router.get(
   apiKeyAuth,
   wrap(async (req: Request, res: Response) => {
     const brandId = req.params.brandId;
-    const event = req.query.event;
 
-    if (!isConversionEvent(event)) {
+    // Accept canonical "sale" AND legacy "purchase" (both resolve to the canonical "sale"
+    // that stored rows carry); anything else (incl. "ping", garbage, missing) → 400.
+    const event = canonicalizeConversionEvent(req.query.event);
+    if (!event) {
       res.status(400).json({ error: "Invalid or missing event" });
       return;
     }

@@ -1956,11 +1956,12 @@
               "signup",
               "meeting_booked",
               "form_submission",
+              "sale",
               "purchase",
               "ping"
             ],
-            "description": "The conversion that happened on the client's website. The special value \"ping\" is a liveness heartbeat the on-page tag fires on page-load — it is NOT a conversion (no attribution, not counted, excluded from eventTypesSeen), it only proves the tag is alive.",
-            "example": "signup"
+            "description": "The conversion that happened on the client's website. \"sale\" is the terminal \"a customer paid\" signal (carries a revenue value in valueCents). The legacy spelling \"purchase\" is still accepted and normalized to \"sale\" so already-configured integrations keep firing. The special value \"ping\" is a liveness heartbeat the on-page tag fires on page-load — it is NOT a conversion (no attribution, not counted, excluded from eventTypesSeen), it only proves the tag is alive.",
+            "example": "sale"
           },
           "email": {
             "type": "string",
@@ -1988,7 +1989,7 @@
           },
           "valueCents": {
             "type": "integer",
-            "description": "Optional conversion value in cents.",
+            "description": "Optional conversion value in cents — the revenue attached to the event (primarily the \"sale\" terminal signal).",
             "example": 4900
           }
         },
@@ -2023,7 +2024,7 @@
           "lastEventAt": {
             "type": "string",
             "nullable": true,
-            "description": "ISO-8601 timestamp of the last REAL conversion event (signup/meeting_booked/form_submission), or null.",
+            "description": "ISO-8601 timestamp of the last REAL conversion event (signup/meeting_booked/form_submission/sale), or null.",
             "example": "2026-07-06T12:00:00.000Z"
           },
           "lastPingAt": {
@@ -2071,6 +2072,10 @@
                 "type": "integer",
                 "example": 7
               },
+              "sale": {
+                "type": "integer",
+                "example": 2
+              },
               "purchase": {
                 "type": "integer",
                 "example": 2
@@ -2080,9 +2085,10 @@
               "signup",
               "meeting_booked",
               "form_submission",
+              "sale",
               "purchase"
             ],
-            "description": "Count of REAL, deduped, attributed conversion events per event type. All four keys are ALWAYS present (0 when none received). Excludes the \"ping\" liveness heartbeat, needs_review, and unmatched events."
+            "description": "Count of REAL, deduped, attributed conversion events per event type. All four canonical keys (signup, meeting_booked, form_submission, sale) are ALWAYS present (0 when none received). The terminal event was renamed \"purchase\" → \"sale\"; a legacy \"purchase\" key mirroring \"sale\" is also returned for the migration window (drop once consumers read \"sale\"). Excludes the \"ping\" liveness heartbeat, needs_review, and unmatched events."
           }
         },
         "required": [
@@ -2114,6 +2120,12 @@
                   "type": "integer"
                 }
               },
+              "sale": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer"
+                }
+              },
               "purchase": {
                 "type": "object",
                 "additionalProperties": {
@@ -2125,9 +2137,10 @@
               "signup",
               "meeting_booked",
               "form_submission",
+              "sale",
               "purchase"
             ],
-            "description": "Per event type, a map of UTC calendar day (YYYY-MM-DD) -> count of REAL, deduped, attributed conversions received that day. Days are bucketed by received_at AT TIME ZONE 'UTC' (matching the ingest dedupe UTC-day convention). A day key appears only when its count > 0. All four event keys are ALWAYS present (empty object when none). Excludes the \"ping\" liveness heartbeat, needs_review, and unmatched events — the SAME set as /conversion-counts, just placed on the day each conversion occurred.",
+            "description": "Per event type, a map of UTC calendar day (YYYY-MM-DD) -> count of REAL, deduped, attributed conversions received that day. Days are bucketed by received_at AT TIME ZONE 'UTC' (matching the ingest dedupe UTC-day convention). A day key appears only when its count > 0. All four canonical event keys (…, sale) are ALWAYS present (empty object when none), plus a legacy \"purchase\" key mirroring \"sale\" for the rename migration window. Excludes the \"ping\" liveness heartbeat, needs_review, and unmatched events — the SAME set as /conversion-counts, just placed on the day each conversion occurred.",
             "example": {
               "signup": {
                 "2026-07-08": 2,
@@ -2137,6 +2150,7 @@
               "form_submission": {
                 "2026-07-09": 3
               },
+              "sale": {},
               "purchase": {}
             }
           },
@@ -2152,6 +2166,9 @@
               "form_submission": {
                 "type": "integer"
               },
+              "sale": {
+                "type": "integer"
+              },
               "purchase": {
                 "type": "integer"
               }
@@ -2160,13 +2177,15 @@
               "signup",
               "meeting_booked",
               "form_submission",
+              "sale",
               "purchase"
             ],
-            "description": "Per event type, the count of attributed conversions whose day genuinely cannot be determined (received_at IS NULL) — counted explicitly, NEVER dropped and NEVER assigned a fabricated date. received_at is NOT NULL DEFAULT now() today, so this is 0 in practice, but the field is always present so the contract stays honest. Reconciliation: for every event, sum(byDay[event] values) + undated[event] === the /conversion-counts total for that event.",
+            "description": "Per event type, the count of attributed conversions whose day genuinely cannot be determined (received_at IS NULL) — counted explicitly, NEVER dropped and NEVER assigned a fabricated date. received_at is NOT NULL DEFAULT now() today, so this is 0 in practice, but the field is always present so the contract stays honest. The legacy \"purchase\" key mirrors \"sale\" for the rename migration window. Reconciliation: for every event, sum(byDay[event] values) + undated[event] === the /conversion-counts total for that event.",
             "example": {
               "signup": 0,
               "meeting_booked": 0,
               "form_submission": 0,
+              "sale": 0,
               "purchase": 0
             }
           }
@@ -2186,9 +2205,9 @@
               "signup",
               "meeting_booked",
               "form_submission",
-              "purchase"
+              "sale"
             ],
-            "description": "The conversion event type the emails were filtered to (echoes the query param).",
+            "description": "The CANONICAL conversion event type the emails were filtered to. A legacy \"purchase\" query is normalized to and echoed as \"sale\".",
             "example": "form_submission"
           },
           "emails": {
@@ -3409,7 +3428,7 @@
     "/internal/brands/{brandId}/converted-lead-emails": {
       "get": {
         "summary": "Matched-lead canonical emails with an attributed conversion of a given type (internal, service-auth)",
-        "description": "INTERNAL (service-auth: x-api-key — same tier as conversion-counts, NO Clerk). Returns the SET of matched-lead canonical emails (the emails-we-served identity) that have at least one REAL, attributed conversion of the `event` type for the brand. features-service intersects this set with each audience's email membership (which it already resolves by email) to count conversions per audience. Only attribution_status = 'attributed' rows count (the SAME set conversion-counts uses; excludes needs_review + unmatched). The returned identity is the matched lead's PRIMARY email (earliest email contact method), NOT the raw email a visitor typed. Emails are lowercased + DISTINCT. `event` is required and must be one of signup | meeting_booked | form_submission | purchase (missing/invalid → 400). A brand with zero attributed conversions of `event` returns an empty array (200, never 404).",
+        "description": "INTERNAL (service-auth: x-api-key — same tier as conversion-counts, NO Clerk). Returns the SET of matched-lead canonical emails (the emails-we-served identity) that have at least one REAL, attributed conversion of the `event` type for the brand. features-service intersects this set with each audience's email membership (which it already resolves by email) to count conversions per audience. Only attribution_status = 'attributed' rows count (the SAME set conversion-counts uses; excludes needs_review + unmatched). The returned identity is the matched lead's PRIMARY email (earliest email contact method), NOT the raw email a visitor typed. Emails are lowercased + DISTINCT. `event` is required and must be one of signup | meeting_booked | form_submission | sale (the legacy \"purchase\" spelling is also accepted and normalized to \"sale\"; missing/invalid → 400). A brand with zero attributed conversions of `event` returns an empty array (200, never 404).",
         "parameters": [
           {
             "in": "header",
@@ -3430,10 +3449,11 @@
                 "signup",
                 "meeting_booked",
                 "form_submission",
+                "sale",
                 "purchase"
               ]
             },
-            "description": "Conversion event type to filter to. Required."
+            "description": "Conversion event type to filter to. Required. Canonical: signup | meeting_booked | form_submission | sale. The legacy \"purchase\" spelling is accepted (normalized to \"sale\")."
           },
           {
             "schema": {

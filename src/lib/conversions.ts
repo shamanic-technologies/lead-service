@@ -8,17 +8,42 @@ import { db } from "../db/index.js";
 export type MatchConfidence = "deterministic" | "strong" | "probabilistic" | "unmatched";
 export type MatchMethod = "email" | "phone" | "domain_name" | "full_name" | "last_name" | null;
 export type AttributionStatus = "attributed" | "needs_review" | "unmatched";
-export type ConversionEventName = "signup" | "meeting_booked" | "form_submission" | "purchase";
+export type ConversionEventName = "signup" | "meeting_booked" | "form_submission" | "sale";
 
 export const CONVERSION_EVENTS: readonly ConversionEventName[] = [
   "signup",
   "meeting_booked",
   "form_submission",
-  "purchase",
+  "sale",
 ];
+
+// Legacy conversion-event spellings accepted on ingest for backward compatibility, each
+// mapped to its canonical name. "purchase" was renamed to "sale" (the terminal "a customer
+// paid" signal, which carries a revenue value); already-configured client integrations still
+// fire "purchase", so ingest keeps accepting it and normalizes it to "sale" BEFORE dedupe +
+// storage — every stored row and every read path is canonical "sale".
+const LEGACY_EVENT_ALIASES: Readonly<Record<string, ConversionEventName>> = {
+  purchase: "sale",
+};
 
 export function isConversionEvent(value: unknown): value is ConversionEventName {
   return typeof value === "string" && (CONVERSION_EVENTS as readonly string[]).includes(value);
+}
+
+/**
+ * Canonicalize a raw event string to its stored form — the single acceptance gate for a
+ * REAL conversion event on BOTH the write path (ingest normalizes the incoming spelling)
+ * and the read path (folds a legacy-spelled historical row into its canonical bucket):
+ *   - a canonical event ("signup" | "meeting_booked" | "form_submission" | "sale") → itself
+ *   - a legacy alias ("purchase") → its canonical name ("sale")
+ *   - anything else (incl. "ping", garbage, non-string) → null
+ */
+export function canonicalizeConversionEvent(value: unknown): ConversionEventName | null {
+  if (typeof value !== "string") return null;
+  if ((CONVERSION_EVENTS as readonly string[]).includes(value)) {
+    return value as ConversionEventName;
+  }
+  return LEGACY_EVENT_ALIASES[value] ?? null;
 }
 
 // A liveness heartbeat the client's on-page tag fires on page-load. NOT a conversion:
