@@ -1978,13 +1978,18 @@ registry.registerPath({
 
 const ConversionIngestRequestSchema = z
   .object({
-    event: z.enum(["signup", "meeting_booked", "form_submission", "purchase", "ping"]).openapi({
-      description:
-        "The conversion that happened on the client's website. The special value \"ping\" is a " +
-        "liveness heartbeat the on-page tag fires on page-load — it is NOT a conversion (no " +
-        "attribution, not counted, excluded from eventTypesSeen), it only proves the tag is alive.",
-      example: "signup",
-    }),
+    event: z
+      .enum(["signup", "meeting_booked", "form_submission", "sale", "purchase", "ping"])
+      .openapi({
+        description:
+          "The conversion that happened on the client's website. \"sale\" is the terminal " +
+          "\"a customer paid\" signal (carries a revenue value in valueCents). The legacy spelling " +
+          "\"purchase\" is still accepted and normalized to \"sale\" so already-configured " +
+          "integrations keep firing. The special value \"ping\" is a liveness heartbeat the on-page " +
+          "tag fires on page-load — it is NOT a conversion (no attribution, not counted, excluded " +
+          "from eventTypesSeen), it only proves the tag is alive.",
+        example: "sale",
+      }),
     email: z.string().optional().openapi({ example: "jane@acme.com" }),
     phone: z.string().optional().openapi({ example: "+1 (415) 555-0142" }),
     firstName: z.string().optional().openapi({ example: "Jane" }),
@@ -1996,7 +2001,9 @@ const ConversionIngestRequestSchema = z
         "When absent, dedupe is per (brand, event, email-or-phone, calendar-day).",
     }),
     valueCents: z.number().int().optional().openapi({
-      description: "Optional conversion value in cents.",
+      description:
+        "Optional conversion value in cents — the revenue attached to the event (primarily the " +
+        "\"sale\" terminal signal).",
       example: 4900,
     }),
   })
@@ -2031,7 +2038,7 @@ const ConversionTokenResponseSchema = z
     }),
     lastEventAt: z.string().nullable().openapi({
       description:
-        "ISO-8601 timestamp of the last REAL conversion event (signup/meeting_booked/form_submission), or null.",
+        "ISO-8601 timestamp of the last REAL conversion event (signup/meeting_booked/form_submission/sale), or null.",
       example: "2026-07-06T12:00:00.000Z",
     }),
     lastPingAt: z.string().nullable().openapi({
@@ -2146,13 +2153,16 @@ const ConversionCountsResponseSchema = z
         signup: z.number().int().openapi({ example: 12 }),
         meeting_booked: z.number().int().openapi({ example: 3 }),
         form_submission: z.number().int().openapi({ example: 7 }),
+        sale: z.number().int().openapi({ example: 2 }),
         purchase: z.number().int().openapi({ example: 2 }),
       })
       .openapi({
         description:
-          "Count of REAL, deduped, attributed conversion events per event type. All four keys " +
-          "are ALWAYS present (0 when none received). Excludes the \"ping\" liveness heartbeat, " +
-          "needs_review, and unmatched events.",
+          "Count of REAL, deduped, attributed conversion events per event type. All four canonical " +
+          "keys (signup, meeting_booked, form_submission, sale) are ALWAYS present (0 when none " +
+          "received). The terminal event was renamed \"purchase\" → \"sale\"; a legacy \"purchase\" " +
+          "key mirroring \"sale\" is also returned for the migration window (drop once consumers " +
+          "read \"sale\"). Excludes the \"ping\" liveness heartbeat, needs_review, and unmatched events.",
       }),
   })
   .openapi("ConversionCountsResponse", {
@@ -2191,6 +2201,7 @@ const ConversionCountsByDaySchema = z
         signup: z.record(z.string(), z.number().int()),
         meeting_booked: z.record(z.string(), z.number().int()),
         form_submission: z.record(z.string(), z.number().int()),
+        sale: z.record(z.string(), z.number().int()),
         purchase: z.record(z.string(), z.number().int()),
       })
       .openapi({
@@ -2198,13 +2209,15 @@ const ConversionCountsByDaySchema = z
           "Per event type, a map of UTC calendar day (YYYY-MM-DD) -> count of REAL, deduped, " +
           "attributed conversions received that day. Days are bucketed by received_at AT TIME ZONE " +
           "'UTC' (matching the ingest dedupe UTC-day convention). A day key appears only when its " +
-          "count > 0. All four event keys are ALWAYS present (empty object when none). Excludes the " +
-          "\"ping\" liveness heartbeat, needs_review, and unmatched events — the SAME set as " +
-          "/conversion-counts, just placed on the day each conversion occurred.",
+          "count > 0. All four canonical event keys (…, sale) are ALWAYS present (empty object when " +
+          "none), plus a legacy \"purchase\" key mirroring \"sale\" for the rename migration window. " +
+          "Excludes the \"ping\" liveness heartbeat, needs_review, and unmatched events — the SAME set " +
+          "as /conversion-counts, just placed on the day each conversion occurred.",
         example: {
           signup: { "2026-07-08": 2, "2026-07-09": 1 },
           meeting_booked: {},
           form_submission: { "2026-07-09": 3 },
+          sale: {},
           purchase: {},
         },
       }),
@@ -2213,6 +2226,7 @@ const ConversionCountsByDaySchema = z
         signup: z.number().int(),
         meeting_booked: z.number().int(),
         form_submission: z.number().int(),
+        sale: z.number().int(),
         purchase: z.number().int(),
       })
       .openapi({
@@ -2220,9 +2234,10 @@ const ConversionCountsByDaySchema = z
           "Per event type, the count of attributed conversions whose day genuinely cannot be " +
           "determined (received_at IS NULL) — counted explicitly, NEVER dropped and NEVER assigned a " +
           "fabricated date. received_at is NOT NULL DEFAULT now() today, so this is 0 in practice, but " +
-          "the field is always present so the contract stays honest. Reconciliation: for every event, " +
+          "the field is always present so the contract stays honest. The legacy \"purchase\" key " +
+          "mirrors \"sale\" for the rename migration window. Reconciliation: for every event, " +
           "sum(byDay[event] values) + undated[event] === the /conversion-counts total for that event.",
-        example: { signup: 0, meeting_booked: 0, form_submission: 0, purchase: 0 },
+        example: { signup: 0, meeting_booked: 0, form_submission: 0, sale: 0, purchase: 0 },
       }),
   })
   .openapi("ConversionCountsByDayResponse", {
@@ -2259,9 +2274,11 @@ registry.registerPath({
 const ConvertedLeadEmailsResponseSchema = z
   .object({
     event: z
-      .enum(["signup", "meeting_booked", "form_submission", "purchase"])
+      .enum(["signup", "meeting_booked", "form_submission", "sale"])
       .openapi({
-        description: "The conversion event type the emails were filtered to (echoes the query param).",
+        description:
+          "The CANONICAL conversion event type the emails were filtered to. A legacy \"purchase\" " +
+          "query is normalized to and echoed as \"sale\".",
         example: "form_submission",
       }),
     emails: z
@@ -2294,8 +2311,9 @@ registry.registerPath({
     "attribution_status = 'attributed' rows count (the SAME set conversion-counts uses; excludes needs_review " +
     "+ unmatched). The returned identity is the matched lead's PRIMARY email (earliest email contact method), " +
     "NOT the raw email a visitor typed. Emails are lowercased + DISTINCT. `event` is required and must be one " +
-    "of signup | meeting_booked | form_submission | purchase (missing/invalid → 400). A brand with zero " +
-    "attributed conversions of `event` returns an empty array (200, never 404).",
+    "of signup | meeting_booked | form_submission | sale (the legacy \"purchase\" spelling is also accepted " +
+    "and normalized to \"sale\"; missing/invalid → 400). A brand with zero attributed conversions of `event` " +
+    "returns an empty array (200, never 404).",
   request: { params: BrandIdPathParam },
   parameters: [
     ...FeatureMembershipApiKeyHeader,
@@ -2305,9 +2323,11 @@ registry.registerPath({
       required: true,
       schema: {
         type: "string" as const,
-        enum: ["signup", "meeting_booked", "form_submission", "purchase"],
+        enum: ["signup", "meeting_booked", "form_submission", "sale", "purchase"],
       },
-      description: "Conversion event type to filter to. Required.",
+      description:
+        "Conversion event type to filter to. Required. Canonical: signup | meeting_booked | " +
+        "form_submission | sale. The legacy \"purchase\" spelling is accepted (normalized to \"sale\").",
     },
   ],
   responses: {

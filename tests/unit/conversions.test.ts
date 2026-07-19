@@ -15,6 +15,7 @@ const {
   computeDedupeSignature,
   resolveAttributionStatus,
   isConversionEvent,
+  canonicalizeConversionEvent,
   isPingEvent,
   deriveConversionStatus,
   generateConversionToken,
@@ -98,11 +99,15 @@ describe("resolveAttributionStatus", () => {
 });
 
 describe("isConversionEvent", () => {
-  it("accepts the valid events", () => {
+  it("accepts the canonical events", () => {
     expect(isConversionEvent("signup")).toBe(true);
     expect(isConversionEvent("meeting_booked")).toBe(true);
     expect(isConversionEvent("form_submission")).toBe(true);
-    expect(isConversionEvent("purchase")).toBe(true);
+    expect(isConversionEvent("sale")).toBe(true);
+  });
+  it("rejects the legacy 'purchase' spelling (strict canonical membership)", () => {
+    // "purchase" is accepted on ingest but is NOT a canonical name; canonicalize maps it.
+    expect(isConversionEvent("purchase")).toBe(false);
   });
   it("rejects everything else", () => {
     expect(isConversionEvent("nonsense")).toBe(false);
@@ -110,6 +115,24 @@ describe("isConversionEvent", () => {
   });
   it("rejects ping (a heartbeat is NOT a conversion)", () => {
     expect(isConversionEvent("ping")).toBe(false);
+  });
+});
+
+describe("canonicalizeConversionEvent", () => {
+  it("passes canonical events through unchanged", () => {
+    expect(canonicalizeConversionEvent("signup")).toBe("signup");
+    expect(canonicalizeConversionEvent("meeting_booked")).toBe("meeting_booked");
+    expect(canonicalizeConversionEvent("form_submission")).toBe("form_submission");
+    expect(canonicalizeConversionEvent("sale")).toBe("sale");
+  });
+  it("normalizes the legacy 'purchase' spelling to canonical 'sale'", () => {
+    expect(canonicalizeConversionEvent("purchase")).toBe("sale");
+  });
+  it("returns null for ping, garbage, and non-strings", () => {
+    expect(canonicalizeConversionEvent("ping")).toBeNull();
+    expect(canonicalizeConversionEvent("nonsense")).toBeNull();
+    expect(canonicalizeConversionEvent(undefined)).toBeNull();
+    expect(canonicalizeConversionEvent(42)).toBeNull();
   });
 });
 
