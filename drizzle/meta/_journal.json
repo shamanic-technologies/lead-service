@@ -190,6 +190,13 @@
       "when": 1782086400000,
       "tag": "0026_conversion_ping_liveness",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1782172800000,
+      "tag": "0027_rename_purchase_conversion_to_sale",
+      "breakpoints": true
     }
   ]
 }

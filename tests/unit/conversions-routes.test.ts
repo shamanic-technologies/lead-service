@@ -123,6 +123,57 @@ describe("POST /public/conversions", () => {
     expect(insertParams).toContain("lead-1");
   });
 
+  it("accepts a 'sale' event with revenue → stores canonical 'sale' + value_cents", async () => {
+    execute.mockResolvedValueOnce([{ brand_id: "brand-1", org_id: "org-1" }]); // token
+    execute.mockResolvedValueOnce([]); // dedupe check → no dup
+    execute.mockResolvedValueOnce([]); // insert
+    matchConversion.mockResolvedValueOnce({
+      matchedLeadId: "lead-1",
+      matchMethod: "email",
+      matchConfidence: "deterministic",
+      attributionStatus: "attributed",
+      candidateCount: 1,
+    });
+    const res = await request(app)
+      .post("/public/conversions")
+      .set("x-conversion-token", "pk_conv_ok")
+      .send({ event: "sale", email: "Jane@Acme.com", valueCents: 4900 });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ received: true });
+    const insertParams = compile(execute.mock.calls[2][0]).params;
+    expect(insertParams).toContain("sale");
+    expect(insertParams).toContain(4900);
+  });
+
+  it("accepts the legacy 'purchase' spelling → normalizes to canonical 'sale' before store + dedupe", async () => {
+    execute.mockResolvedValueOnce([{ brand_id: "brand-1", org_id: "org-1" }]); // token
+    execute.mockResolvedValueOnce([]); // dedupe check → no dup
+    execute.mockResolvedValueOnce([]); // insert
+    matchConversion.mockResolvedValueOnce({
+      matchedLeadId: "lead-1",
+      matchMethod: "email",
+      matchConfidence: "deterministic",
+      attributionStatus: "attributed",
+      candidateCount: 1,
+    });
+    const res = await request(app)
+      .post("/public/conversions")
+      .set("x-conversion-token", "pk_conv_ok")
+      .send({ event: "purchase", email: "Jane@Acme.com", valueCents: 4900 });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ received: true });
+    // Stored event is canonical "sale", NEVER the legacy "purchase" spelling …
+    const insertParams = compile(execute.mock.calls[2][0]).params;
+    expect(insertParams).toContain("sale");
+    expect(insertParams).not.toContain("purchase");
+    // … and the dedupe signature is keyed on the canonical event too.
+    expect(
+      insertParams.some(
+        (p) => typeof p === "string" && p.startsWith("a:sale:jane@acme.com:"),
+      ),
+    ).toBe(true);
+  });
+
   // Regression for #357: the INSERT bound `received_at` as a raw `Date`, which threw at
   // postgres.js Bind time (a client-side throw invisible to raw-SQL/EXECUTE tests), so
   // EVERY real conversion 500'd in prod while ping (SQL `now()`, no Date param) worked.
@@ -387,21 +438,37 @@ describe("GET /internal/brands/:brandId/conversion-counts", () => {
       .set("x-api-key", "test-api-key");
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
-      counts: { signup: 0, meeting_booked: 0, form_submission: 0, purchase: 0 },
+      counts: { signup: 0, meeting_booked: 0, form_submission: 0, sale: 0, purchase: 0 },
     });
   });
 
   it("counts real attributed events per type; missing types default to 0", async () => {
     execute.mockResolvedValueOnce([
       { event: "signup", n: 12 },
-      { event: "purchase", n: 2 },
+      { event: "sale", n: 2 },
+    ]);
+    const res = await request(app)
+      .get("/internal/brands/brand-1/conversion-counts")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(200);
+    // Canonical "sale" plus the legacy "purchase" mirror (same value) for the rename window.
+    expect(res.body).toEqual({
+      counts: { signup: 12, meeting_booked: 0, form_submission: 0, sale: 2, purchase: 2 },
+    });
+  });
+
+  it("folds a legacy 'purchase'-spelled row into the canonical 'sale' bucket", async () => {
+    // A historical row stored before the rename backfill still carries "purchase".
+    execute.mockResolvedValueOnce([
+      { event: "sale", n: 3 },
+      { event: "purchase", n: 4 },
     ]);
     const res = await request(app)
       .get("/internal/brands/brand-1/conversion-counts")
       .set("x-api-key", "test-api-key");
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
-      counts: { signup: 12, meeting_booked: 0, form_submission: 0, purchase: 2 },
+      counts: { signup: 0, meeting_booked: 0, form_submission: 0, sale: 7, purchase: 7 },
     });
   });
 
@@ -435,10 +502,10 @@ describe("GET /internal/brands/:brandId/conversion-counts", () => {
       .set("x-api-key", "test-api-key");
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
-      counts: { signup: 3, meeting_booked: 0, form_submission: 0, purchase: 0 },
+      counts: { signup: 3, meeting_booked: 0, form_submission: 0, sale: 0, purchase: 0 },
     });
     expect(Object.keys(res.body.counts).sort()).toEqual(
-      ["form_submission", "meeting_booked", "purchase", "signup"].sort(),
+      ["form_submission", "meeting_booked", "purchase", "sale", "signup"].sort(),
     );
   });
 
@@ -471,8 +538,8 @@ describe("GET /internal/brands/:brandId/conversion-counts-by-day", () => {
       .set("x-api-key", "test-api-key");
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
-      byDay: { signup: {}, meeting_booked: {}, form_submission: {}, purchase: {} },
-      undated: { signup: 0, meeting_booked: 0, form_submission: 0, purchase: 0 },
+      byDay: { signup: {}, meeting_booked: {}, form_submission: {}, sale: {}, purchase: {} },
+      undated: { signup: 0, meeting_booked: 0, form_submission: 0, sale: 0, purchase: 0 },
     });
   });
 
@@ -491,9 +558,10 @@ describe("GET /internal/brands/:brandId/conversion-counts-by-day", () => {
         signup: { "2026-07-08": 2, "2026-07-09": 1 },
         meeting_booked: {},
         form_submission: { "2026-07-09": 3 },
+        sale: {},
         purchase: {},
       },
-      undated: { signup: 0, meeting_booked: 0, form_submission: 0, purchase: 0 },
+      undated: { signup: 0, meeting_booked: 0, form_submission: 0, sale: 0, purchase: 0 },
     });
   });
 
@@ -501,17 +569,19 @@ describe("GET /internal/brands/:brandId/conversion-counts-by-day", () => {
     execute.mockResolvedValueOnce([
       { event: "signup", day: "2026-07-08", n: 2 },
       { event: "signup", day: null, n: 1 },
-      { event: "purchase", day: null, n: 4 },
+      { event: "sale", day: null, n: 4 },
     ]);
     const res = await request(app)
       .get("/internal/brands/brand-1/conversion-counts-by-day")
       .set("x-api-key", "test-api-key");
     expect(res.status).toBe(200);
     expect(res.body.byDay.signup).toEqual({ "2026-07-08": 2 });
+    // Canonical "sale" plus the legacy "purchase" mirror (same value).
     expect(res.body.undated).toEqual({
       signup: 1,
       meeting_booked: 0,
       form_submission: 0,
+      sale: 4,
       purchase: 4,
     });
   });
@@ -564,12 +634,13 @@ describe("GET /internal/brands/:brandId/conversion-counts-by-day", () => {
     expect(res.status).toBe(200);
     expect(res.body.byDay.signup).toEqual({ "2026-07-08": 3 });
     expect(Object.keys(res.body.byDay).sort()).toEqual(
-      ["form_submission", "meeting_booked", "purchase", "signup"].sort(),
+      ["form_submission", "meeting_booked", "purchase", "sale", "signup"].sort(),
     );
     expect(res.body.undated).toEqual({
       signup: 0,
       meeting_booked: 0,
       form_submission: 0,
+      sale: 0,
       purchase: 0,
     });
   });
@@ -667,10 +738,24 @@ describe("GET /internal/brands/:brandId/converted-lead-emails", () => {
       { email: "" },
     ]);
     const res = await request(app)
+      .get("/internal/brands/brand-1/converted-lead-emails?event=sale")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ event: "sale", emails: ["jane@acme.com"] });
+  });
+
+  it("accepts the legacy 'purchase' query, normalizes+echoes 'sale', binds 'sale' to SQL", async () => {
+    execute.mockResolvedValueOnce([{ email: "jane@acme.com" }]);
+    const res = await request(app)
       .get("/internal/brands/brand-1/converted-lead-emails?event=purchase")
       .set("x-api-key", "test-api-key");
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ event: "purchase", emails: ["jane@acme.com"] });
+    // legacy input, canonical echo
+    expect(res.body).toEqual({ event: "sale", emails: ["jane@acme.com"] });
+    // SQL filters on the canonical stored spelling, never the legacy one.
+    const params = compile(execute.mock.calls[0][0]).params;
+    expect(params).toContain("sale");
+    expect(params).not.toContain("purchase");
   });
 
   it("500 when the DB errors (fail loud)", async () => {
