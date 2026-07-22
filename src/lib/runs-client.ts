@@ -1,4 +1,13 @@
 import { RUNS_SERVICE_URL, RUNS_SERVICE_API_KEY } from "../config.js";
+import { fetchWithRetry } from "./fetch-retry.js";
+
+// runs-service sits behind Neon scale-to-zero (DIS-153/155/157): idle compute
+// suspends, and the first call after a suspend can land mid-wake — the resume
+// takes ~1-7s and/or the socket is reset. 30s tolerates a slow resume (the
+// fleet norm is 120-300s; the prior 5s was the outlier that a cold resume
+// could not fit and 500'd on), and fetchWithRetry absorbs the connect-phase
+// drops (ECONNRESET/ECONNREFUSED) — write-safe: those never reached the server.
+const RUNS_SERVICE_TIMEOUT_MS = 30_000;
 
 async function callRunsService(path: string, options: {
   method?: string;
@@ -7,7 +16,7 @@ async function callRunsService(path: string, options: {
 } = {}): Promise<unknown> {
   const { method = "GET", body, headers: extraHeaders } = options;
 
-  const response = await fetch(`${RUNS_SERVICE_URL}/v1${path}`, {
+  const response = await fetchWithRetry(`${RUNS_SERVICE_URL}/v1${path}`, {
     method,
     headers: {
       "Content-Type": "application/json",
@@ -15,7 +24,7 @@ async function callRunsService(path: string, options: {
       ...extraHeaders,
     },
     body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(5_000),
+    signal: AbortSignal.timeout(RUNS_SERVICE_TIMEOUT_MS),
   });
 
   if (!response.ok) {
