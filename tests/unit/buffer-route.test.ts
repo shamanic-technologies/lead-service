@@ -1,0 +1,139 @@
+import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
+import express from "express";
+import request from "supertest";
+
+// The idempotency lookup, in-flight guard, and child-run creation run BEFORE the
+// main pullNext try/catch. A throw there (e.g. runs-service unreachable through
+// its Neon cold-start window) must return a clean 500 from the handler itself —
+// NOT escape the async handler as an unhandled rejection that hangs the socket.
+// Express 4 does NOT forward an async rejection to error middleware, so this app
+// mounts NO error handler: a passing 500 proves the handler sends the response.
+
+const findFirst = vi.fn();
+const insertValues = vi.fn(() => ({ onConflictDoNothing: vi.fn(async () => undefined) }));
+vi.mock("../../src/db/index.js", () => ({
+  db: {
+    query: { idempotencyCache: { findFirst: (...a: unknown[]) => findFirst(...a) } },
+    insert: () => ({ values: (...a: unknown[]) => insertValues(...a) }),
+    delete: () => ({ where: () => ({ then: (r: (x: unknown[]) => void) => Promise.resolve([]).then(r), catch: () => {} }) }),
+  },
+}));
+
+vi.mock("../../src/db/schema.js", () => ({
+  idempotencyCache: { idempotencyKey: "idempotency_key", createdAt: "created_at" },
+}));
+
+const checkConcurrentBufferNext = vi.fn();
+vi.mock("../../src/lib/inflight-guard.js", () => ({
+  checkConcurrentBufferNext: (...a: unknown[]) => checkConcurrentBufferNext(...a),
+}));
+
+const createRun = vi.fn();
+const updateRun = vi.fn();
+vi.mock("../../src/lib/runs-client.js", () => ({
+  createRun: (...a: unknown[]) => createRun(...a),
+  updateRun: (...a: unknown[]) => updateRun(...a),
+}));
+
+const pullNext = vi.fn();
+vi.mock("../../src/lib/buffer.js", () => ({
+  pullNext: (...a: unknown[]) => pullNext(...a),
+}));
+
+vi.mock("../../src/lib/trace-event.js", () => ({
+  traceEvent: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../../src/lib/people-client.js", () => ({
+  AUDIENCE_NOT_SERVEABLE_REASON: "audience_not_serveable",
+  isAudienceNotServeableError: () => false,
+}));
+
+vi.mock("../../src/config.js", () => ({
+  LEAD_SERVICE_API_KEY: "test-api-key",
+  PULL_NEXT_TIMEOUT_MS: 60_000,
+}));
+
+const ORG = "30000000-0000-0000-0000-000000000001";
+const BRAND = "20000000-0000-0000-0000-000000000001";
+const RUN = "10000000-0000-0000-0000-000000000001";
+const CAMPAIGN = "40000000-0000-0000-0000-000000000001";
+
+function post(app: express.Express) {
+  return request(app)
+    .post("/orgs/buffer/next")
+    .set("x-api-key", "test-api-key")
+    .set("x-org-id", ORG)
+    .set("x-run-id", RUN)
+    .set("x-campaign-id", CAMPAIGN)
+    .set("x-brand-id", BRAND)
+    .set("x-feature-slug", "lead-finder-v1")
+    .send({});
+}
+
+describe("POST /orgs/buffer/next — pre-serve failure handling", () => {
+  let app: express.Express;
+  beforeAll(async () => {
+    const { default: route } = await import("../../src/routes/buffer.js");
+    app = express();
+    app.use(express.json());
+    app.use(route);
+    // Intentionally NO error middleware: proves the handler itself responds.
+  }, 30_000);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    findFirst.mockResolvedValue(undefined);
+    checkConcurrentBufferNext.mockResolvedValue({ blocked: false });
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  it("returns 500 (not an unhandled rejection) when the in-flight guard throws (runs-service unreachable)", async () => {
+    checkConcurrentBufferNext.mockRejectedValueOnce(
+      Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" }),
+    );
+
+    const res = await post(app);
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe("Lead serve setup failed");
+    // Never proceeded to create a run or serve a lead.
+    expect(createRun).not.toHaveBeenCalled();
+    expect(pullNext).not.toHaveBeenCalled();
+  });
+
+  it("returns 500 when createRun throws (runs-service outage after retries)", async () => {
+    createRun.mockRejectedValueOnce(new Error("Runs service call failed: 503"));
+
+    const res = await post(app);
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe("Lead serve setup failed");
+    expect(pullNext).not.toHaveBeenCalled();
+  });
+
+  it("still returns 409 when the in-flight guard blocks (early return preserved)", async () => {
+    checkConcurrentBufferNext.mockResolvedValueOnce({
+      blocked: true,
+      detail: "Concurrent buffer/next call",
+      existing: { id: "run-x" },
+    });
+
+    const res = await post(app);
+
+    expect(res.status).toBe(409);
+    expect(createRun).not.toHaveBeenCalled();
+  });
+
+  it("still returns the cached response on an idempotency hit (early return preserved)", async () => {
+    findFirst.mockResolvedValueOnce({ response: { found: true, lead: { leadId: "cached-1" } } });
+
+    const res = await post(app);
+
+    expect(res.status).toBe(200);
+    expect(res.body.lead.leadId).toBe("cached-1");
+    expect(checkConcurrentBufferNext).not.toHaveBeenCalled();
+    expect(createRun).not.toHaveBeenCalled();
+  });
+});
