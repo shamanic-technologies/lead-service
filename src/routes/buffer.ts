@@ -68,51 +68,64 @@ router.post("/orgs/buffer/next", apiKeyAuth, requireOrgId, requireRunId, async (
     audienceId: req.audienceId,
   };
 
-  // Idempotency on x-run-id: if this run already got a lead, return the cached response
-  const cached = await db.query.idempotencyCache.findFirst({
-    where: eq(idempotencyCache.idempotencyKey, runId),
-  });
-  if (cached) {
-    console.log(`[lead-service] Idempotency hit for runId=${runId}`);
-    traceEvent(runId, { service: "lead-service", event: "idempotency-hit", detail: `Returning cached response for runId=${runId}` }, req.headers).catch(() => {});
-    return res.json(cached.response);
-  }
+  // The idempotency lookup, in-flight guard, and child-run creation all run
+  // BEFORE the main pullNext try/catch below. A throw here (e.g. runs-service
+  // unreachable through its Neon cold-start window) must return a clean 500 —
+  // NOT escape the async handler as an unhandled rejection, which leaves the
+  // caller's socket hanging with no response. fetchWithRetry already absorbs
+  // transient connect-phase drops; this catch handles a genuine outage.
+  let serveRunId: string;
+  try {
+    // Idempotency on x-run-id: if this run already got a lead, return the cached response
+    const cached = await db.query.idempotencyCache.findFirst({
+      where: eq(idempotencyCache.idempotencyKey, runId),
+    });
+    if (cached) {
+      console.log(`[lead-service] Idempotency hit for runId=${runId}`);
+      traceEvent(runId, { service: "lead-service", event: "idempotency-hit", detail: `Returning cached response for runId=${runId}` }, req.headers).catch(() => {});
+      return res.json(cached.response);
+    }
 
-  // In-flight guard: campaign-service is supposed to serialize workflow runs per campaignId.
-  // If runs-service shows another lead-service run already in-flight for this campaignId,
-  // the upstream serial invariant is broken — fail loud with full debug context instead of
-  // racing the strategy persist path into a duplicate-key 500.
-  // Must run BEFORE createRun so we don't self-detect.
-  const concurrentCheck = await checkConcurrentBufferNext({
-    orgId: req.orgId!,
-    campaignId,
-    attemptedParentRunId: runId,
-    attemptedBrandIds: brandIds,
-    attemptedWorkflowSlug: workflowSlug,
-    attemptedFeatureSlug: req.featureSlug,
-  });
-  if (concurrentCheck.blocked) {
-    console.error(`[lead-service] ${concurrentCheck.detail}`);
-    traceEvent(runId, { service: "lead-service", event: "buffer-next-concurrent-rejected", level: "error", detail: concurrentCheck.detail }, req.headers).catch(() => {});
-    return res.status(409).json({ error: "Concurrent buffer/next call for same campaign", detail: concurrentCheck.detail });
-  }
+    // In-flight guard: campaign-service is supposed to serialize workflow runs per campaignId.
+    // If runs-service shows another lead-service run already in-flight for this campaignId,
+    // the upstream serial invariant is broken — fail loud with full debug context instead of
+    // racing the strategy persist path into a duplicate-key 500.
+    // Must run BEFORE createRun so we don't self-detect.
+    const concurrentCheck = await checkConcurrentBufferNext({
+      orgId: req.orgId!,
+      campaignId,
+      attemptedParentRunId: runId,
+      attemptedBrandIds: brandIds,
+      attemptedWorkflowSlug: workflowSlug,
+      attemptedFeatureSlug: req.featureSlug,
+    });
+    if (concurrentCheck.blocked) {
+      console.error(`[lead-service] ${concurrentCheck.detail}`);
+      traceEvent(runId, { service: "lead-service", event: "buffer-next-concurrent-rejected", level: "error", detail: concurrentCheck.detail }, req.headers).catch(() => {});
+      return res.status(409).json({ error: "Concurrent buffer/next call for same campaign", detail: concurrentCheck.detail });
+    }
 
-  // Create child run for traceability (x-run-id from caller becomes our parentRunId)
-  const childRun = await createRun({
-    orgId: req.orgId!,
-    serviceName: "lead-service",
-    taskName: "lead-serve",
-    parentRunId: runId,
-    userId: req.userId,
-    brandId: req.brandId,
-    campaignId,
-    workflowSlug,
-    featureSlug: req.featureSlug,
-    goal: req.goal,
-    brandProfileId: req.brandProfileId,
-    audienceId: req.audienceId,
-  });
-  const serveRunId = childRun.id;
+    // Create child run for traceability (x-run-id from caller becomes our parentRunId)
+    const childRun = await createRun({
+      orgId: req.orgId!,
+      serviceName: "lead-service",
+      taskName: "lead-serve",
+      parentRunId: runId,
+      userId: req.userId,
+      brandId: req.brandId,
+      campaignId,
+      workflowSlug,
+      featureSlug: req.featureSlug,
+      goal: req.goal,
+      brandProfileId: req.brandProfileId,
+      audienceId: req.audienceId,
+    });
+    serveRunId = childRun.id;
+  } catch (err) {
+    console.error(`[lead-service] buffer/next pre-serve setup failed for runId=${runId} campaignId=${campaignId}:`, err);
+    traceEvent(runId, { service: "lead-service", event: "buffer-next-setup-failed", level: "error", detail: err instanceof Error ? err.message : String(err) }, req.headers).catch(() => {});
+    return res.status(500).json({ error: "Lead serve setup failed", detail: err instanceof Error ? err.message : String(err) });
+  }
 
   traceEvent(serveRunId, { service: "lead-service", event: "buffer-next-start", detail: `campaignId=${campaignId}, brandIds=${brandIds.join(",")}` }, req.headers).catch(() => {});
 

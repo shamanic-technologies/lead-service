@@ -1,4 +1,5 @@
 import { RUNS_SERVICE_URL, RUNS_SERVICE_API_KEY } from "../config.js";
+import { fetchWithRetry } from "./fetch-retry.js";
 
 const IDENTITY_HEADERS = [
   "x-org-id",
@@ -34,11 +35,11 @@ export async function traceEvent(
       if (val) forwardHeaders[key] = val as string;
     }
 
-    await fetch(`${RUNS_SERVICE_URL}/v1/runs/${runId}/events`, {
+    await fetchWithRetry(`${RUNS_SERVICE_URL}/v1/runs/${runId}/events`, {
       method: "POST",
       headers: forwardHeaders,
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(5_000),
+      signal: AbortSignal.timeout(30_000),
     });
   } catch (err) {
     console.error("[lead-service] Failed to trace event:", err);
