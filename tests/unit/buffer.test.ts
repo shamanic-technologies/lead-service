@@ -13,11 +13,11 @@ vi.mock("../../src/lib/brand-client.js", () => ({
 
 const upsertLeadFromPerson = vi.fn();
 const recordEmploymentHistory = vi.fn();
-const upsertContactMethod = vi.fn();
+const registerServedEmail = vi.fn();
 vi.mock("../../src/lib/leads-registry.js", () => ({
   upsertLeadFromPerson: (...args: unknown[]) => upsertLeadFromPerson(...args),
   recordEmploymentHistory: (...args: unknown[]) => recordEmploymentHistory(...args),
-  upsertContactMethod: (...args: unknown[]) => upsertContactMethod(...args),
+  registerServedEmail: (...args: unknown[]) => registerServedEmail(...args),
 }));
 
 const buildFullLead = vi.fn();
@@ -90,7 +90,7 @@ describe("pullNext (audience serve-next flow)", () => {
     serveNext.mockResolvedValueOnce({ status: "served", person });
     upsertLeadFromPerson.mockResolvedValueOnce("lead-1");
     recordEmploymentHistory.mockResolvedValueOnce(undefined);
-    upsertContactMethod.mockResolvedValueOnce({ inserted: true });
+    registerServedEmail.mockResolvedValueOnce("lead-1");
     buildFullLead.mockResolvedValueOnce({ leadId: "lead-1", firstName: "Sara" });
 
     const result = await pullNext(baseParams);
@@ -116,7 +116,7 @@ describe("pullNext (audience serve-next flow)", () => {
     serveNext.mockResolvedValueOnce({ status: "served", person });
     upsertLeadFromPerson.mockResolvedValueOnce("lead-1");
     recordEmploymentHistory.mockResolvedValueOnce(undefined);
-    upsertContactMethod.mockResolvedValueOnce({ inserted: true });
+    registerServedEmail.mockResolvedValueOnce("lead-1");
     buildFullLead.mockResolvedValueOnce({ leadId: "lead-1" });
 
     const result = await pullNext(baseParams);
@@ -152,6 +152,45 @@ describe("pullNext (audience serve-next flow)", () => {
 
     expect(result).toEqual({ found: false });
     expect(upsertLeadFromPerson).not.toHaveBeenCalled();
+  });
+
+  it("records the serve against the lead that owns the email, never an email-less lead", async () => {
+    // The person's email already belongs to an older lead row. The global
+    // one-email-one-lead index means no other lead can ever carry it, so the
+    // membership row MUST land on the owning lead — otherwise the delivery
+    // status (keyed on the registered email) can never resolve.
+    serveNext.mockResolvedValueOnce({ status: "served", person });
+    upsertLeadFromPerson.mockResolvedValueOnce("lead-provider-id-owner");
+    registerServedEmail.mockResolvedValueOnce("lead-email-owner");
+    recordEmploymentHistory.mockResolvedValueOnce(undefined);
+    buildFullLead.mockResolvedValueOnce({ leadId: "lead-email-owner" });
+
+    const result = await pullNext(baseParams);
+
+    expect(registerServedEmail).toHaveBeenCalledWith({
+      leadId: "lead-provider-id-owner",
+      email: "sara@cascobay.com",
+      status: "verified",
+      source: "apollo",
+    });
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ leadId: "lead-email-owner", status: "served" }),
+    );
+    expect(recordEmploymentHistory).toHaveBeenCalledWith({ leadId: "lead-email-owner", person });
+    expect(buildFullLead).toHaveBeenCalledWith("lead-email-owner");
+    expect(result.lead?.leadId).toBe("lead-email-owner");
+    expect(result.lead?.email).toBe("sara@cascobay.com");
+  });
+
+  it("fails loud when the email cannot be registered at all (no silent email-less serve)", async () => {
+    serveNext.mockResolvedValueOnce({ status: "served", person });
+    upsertLeadFromPerson.mockResolvedValueOnce("lead-1");
+    registerServedEmail.mockRejectedValueOnce(
+      new Error("[lead-service] email sara@cascobay.com hit the global one-email-one-lead index"),
+    );
+
+    await expect(pullNext(baseParams)).rejects.toThrow(/one-email-one-lead/);
+    expect(insertValues).not.toHaveBeenCalled();
   });
 
   it("fails loud when serve-next returns status=served but no email", async () => {

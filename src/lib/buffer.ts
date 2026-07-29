@@ -4,7 +4,7 @@ import { serveNext, type Person, type ServiceContext } from "./people-client.js"
 import {
   upsertLeadFromPerson,
   recordEmploymentHistory,
-  upsertContactMethod,
+  registerServedEmail,
 } from "./leads-registry.js";
 import { buildFullLead } from "./lead-shape.js";
 import { getCurrentGoal } from "./brand-client.js";
@@ -114,22 +114,23 @@ export async function pullNext(
     );
   }
 
-  // 4. Record into silver (leads + organization + contact + lifecycle row).
-  const leadId = await upsertLeadFromPerson(person, { enriched: true });
-  await recordEmploymentHistory({ leadId, person });
-
-  const contact = await upsertContactMethod({
-    leadId,
-    channel: "email",
-    value: person.email,
+  // 4. Record into silver (leads + contact + organization + lifecycle row).
+  //
+  // A person is ONE identity: when this email already belongs to a lead, THAT
+  // lead is the person and the serve is attributed to it. The global
+  // one-email-one-lead index means no other lead can ever carry the email, so
+  // serving a different lead would leave its delivery status permanently
+  // unresolvable — invisible in the dashboard funnel, in outreach counts, and
+  // in conversion attribution. `registerServedEmail` returns the owning lead,
+  // and fails loud if the email cannot be registered at all.
+  const resolvedLeadId = await upsertLeadFromPerson(person, { enriched: true });
+  const leadId = await registerServedEmail({
+    leadId: resolvedLeadId,
+    email: person.email,
     status: person.emailStatus ?? null,
     source: person.provider,
   });
-  if (!contact.inserted) {
-    console.warn(
-      `[lead-service] serve-next email already attached to another lead, serving anyway: email=${person.email}, leadId=${leadId}, audienceId=${audienceId}, campaign=${params.campaignId}`,
-    );
-  }
+  await recordEmploymentHistory({ leadId, person });
 
   await db
     .insert(leadsCampaigns)
