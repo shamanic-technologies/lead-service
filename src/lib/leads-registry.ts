@@ -55,10 +55,22 @@ function pickOrgFields(org: NonNullable<Person["organization"]>): Partial<NewOrg
 }
 
 /**
- * Upsert a lead, populating structured fields. Identity keying is provider-aware:
- *   - apollo: keyed on apolloPersonId (= person.providerPersonId)
- *   - apify:  no provider person id, keyed on the verified email it returns
+ * Resolve the canonical lead for a person and upsert its structured fields.
  * Returns the leadId.
+ *
+ * Identity precedence — EMAIL OWNER FIRST:
+ *   1. the lead that already owns `person.email` in lead_contact_methods
+ *   2. the lead carrying `person.providerPersonId` (leads.apollo_person_id)
+ *   3. a fresh row
+ *
+ * A person is ONE identity, and the email is the strongest key we have for it.
+ * `idx_lcm_channel_value` makes "one email = one lead" a hard invariant, so once
+ * a lead owns an email NO other lead can ever carry it. Attributing a serve to
+ * any other lead therefore produces a permanently email-less lead: the read path
+ * keys the email-gateway delivery overlay on the REGISTERED email, so such a
+ * lead can never resolve contacted/sent/delivered and is invisible to every
+ * consumer. Provider person ids churn (a re-crawl mints a new id for the same
+ * human); an already-registered email does not.
  */
 export async function upsertLeadFromPerson(
   person: Person,
@@ -68,52 +80,53 @@ export async function upsertLeadFromPerson(
   const metadata = person as unknown;
   const enrichedAt = options.enriched ? new Date() : null;
 
-  // apollo identity: providerPersonId -> leads.apolloPersonId (unique index).
-  if (person.providerPersonId) {
-    const existing = await db.query.leads.findFirst({
-      where: eq(leads.apolloPersonId, person.providerPersonId),
-    });
-    if (existing) {
-      await db
-        .update(leads)
-        .set({ ...fields, metadata, ...(enrichedAt ? { enrichedAt } : {}) })
-        .where(eq(leads.id, existing.id));
-      return existing.id;
-    }
-
-    const inserted = await db
-      .insert(leads)
-      .values({ apolloPersonId: person.providerPersonId, ...fields, metadata, enrichedAt })
-      .returning({ id: leads.id });
-    if (inserted[0]) return inserted[0].id;
-
-    // Race: another inserter beat us — re-read by apolloPersonId.
-    const raced = await db.query.leads.findFirst({
-      where: eq(leads.apolloPersonId, person.providerPersonId),
-    });
-    if (raced) return raced.id;
-    throw new Error("[lead-service] upsertLeadFromPerson failed to insert or locate apollo row");
+  if (!person.email && !person.providerPersonId) {
+    throw new Error(
+      "[lead-service] upsertLeadFromPerson: person has no providerPersonId and no email",
+    );
   }
 
-  // apify identity: no provider person id — key on the verified email.
-  if (person.email) {
-    const existingLeadId = await findLeadByEmail(person.email);
-    if (existingLeadId) {
-      await db
-        .update(leads)
-        .set({ ...fields, metadata, ...(enrichedAt ? { enrichedAt } : {}) })
-        .where(eq(leads.id, existingLeadId));
-      return existingLeadId;
-    }
-    const inserted = await db
-      .insert(leads)
-      .values({ apolloPersonId: null, ...fields, metadata, enrichedAt })
-      .returning({ id: leads.id });
-    if (inserted[0]) return inserted[0].id;
-    throw new Error("[lead-service] upsertLeadFromPerson failed to insert apify row");
+  const emailOwnerId = person.email ? await findLeadByEmail(person.email) : null;
+  const providerOwnerId = person.providerPersonId
+    ? await findLeadByApolloPersonId(person.providerPersonId)
+    : null;
+
+  if (emailOwnerId && providerOwnerId && emailOwnerId !== providerOwnerId) {
+    // Provider id churn: the same human exists twice in silver. The email owner
+    // is the identity that can actually carry the email, so it wins.
+    console.log(
+      `[lead-service] identity: email owner wins over provider person id — email=${person.email} emailLeadId=${emailOwnerId} providerPersonId=${person.providerPersonId} providerLeadId=${providerOwnerId}`,
+    );
   }
 
-  throw new Error("[lead-service] upsertLeadFromPerson: person has no providerPersonId and no email");
+  const existingId = emailOwnerId ?? providerOwnerId;
+  if (existingId) {
+    await db
+      .update(leads)
+      .set({ ...fields, metadata, ...(enrichedAt ? { enrichedAt } : {}) })
+      .where(eq(leads.id, existingId));
+    return existingId;
+  }
+
+  const inserted = await db
+    .insert(leads)
+    .values({
+      apolloPersonId: person.providerPersonId ?? null,
+      ...fields,
+      metadata,
+      enrichedAt,
+    })
+    .returning({ id: leads.id });
+  if (inserted[0]) return inserted[0].id;
+
+  // Race: another writer inserted the same identity between our lookup and insert.
+  const raced = person.providerPersonId
+    ? await findLeadByApolloPersonId(person.providerPersonId)
+    : person.email
+      ? await findLeadByEmail(person.email)
+      : null;
+  if (raced) return raced;
+  throw new Error("[lead-service] upsertLeadFromPerson failed to insert or locate the lead");
 }
 
 /**
@@ -193,6 +206,46 @@ export async function upsertContactMethod(params: {
     }
     throw err;
   }
+}
+
+/**
+ * Register `email` on `leadId` and return the lead that OWNS it afterwards.
+ *
+ * Normally that is `leadId` itself — `upsertLeadFromPerson` already resolves the
+ * email owner first, so the insert succeeds. The re-resolution below covers the
+ * race where a concurrent serve registered the same email on another lead
+ * between that lookup and this insert.
+ *
+ * Either way the caller ends up with a lead whose email IS registered, so a
+ * serve is never recorded against a lead whose delivery status can't resolve.
+ * A collision we cannot resolve to an owner is a broken invariant, not a
+ * warning: it fails loud.
+ */
+export async function registerServedEmail(params: {
+  leadId: string;
+  email: string;
+  status: string | null;
+  source: string;
+}): Promise<string> {
+  const result = await upsertContactMethod({
+    leadId: params.leadId,
+    channel: "email",
+    value: params.email,
+    status: params.status,
+    source: params.source,
+  });
+  if (result.inserted) return params.leadId;
+
+  const owner = await findLeadByEmail(params.email);
+  if (!owner) {
+    throw new Error(
+      `[lead-service] email ${params.email} hit the global one-email-one-lead index but no owning lead could be found (leadId=${params.leadId})`,
+    );
+  }
+  console.log(
+    `[lead-service] identity: re-attributed serve to the lead that owns the email — email=${params.email} from=${params.leadId} to=${owner}`,
+  );
+  return owner;
 }
 
 function isGlobalContactDupKey(err: unknown): boolean {

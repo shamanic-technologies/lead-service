@@ -168,6 +168,14 @@ export const leadsCampaigns = pgTable(
     activeGoalId: text("active_goal_id"),
     brandProfileId: text("brand_profile_id"),
     audienceId: text("audience_id"),
+    // Audit trail for the one-time served-lead email repair
+    // (scripts/repair-served-lead-emails.ts). Rows served before the
+    // email-owner-first identity fix were attributed to a lead that could never
+    // carry the person's email (another lead already owned it), so their
+    // delivery status was unresolvable forever. The repair re-points lead_id to
+    // the owning lead and records the PREVIOUS lead_id here. NULL on every row
+    // the repair never touched; the serve path never writes it.
+    repointedFromLeadId: uuid("repointed_from_lead_id"),
     servedAt: timestamp("served_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

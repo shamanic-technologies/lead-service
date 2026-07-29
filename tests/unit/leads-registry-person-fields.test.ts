@@ -3,12 +3,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const insertReturning = vi.fn().mockResolvedValue([{ id: "new-lead-id" }]);
 const insertValues = vi.fn(() => ({ returning: insertReturning }));
 const findFirstLead = vi.fn().mockResolvedValue(undefined);
+const findFirstContact = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("../../src/db/index.js", () => ({
   db: {
     insert: () => ({ values: (...a: unknown[]) => insertValues(...a) }),
     query: {
       leads: { findFirst: (...a: unknown[]) => findFirstLead(...a) },
+      leadContactMethods: { findFirst: (...a: unknown[]) => findFirstContact(...a) },
     },
   },
 }));
@@ -39,6 +41,8 @@ describe("upsertLeadFromPerson maps the recipient timezone onto the lead", () =>
     insertReturning.mockClear();
     findFirstLead.mockClear();
     findFirstLead.mockResolvedValue(undefined);
+    findFirstContact.mockClear();
+    findFirstContact.mockResolvedValue(undefined);
   });
 
   it("persists person.timezone onto NewLead.timezone", async () => {
