@@ -14,6 +14,11 @@ Apollo/sales-lead service — buffering, deduplication, enrichment caching, and 
 - `npm run db:migrate` — run Drizzle migrations
 - `npm run db:push` — push schema directly (dev only)
 
+## CI never touches a database the service uses
+
+- **`.github/workflows/ci.yml` provisions its own `postgres:17` service container and points `LEAD_SERVICE_DATABASE_URL` at it — `secrets.LEAD_SERVICE_DATABASE_URL` must not appear in that file, on any event.** It used to: the migration step ran against the single live DSN on `pull_request`, so merely OPENING a PR moved the production schema before review, before merge, and before the code expecting the new shape shipped — and a PR later closed or reworked left its migration applied with nothing using it (#397). Production migrations come from `migrate()` on boot in `src/index.ts`, not from CI. `tests/unit/ci-workflow.test.ts` fails the build if any `${{ secrets.* }}` reference returns.
+- **The CI database is EMPTY.** Anything under `tests/integration` must seed its own rows; do not write a test that passes only because production data happens to exist (that is how brand-service's suite came to fail on a clean database — brand-service#385/#387). A service container is deliberately preferred over an ephemeral Neon branch: a Neon branch is cut from the default branch and arrives carrying production data, and it can leak compute hours when a run fails.
+
 ## Migrations — hand-author, do NOT `db:generate`
 
 The drizzle meta snapshots (`drizzle/meta/*_snapshot.json`) stop at `0007`; migrations `0008`+ were all hand-authored. So `npm run db:generate` (`drizzle-kit generate`) has no recent snapshot to diff against and drops into an interactive prompt asking to **recreate every table** — it cannot produce a clean incremental migration. Convention: **hand-author the `.sql` file + add the journal entry to `drizzle/meta/_journal.json` yourself**. Make every statement idempotent (`DROP COLUMN IF EXISTS`, `DROP INDEX IF EXISTS`, `CREATE INDEX IF NOT EXISTS`, or `DO $$ … IF EXISTS … $$`) — see `0022`/`0023` as templates. `npm run db:migrate` (`drizzle-kit migrate`) applies the journal's `.sql` files and does NOT need the snapshots, so this works at boot.
@@ -28,13 +33,8 @@ The drizzle meta snapshots (`drizzle/meta/*_snapshot.json`) stop at `0007`; migr
 - `src/lib/email-gateway-client.ts` — Email-gateway POST /status client for delivery checks
 - `src/lib/leads-registry.ts` — Global lead identity registry (leads + leadEmails tables)
 - `src/lib/people-client.ts` — human-service people gateway client (provider-agnostic search/enrich via apollo OR apify; lead-service no longer calls apollo/apify directly). **Do NOT branch on provider in the consumer** (`if (provider === "apollo")`). The gateway is provider-agnostic: pass every identity field you stored (`providerPersonId` from the apollo-specific column when present, `firstName`/`lastName`/`domain` when present) and let the gateway pick the reveal path. The `(provider, providerPersonId)` pair is what disambiguates the id — `provider` qualifies it, so a generic wire field is correct; don't push per-provider routing back into lead-service. (Set 2026-06-14, v0.21.2 apollo reveal-by-person-id regression fix.)
-- `src/lib/campaign-client.ts` — Campaign service client (fetch campaign details for search context)
-- `src/lib/brand-client.ts` — Brand service client (fetch brand details for search context)
-- `src/lib/runs-client.ts` — Runs service client for distributed tracing
-- `src/db/schema.ts` — Drizzle ORM table definitions (PostgreSQL)
-- `src/db/index.ts` — Database connection
-- `src/config.ts` — Environment config
-- `src/instrument.ts` — Sentry instrumentation
+- `src/lib/{campaign,brand}-client.ts` — campaign/brand detail fetches for search context; `src/lib/runs-client.ts` — runs-service distributed tracing
+- `src/db/schema.ts` — Drizzle ORM table definitions (PostgreSQL); `src/db/index.ts` — connection; `src/config.ts` — env config; `src/instrument.ts` — Sentry
 - `tests/` — Test files (`*.test.ts`)
 - `openapi.json` — Auto-generated from Zod schemas, do NOT edit manually
 

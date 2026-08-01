@@ -10,6 +10,44 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    # Every run gets its own empty Postgres, created by the run and destroyed with it.
+    #
+    # This job used to point `LEAD_SERVICE_DATABASE_URL` at `secrets.LEAD_SERVICE_DATABASE_URL`
+    # and run `npm run db:migrate` against it. There is exactly one such secret and no `_DEV`
+    # variant, so that DSN is the one the running service uses: merely OPENING a pull request
+    # applied its migrations to production, before review, before merge, and before any code
+    # that expected the new shape was deployed. A PR then closed or reworked left its schema
+    # change applied with nothing using it. See issue #397.
+    #
+    # Production migrations are unaffected: `src/index.ts` runs `migrate()` on boot, behind the
+    # readiness gate, so the schema moves when the new code deploys and not a moment earlier.
+    #
+    # A service container is preferred over an ephemeral Neon branch (the brand-service#387
+    # approach) for three reasons: a Neon branch is cut from the default branch and so arrives
+    # carrying production DATA, which is exactly how brand-service's integration suite came to
+    # depend on rows it never created; a container cannot be leaked, so there are no compute
+    # hours to reclaim when a run fails; and it needs no Neon API key on this repo.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: lead_service_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      NODE_ENV: test
+      # The throwaway container, always. No CI job may hold a DSN for a database Railway
+      # points at — `secrets.LEAD_SERVICE_DATABASE_URL` must not appear anywhere in this file.
+      LEAD_SERVICE_DATABASE_URL: postgres://postgres:postgres@localhost:5432/lead_service_test
+
     steps:
       - uses: actions/checkout@v4
 
@@ -22,16 +60,10 @@ jobs:
 
       - run: npm run build
 
-      - name: Unit tests
-        run: npm run test:unit
-
       - name: Apply database migrations
-        env:
-          LEAD_SERVICE_DATABASE_URL: ${{ secrets.LEAD_SERVICE_DATABASE_URL }}
         run: npm run db:migrate
 
-      - name: Integration tests
-        env:
-          NODE_ENV: test
-          LEAD_SERVICE_DATABASE_URL: ${{ secrets.LEAD_SERVICE_DATABASE_URL }}
-        run: npm run test:integration
+      # The whole suite, against the empty database this run just migrated. Anything that
+      # needs rows must seed them itself; there is no ambient data to lean on.
+      - name: Tests
+        run: npm test
