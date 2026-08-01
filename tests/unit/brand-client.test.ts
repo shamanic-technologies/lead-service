@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getCurrentGoal } from "../../src/lib/brand-client.js";
+import { fetchExtractedFields, getCurrentGoal } from "../../src/lib/brand-client.js";
 
 type CapturedRequest = { url: string; init: RequestInit };
 
@@ -49,5 +49,41 @@ describe("brand-client getCurrentGoal", () => {
     await expect(getCurrentGoal("brand-1", "org-1")).rejects.toThrow(
       /runtime-context failed for brand brand-1: 404/,
     );
+  });
+
+  // Per-brand configuration belongs to an (org, brand) pair: brand-service
+  // refuses to guess for a brand several orgs claim. These guard the org
+  // identity actually reaching the wire, so it cannot be dropped silently.
+  it("sends x-org-id on every internal per-brand configuration read", async () => {
+    const { calls } = mockFetch({ brandId: "brand-1", fields: [] });
+
+    await fetchExtractedFields("brand-1", "org-2", { runId: "run-1" });
+
+    expect(calls[0].url).toBe("http://brand:3005/internal/brands/brand-1/extracted-fields");
+    expect((calls[0].init.headers as Record<string, string>)["x-org-id"]).toBe("org-2");
+  });
+
+  it("asks for the requesting org's configuration, not a fixed one", async () => {
+    const { calls } = mockFetch({
+      brand: { id: "brand-shared" },
+      currentGoal: "signup",
+      brandProfile: null,
+    });
+
+    await getCurrentGoal("brand-shared", "org-a");
+    await getCurrentGoal("brand-shared", "org-b");
+
+    expect(calls.map((c) => (c.init.headers as Record<string, string>)["x-org-id"])).toEqual([
+      "org-a",
+      "org-b",
+    ]);
+  });
+
+  it("fails loud without an org instead of letting brand-service pick one", async () => {
+    const { calls } = mockFetch({ currentGoal: "signup" });
+
+    await expect(getCurrentGoal("brand-1", "")).rejects.toThrow(/orgId is required/);
+    await expect(fetchExtractedFields("brand-1", "")).rejects.toThrow(/orgId is required/);
+    expect(calls).toHaveLength(0);
   });
 });
