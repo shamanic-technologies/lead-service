@@ -1,0 +1,34 @@
+-- Derive the input set for scripts/requeue-uncontacted-serves.ts.
+--
+-- Between 2026-08-07 01:00 UTC and 2026-08-08, instantly-service failed at
+-- campaign creation for any lead carrying a real IANA timezone — the vendor 400s
+-- any value outside its closed enum. The failure landed AFTER lead-service had
+-- served the lead and after its email had been generated and paid for, so the
+-- only place the incident is recorded is runs-service's run-event stream: the
+-- run emitted a `send-start` (whose detail carries `to=<email>` and
+-- `campaignId=<uuid>`) and then a `send-error` quoting the vendor's message.
+--
+-- The set is CLOSED — instantly-service#570 / #573 fixed the root cause and it
+-- is confirmed in production — so this is a finite one-time derivation, not a
+-- recurring sweep. Do NOT wire it into a cron.
+--
+-- Run against the runs-service database (production is the Hetzner box:
+-- `docker exec distribute-postgres-1 psql -U postgres -d runs_service`), then
+-- feed the CSV to the repair:
+--
+--   psql -U postgres -d runs_service -f uncontacted-timezone-serves.sql
+--   # then step 2, which drops anyone the vendor actually received:
+--   psql -U postgres -d instantly_service -f exclude-vendor-contacted.sql
+--   LEAD_SERVICE_DATABASE_URL=... npx tsx scripts/requeue-uncontacted-serves.ts \
+--     --input /tmp/uncontacted-timezone-serves-final.csv --dry-run
+--
+-- This query deliberately does NOT decide who was contacted. Contact evidence
+-- belongs to the service that submitted to the vendor, and "the send failed" is
+-- not evidence of never-contacted — at least one recipient in this set had
+-- already been handed to the vendor at another time and must stay excluded.
+-- exclude-vendor-contacted.sql (step 2) applies that exclusion against
+-- instantly-service's own record, and the repair applies a second, independent
+-- per-brand gate against email-gateway.
+\set ON_ERROR_STOP on
+
+\copy (WITH failed_runs AS (SELECT DISTINCT run_id FROM run_events WHERE service = 'instantly-service' AND event = 'send-error' AND detail LIKE '%timezone must be equal to one of the allowed values%') SELECT DISTINCT lower(substring(e.detail from 'to=([^,]+)')) AS email, substring(e.detail from 'campaignId=([0-9a-f-]+)') AS campaign_id FROM run_events e JOIN failed_runs f ON f.run_id = e.run_id WHERE e.service = 'instantly-service' AND e.event = 'send-start' AND substring(e.detail from 'to=([^,]+)') IS NOT NULL AND substring(e.detail from 'campaignId=([0-9a-f-]+)') IS NOT NULL ORDER BY email) TO '/tmp/uncontacted-timezone-serves.csv' CSV HEADER
