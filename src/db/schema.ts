@@ -305,6 +305,45 @@ export const conversionEvents = pgTable(
   ],
 );
 
+// --- Requeued serves: audit + undo ledger for the one-time uncontacted-serve recovery ---
+//
+// A serve that was paid for and then never reached the vendor leaves a
+// status='served' lifecycle row that idx_lc_lead_campaign makes permanent: the
+// serve path's ON CONFLICT DO NOTHING would keep the stale row (old run ids, old
+// served_at) if the person were re-served to the campaign that lost them. The
+// recovery (scripts/requeue-uncontacted-serves.ts) archives the whole
+// leads_campaigns row here verbatim and deletes it, so the person is un-served
+// for that campaign and a genuine re-serve records cleanly. The serve path never
+// writes this table; it exists only so the repair is traceable and reversible.
+export const requeuedServes = pgTable(
+  "requeued_serves",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** id of the leads_campaigns row that was deleted */
+    leadCampaignId: uuid("lead_campaign_id").notNull(),
+    leadId: uuid("lead_id").notNull(),
+    campaignId: text("campaign_id").notNull(),
+    orgId: text("org_id").notNull(),
+    brandIds: text("brand_ids").array().notNull(),
+    /** the registered email the no-contact decision was made on */
+    email: text("email").notNull(),
+    /** which recovery produced this row (see REQUEUE_REASON in the script) */
+    reason: text("reason").notNull(),
+    /** the deleted leads_campaigns row, verbatim — the undo source */
+    rowSnapshot: jsonb("row_snapshot").notNull(),
+    requeuedAt: timestamp("requeued_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_requeued_serves_lead_campaign_reason").on(
+      table.leadId,
+      table.campaignId,
+      table.reason,
+    ),
+    index("idx_requeued_serves_reason").on(table.reason),
+    index("idx_requeued_serves_brand_ids").using("gin", table.brandIds),
+  ],
+);
+
 // --- Type exports ---
 export type Lead = typeof leads.$inferSelect;
 export type NewLead = typeof leads.$inferInsert;
@@ -324,3 +363,5 @@ export type BrandConversionToken = typeof brandConversionTokens.$inferSelect;
 export type NewBrandConversionToken = typeof brandConversionTokens.$inferInsert;
 export type ConversionEvent = typeof conversionEvents.$inferSelect;
 export type NewConversionEvent = typeof conversionEvents.$inferInsert;
+export type RequeuedServe = typeof requeuedServes.$inferSelect;
+export type NewRequeuedServe = typeof requeuedServes.$inferInsert;
