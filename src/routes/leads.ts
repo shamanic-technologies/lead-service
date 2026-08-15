@@ -5,13 +5,15 @@ import {
   checkDeliveryStatus,
   type StatusResult,
   type DeliveryStatusItem,
+  type ProviderStatus,
   type ScopedStatus,
   type GlobalStatus,
 } from "../lib/email-gateway-client.js";
+import { resolveCampaignFamily } from "../lib/campaign-identity-client.js";
 import { traceEvent } from "../lib/trace-event.js";
 import { buildFullLeadsBatch, type FullLead } from "../lib/lead-shape.js";
 import { streamBasicLeadChunks, toIsoTimestamp, type BasicLeadRow } from "../lib/basic-leads.js";
-import { leadCampaignBaseRelation, type LeadListScope } from "../lib/lead-list-query.js";
+import { campaignScopeIds, leadCampaignBaseRelation, type LeadListScope } from "../lib/lead-list-query.js";
 import { resolveAudiencesForBrand, type AudienceCard, type AudienceResolveContext } from "../lib/audience-client.js";
 
 const router = Router();
@@ -114,6 +116,93 @@ export function flattenCampaignStatus(result: StatusResult): FlattenedStatus {
   return { ...merged, global: mergeGlobal(bc?.global, tx?.global) };
 }
 
+/**
+ * Collapse one provider's per-campaign breakdown down to the members of ONE campaign identity.
+ *
+ * email-gateway keys its evidence on the campaign id that sent the email, so a person served under
+ * a stopped ancestor of the identity has no evidence under the LIVE campaign id — asking in
+ * campaign mode for that one id answers "never contacted" for a person the customer paid to
+ * contact. Brand mode returns `byCampaign`, so the identity's own members are read from it and
+ * nothing outside the identity is counted (a brand-scope answer would over-report a brand running
+ * several identities). Booleans OR, `sentCount` sums (disjoint campaigns), `first*At` take the
+ * earliest, `lastDeliveredAt` the latest, and the reply classification comes from the member that
+ * replied most recently.
+ */
+function aggregateFamilyScope(
+  provider: ProviderStatus | undefined,
+  family: Set<string>,
+): ScopedStatus | null {
+  const byCampaign = provider?.byCampaign;
+  if (!byCampaign) return null;
+
+  const scopes = Object.entries(byCampaign)
+    .filter(([campaignId]) => family.has(campaignId))
+    .map(([, scope]) => scope)
+    .filter((scope): scope is ScopedStatus => !!scope);
+  if (scopes.length === 0) return null;
+
+  const latestIso = (a: string | null, b: string | null): string | null => {
+    if (!a) return b;
+    if (!b) return a;
+    return a >= b ? a : b;
+  };
+
+  let repliedAt: string | null = null;
+  let replyClassification: ScopedStatus["replyClassification"] = null;
+  for (const scope of scopes) {
+    if (!scope.replyClassification) continue;
+    if (repliedAt === null || (scope.firstRepliedAt ?? "") >= repliedAt) {
+      repliedAt = scope.firstRepliedAt ?? "";
+      replyClassification = scope.replyClassification;
+    }
+  }
+
+  return scopes.reduce<ScopedStatus>(
+    (acc, s) => ({
+      contacted: acc.contacted || s.contacted,
+      sent: acc.sent || s.sent,
+      delivered: acc.delivered || s.delivered,
+      opened: acc.opened || s.opened,
+      clicked: acc.clicked || s.clicked,
+      replied: acc.replied || s.replied,
+      replyClassification,
+      bounced: acc.bounced || s.bounced,
+      unsubscribed: acc.unsubscribed || s.unsubscribed,
+      sentCount: (acc.sentCount ?? 0) + (s.sentCount ?? 0),
+      lastDeliveredAt: latestIso(acc.lastDeliveredAt, s.lastDeliveredAt),
+      firstContactedAt: earliestIso(acc.firstContactedAt, s.firstContactedAt),
+      firstSentAt: earliestIso(acc.firstSentAt, s.firstSentAt),
+      firstDeliveredAt: earliestIso(acc.firstDeliveredAt, s.firstDeliveredAt),
+      firstOpenedAt: earliestIso(acc.firstOpenedAt, s.firstOpenedAt),
+      firstClickedAt: earliestIso(acc.firstClickedAt, s.firstClickedAt),
+      firstRepliedAt: earliestIso(acc.firstRepliedAt, s.firstRepliedAt),
+      firstBouncedAt: earliestIso(acc.firstBouncedAt, s.firstBouncedAt),
+      firstUnsubscribedAt: earliestIso(acc.firstUnsubscribedAt, s.firstUnsubscribedAt),
+    }),
+    {
+      contacted: false, sent: false, delivered: false, opened: false, clicked: false,
+      replied: false, replyClassification, bounced: false, unsubscribed: false, sentCount: 0,
+      lastDeliveredAt: null, firstContactedAt: null, firstSentAt: null, firstDeliveredAt: null,
+      firstOpenedAt: null, firstClickedAt: null, firstRepliedAt: null, firstBouncedAt: null,
+      firstUnsubscribedAt: null,
+    },
+  );
+}
+
+/** The campaign-scope flatten for a campaign identity that spans several stored campaign rows. */
+export function flattenFamilyStatus(result: StatusResult, family: Set<string>): FlattenedStatus {
+  const bc = result.broadcast;
+  const tx = result.transactional;
+  const merged = mergeProviders(
+    pickScoped(aggregateFamilyScope(bc, family)),
+    pickScoped(aggregateFamilyScope(tx, family)),
+  );
+  // Same widening the single-campaign flatten applies: a person contacted anywhere for the brand
+  // reads as contacted, so the campaign page never claims an untouched person we did reach.
+  if (bc?.brand?.contacted || tx?.brand?.contacted) merged.contacted = true;
+  return { ...merged, global: mergeGlobal(bc?.global, tx?.global) };
+}
+
 export function flattenBrandStatus(result: StatusResult): FlattenedStatus {
   const bc = result.broadcast;
   const tx = result.transactional;
@@ -208,7 +297,7 @@ async function fetchLeadCampaignChunk(
     LEFT JOIN leads l ON l.id = lc.lead_id
     WHERE lc.org_id = ${scope.orgId}
       ${scope.brandId ? sql`AND ${scope.brandId} = ANY(lc.brand_ids)` : sql``}
-      ${scope.campaignId ? sql`AND lc.campaign_id = ${scope.campaignId}` : sql``}
+      ${campaignScopeIds(scope) ? sql`AND lc.campaign_id = ANY(${campaignScopeIds(scope)!})` : sql``}
       ${scope.queryOrgId ? sql`AND lc.org_id = ${scope.queryOrgId}` : sql``}
       ${scope.userId ? sql`AND lc.user_id = ${scope.userId}` : sql``}
       ${scope.workflowSlug ? sql`AND lc.workflow_slug = ${scope.workflowSlug}` : sql``}
@@ -301,6 +390,15 @@ async function buildAudienceMapForRows(
   return merged;
 }
 
+/**
+ * The campaign id to ask email-gateway for: the single stored row when the scope is one campaign,
+ * and NOTHING for a multi-member identity — brand mode is what returns the per-campaign breakdown
+ * the identity is then read out of (see aggregateFamilyScope).
+ */
+function statusCampaignId(campaignIds: string[] | null): string | undefined {
+  return campaignIds?.length === 1 ? campaignIds[0] : undefined;
+}
+
 async function buildStatusMapForBasicRows(
   rows: BasicLeadRow[],
   campaignId: string | undefined,
@@ -344,19 +442,45 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
     const userIdStr = typeof userId === "string" ? userId : undefined;
     const workflowSlugStr = typeof workflowSlug === "string" ? workflowSlug : undefined;
 
-    // One shared scope for both the slim (`?view=basic`) and full paths. Brand/org
-    // scope is collapsed to one row per lead_id downstream; campaign scope stays flat.
+    // A campaign as the customer knows it is an IDENTITY (org, brand, sales funnel, acquisition
+    // channel), not one stored campaign row: campaign-service used to mint a new row on every
+    // workflow switch, so one campaign lives in storage as many. A campaign-scoped read totals the
+    // whole identity — the same population features-service already totals for the same scope, so
+    // the money and the people on one campaign page describe the same thing. Resolution failing
+    // falls back to the single requested row, loudly, never to a partial family or the brand.
+    const campaignFamily = campaignIdStr
+      ? await resolveCampaignFamily(campaignIdStr, {
+          orgId: req.orgId!,
+          userId: req.userId ?? null,
+          runId: req.runId ?? null,
+          brandId: brandIdStr ?? null,
+        })
+      : null;
+
+    // One shared scope for both the slim (`?view=basic`) and full paths. Brand/org scope — and a
+    // campaign identity spanning several rows — collapses to one row per lead_id downstream; a
+    // single-row campaign scope stays flat.
     const scope: LeadListScope = {
       orgId: req.orgId!,
       brandId: brandIdStr,
       campaignId: campaignIdStr,
+      campaignIds: campaignFamily ?? undefined,
       queryOrgId: queryOrgIdStr,
       userId: userIdStr,
       workflowSlug: workflowSlugStr,
     };
 
+    const scopeCampaignIds = campaignScopeIds(scope);
+    const statusCampaignIdStr = statusCampaignId(scopeCampaignIds);
+    const familySet =
+      scopeCampaignIds && scopeCampaignIds.length > 1 ? new Set(scopeCampaignIds) : null;
+
     const hasScopeForStatus = !!(campaignIdStr || brandIdStr);
-    const flatten = campaignIdStr ? flattenCampaignStatus : flattenBrandStatus;
+    const flatten = familySet
+      ? (result: StatusResult) => flattenFamilyStatus(result, familySet)
+      : campaignIdStr
+        ? flattenCampaignStatus
+        : flattenBrandStatus;
     const context = getServiceContext(req);
     const audienceCtx: AudienceResolveContext = {
       orgId: req.orgId!,
@@ -381,7 +505,7 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
         rowCount += basicRows.length;
 
         const statusMap = hasScopeForStatus
-          ? await buildStatusMapForBasicRows(basicRows, campaignIdStr, context)
+          ? await buildStatusMapForBasicRows(basicRows, statusCampaignIdStr, context)
           : new Map<string, StatusResult>();
 
         const audienceMap = await buildAudienceMapForRows(
@@ -494,7 +618,7 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
         }
         await Promise.all(
           Array.from(groups.values()).map(async (group) => {
-            const response = await checkDeliveryStatus(group.brandId, campaignIdStr, group.items, context);
+            const response = await checkDeliveryStatus(group.brandId, statusCampaignIdStr, group.items, context);
             for (const result of response.results) statusMap.set(result.email, result);
           }),
         );

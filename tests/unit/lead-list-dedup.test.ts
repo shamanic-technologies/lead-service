@@ -11,7 +11,7 @@ vi.mock("../../src/db/index.js", () => ({
   },
 }));
 
-const { leadCampaignBaseRelation, shouldDedupeLeadList } = await import(
+const { leadCampaignBaseRelation, shouldDedupeLeadList, campaignScopeIds } = await import(
   "../../src/lib/lead-list-query.js"
 );
 
@@ -62,5 +62,29 @@ describe("leadCampaignBaseRelation dedup", () => {
     const sql = textOf();
     expect(sql).toContain("leads_campaigns lc");
     expect(sql).not.toContain("DISTINCT ON");
+  });
+
+  it("a campaign IDENTITY spanning several stored rows collapses like brand scope — one row per person", () => {
+    const family = [CAMPAIGN, "10000000-0000-0000-0000-000000000002"];
+    expect(shouldDedupeLeadList({ orgId: ORG, campaignId: CAMPAIGN, campaignIds: family })).toBe(true);
+    // A single-member identity is byte-for-byte the old behaviour: flat.
+    expect(shouldDedupeLeadList({ orgId: ORG, campaignId: CAMPAIGN, campaignIds: [CAMPAIGN] })).toBe(false);
+
+    mockSqlCalls = [];
+    leadCampaignBaseRelation({ orgId: ORG, brandId: BRAND, campaignId: CAMPAIGN, campaignIds: family });
+    const sql = textOf();
+    expect(sql).toContain("DISTINCT ON (lc0.lead_id)");
+    // The identity's members must filter INSIDE the dedup subquery, else the winning membership
+    // could be one held under a campaign outside the identity.
+    expect(sql).toContain("lc0.campaign_id = ANY(");
+    expect(mockSqlCalls.flatMap((c) => c.values)).toContainEqual(family);
+  });
+
+  it("campaignScopeIds prefers the resolved identity and falls back to the requested campaign", () => {
+    const family = [CAMPAIGN, "10000000-0000-0000-0000-000000000002"];
+    expect(campaignScopeIds({ orgId: ORG })).toBeNull();
+    expect(campaignScopeIds({ orgId: ORG, brandId: BRAND })).toBeNull();
+    expect(campaignScopeIds({ orgId: ORG, campaignId: CAMPAIGN })).toEqual([CAMPAIGN]);
+    expect(campaignScopeIds({ orgId: ORG, campaignId: CAMPAIGN, campaignIds: family })).toEqual(family);
   });
 });
