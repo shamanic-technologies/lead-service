@@ -9,6 +9,7 @@ import {
   type EmailGatewayStatsResponse,
   type EmailGatewayGroupedStatsResponse,
 } from "../lib/email-gateway-client.js";
+import { resolveCampaignFamily } from "../lib/campaign-identity-client.js";
 import {
   resolveFeatureDynastySlugs,
   resolveWorkflowDynastySlugs,
@@ -96,7 +97,14 @@ async function resolveDynastySlugs(
   return { workflowSlugs, featureSlugs, emptyDynasty: false };
 }
 
-function buildConditions(req: AuthenticatedRequest, dynastyResolved: { workflowSlugs: string[] | null; featureSlugs: string[] | null }) {
+function buildConditions(
+  req: AuthenticatedRequest,
+  dynastyResolved: { workflowSlugs: string[] | null; featureSlugs: string[] | null },
+  // Every stored campaign row that answers to the requested campaign's IDENTITY (see
+  // campaign-identity.ts). `null` when the read is not campaign-scoped; `[campaignId]` when the
+  // identity has one member or could not be resolved.
+  campaignFamily: string[] | null,
+) {
   const {
     brandId,
     campaignId,
@@ -121,7 +129,16 @@ function buildConditions(req: AuthenticatedRequest, dynastyResolved: { workflowS
 
   const conds: SQL[] = [eq(leadsCampaigns.orgId, req.orgId!)];
   if (brandIdStr) conds.push(sql`${brandIdStr} = ANY(${leadsCampaigns.brandIds})`);
-  if (campaignIdStr) conds.push(eq(leadsCampaigns.campaignId, campaignIdStr));
+  // A campaign-scoped read totals the campaign IDENTITY, not the single stored row: one campaign
+  // the customer opens exists in storage as the live row plus every ancestor a workflow switch
+  // stopped. features-service already answers this scope that way; without it the same page shows
+  // the identity's money next to one row's people.
+  const campaignScope = campaignFamily ?? (campaignIdStr ? [campaignIdStr] : null);
+  if (campaignScope && campaignScope.length === 1) {
+    conds.push(eq(leadsCampaigns.campaignId, campaignScope[0]));
+  } else if (campaignScope && campaignScope.length > 1) {
+    conds.push(inArray(leadsCampaigns.campaignId, campaignScope));
+  }
   if (orgIdStr) conds.push(eq(leadsCampaigns.orgId, orgIdStr));
   if (userIdStr) conds.push(eq(leadsCampaigns.userId, userIdStr));
   if (goalStr) conds.push(eq(leadsCampaigns.goal, goalStr));
@@ -144,6 +161,7 @@ function buildConditions(req: AuthenticatedRequest, dynastyResolved: { workflowS
     runIdList,
     brandIdStr,
     campaignIdStr,
+    campaignScope,
     orgIdStr,
     hasAttributionFilter:
       !!goalStr ||
@@ -204,6 +222,94 @@ function mergeRecipientStats(broadcast?: { recipientStats: RecipientStats }, tra
     },
   };
   return { byOutreachStatus, repliesDetail: byOutreachStatus.repliesDetail };
+}
+
+function addStats(a: RecipientStats, b: RecipientStats): RecipientStats {
+  return {
+    contacted: a.contacted + b.contacted,
+    sent: a.sent + b.sent,
+    delivered: a.delivered + b.delivered,
+    opened: a.opened + b.opened,
+    bounced: a.bounced + b.bounced,
+    clicked: a.clicked + b.clicked,
+    unsubscribed: a.unsubscribed + b.unsubscribed,
+    repliesPositive: a.repliesPositive + b.repliesPositive,
+    repliesNegative: a.repliesNegative + b.repliesNegative,
+    repliesNeutral: a.repliesNeutral + b.repliesNeutral,
+    repliesAutoReply: a.repliesAutoReply + b.repliesAutoReply,
+    repliesDetail: {
+      interested: (a.repliesDetail?.interested ?? 0) + (b.repliesDetail?.interested ?? 0),
+      meetingBooked: (a.repliesDetail?.meetingBooked ?? 0) + (b.repliesDetail?.meetingBooked ?? 0),
+      closed: (a.repliesDetail?.closed ?? 0) + (b.repliesDetail?.closed ?? 0),
+      notInterested: (a.repliesDetail?.notInterested ?? 0) + (b.repliesDetail?.notInterested ?? 0),
+      wrongPerson: (a.repliesDetail?.wrongPerson ?? 0) + (b.repliesDetail?.wrongPerson ?? 0),
+      unsubscribe: (a.repliesDetail?.unsubscribe ?? 0) + (b.repliesDetail?.unsubscribe ?? 0),
+      neutral: (a.repliesDetail?.neutral ?? 0) + (b.repliesDetail?.neutral ?? 0),
+      autoReply: (a.repliesDetail?.autoReply ?? 0) + (b.repliesDetail?.autoReply ?? 0),
+      outOfOffice: (a.repliesDetail?.outOfOffice ?? 0) + (b.repliesDetail?.outOfOffice ?? 0),
+    },
+  };
+}
+
+type AnyStatsResponse = EmailGatewayStatsResponse | EmailGatewayGroupedStatsResponse;
+
+/**
+ * Ask email-gateway for the whole campaign IDENTITY's outreach evidence.
+ *
+ * email-gateway keys its evidence on the campaign id that sent the email and takes ONE campaign id
+ * per call, so an identity is asked member by member and the answers are summed — the members are
+ * disjoint senders, so summing double-counts nothing. A single-member scope takes the original
+ * single call, byte for byte. `collapseKey` folds a per-campaign group key back onto the campaign
+ * the caller named, so a `groupBy=campaignId` read gets ONE line per identity rather than one per
+ * stopped ancestor.
+ */
+async function fetchStatsForCampaignScope(
+  campaignScope: string[] | null,
+  params: Parameters<typeof fetchEmailGatewayStats>[0],
+  context: ReturnType<typeof getServiceContext>,
+  collapseKey: (key: string) => string,
+): Promise<AnyStatsResponse> {
+  if (!campaignScope || campaignScope.length <= 1) {
+    const single = campaignScope?.[0];
+    return fetchEmailGatewayStats(single ? { ...params, campaignId: single } : params, context);
+  }
+
+  const responses = await Promise.all(
+    campaignScope.map((campaignId) => fetchEmailGatewayStats({ ...params, campaignId }, context)),
+  );
+
+  if (!params.groupBy) {
+    const flat: EmailGatewayStatsResponse = {};
+    for (const response of responses) {
+      const r = response as EmailGatewayStatsResponse;
+      if (r.broadcast) {
+        flat.broadcast = { recipientStats: addStats(flat.broadcast?.recipientStats ?? ZERO_RECIPIENT_STATS, r.broadcast.recipientStats) };
+      }
+      if (r.transactional) {
+        flat.transactional = { recipientStats: addStats(flat.transactional?.recipientStats ?? ZERO_RECIPIENT_STATS, r.transactional.recipientStats) };
+      }
+    }
+    return flat;
+  }
+
+  const byKey = new Map<string, { broadcast?: RecipientStats; transactional?: RecipientStats }>();
+  for (const response of responses) {
+    if (!("groups" in response)) continue;
+    for (const group of (response as EmailGatewayGroupedStatsResponse).groups) {
+      const key = collapseKey(group.key);
+      const acc = byKey.get(key) ?? {};
+      if (group.broadcast) acc.broadcast = addStats(acc.broadcast ?? ZERO_RECIPIENT_STATS, group.broadcast.recipientStats);
+      if (group.transactional) acc.transactional = addStats(acc.transactional ?? ZERO_RECIPIENT_STATS, group.transactional.recipientStats);
+      byKey.set(key, acc);
+    }
+  }
+  return {
+    groups: Array.from(byKey.entries()).map(([key, acc]) => ({
+      key,
+      ...(acc.broadcast ? { broadcast: { recipientStats: acc.broadcast } } : {}),
+      ...(acc.transactional ? { transactional: { recipientStats: acc.transactional } } : {}),
+    })),
+  };
 }
 
 function applyStatusCounts(group: GroupStats, status: string, n: number) {
@@ -394,6 +500,7 @@ async function buildAttributionAwareStats(
   groupBy: GroupByField | undefined,
   conds: SQL[],
   context: ReturnType<typeof getServiceContext>,
+  collapseKey: (key: string) => string,
   dynastyMap?: Map<string, string>,
 ): Promise<GroupStats | Map<string, GroupStats>> {
   const [statusRows, evidenceRows] = await Promise.all([
@@ -417,14 +524,14 @@ async function buildAttributionAwareStats(
   for (const row of statusRows) {
     const key = normalizeGroupKey(groupBy, row.key, dynastyMap);
     if (key == null) continue;
-    applyStatusCounts(getGroupedStats(groups, key), row.status, row.count);
+    applyStatusCounts(getGroupedStats(groups, collapseKey(key)), row.status, row.count);
   }
 
   for (const row of evidenceRows) {
     const stats = recipientStatsByCampaign.get(row.campaignId)?.get(row.email.toLowerCase());
     if (!stats) continue;
     for (const key of groupKeysForEvidenceRow(row, groupBy, dynastyMap)) {
-      addRecipientStats(getGroupedStats(groups, key), stats);
+      addRecipientStats(getGroupedStats(groups, collapseKey(key)), stats);
     }
   }
 
@@ -458,13 +565,34 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       return;
     }
 
-    const conds = buildConditions(req, dynastyResolved);
+    // The campaign the caller named is a customer-visible campaign IDENTITY; resolve every stored
+    // row that answers to it before anything is filtered or totalled. Fail-soft: an unresolvable
+    // identity keeps today's single-row answer, loudly logged, never a partial family or the brand.
+    const requestedCampaignId = typeof req.query.campaignId === "string" ? req.query.campaignId : undefined;
+    const campaignFamily = requestedCampaignId
+      ? await resolveCampaignFamily(requestedCampaignId, {
+          orgId: req.orgId!,
+          userId: req.userId ?? null,
+          runId: req.runId ?? null,
+          brandId: typeof req.query.brandId === "string" ? req.query.brandId : null,
+        })
+      : null;
+
+    const conds = buildConditions(req, dynastyResolved, campaignFamily);
     const egContext = getServiceContext(req);
     const groupBy = groupByParam as GroupByField | undefined;
 
+    // `groupBy=campaignId` over an identity must stay ONE line: every member key folds back onto
+    // the campaign the caller named. Any other groupBy (and any other key) is untouched.
+    const familyMembers =
+      conds.campaignScope && conds.campaignScope.length > 1 ? new Set(conds.campaignScope) : null;
+    const collapseKey = (key: string): string =>
+      familyMembers && groupByParam === "campaignId" && familyMembers.has(key)
+        ? requestedCampaignId!
+        : key;
+
     const egParams: Parameters<typeof fetchEmailGatewayStats>[0] = {};
     if (conds.brandIdStr) egParams.brandId = conds.brandIdStr;
-    if (conds.campaignIdStr) egParams.campaignId = conds.campaignIdStr;
     if (dynastyResolved.workflowSlugs) egParams.workflowSlugs = dynastyResolved.workflowSlugs.join(",");
     if (dynastyResolved.featureSlugs) egParams.featureSlugs = dynastyResolved.featureSlugs.join(",");
 
@@ -476,7 +604,7 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
           : groupBy === "featureDynastySlug"
             ? await fetchFeatureDynastyMap(dynastyContext)
             : undefined;
-      const attributionStats = await buildAttributionAwareStats(groupBy, conds.conds, egContext, dynastyMap);
+      const attributionStats = await buildAttributionAwareStats(groupBy, conds.conds, egContext, collapseKey, dynastyMap);
       if (attributionStats instanceof Map) {
         res.json({
           groups: Array.from(attributionStats.entries()).map(([key, stats]) => ({ key, ...stats })),
@@ -508,7 +636,7 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
           .from(leadsCampaigns)
           .where(and(...conds.conds))
           .groupBy(col, leadsCampaigns.status),
-        fetchEmailGatewayStats(egParams, egContext),
+        fetchStatsForCampaignScope(conds.campaignScope, egParams, egContext, collapseKey),
       ]);
 
       const groups = new Map<string, GroupStats>();
@@ -550,7 +678,7 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
           WHERE ${and(...conds.conds)}
           GROUP BY key, status
         `),
-        fetchEmailGatewayStats(egParams, egContext),
+        fetchStatsForCampaignScope(conds.campaignScope, egParams, egContext, collapseKey),
       ]);
 
       const groups = new Map<string, GroupStats>();
@@ -585,17 +713,21 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
           .from(leadsCampaigns)
           .where(and(...conds.conds))
           .groupBy(col, leadsCampaigns.status),
-        fetchEmailGatewayStats(egParams, egContext),
+        fetchStatsForCampaignScope(conds.campaignScope, egParams, egContext, collapseKey),
       ]);
 
       const groups = new Map<string, GroupStats>();
+      // `groupBy=campaignId` over an identity: every member's rows fold onto the campaign the
+      // caller named, so the identity reads as ONE line instead of one per stopped ancestor.
       const getGroup = (key: string | null) => {
-        const k = key ?? "unknown";
+        const k = collapseKey(key ?? "unknown");
         if (!groups.has(k)) groups.set(k, newGroupStats());
         return groups.get(k)!;
       };
       for (const row of statusRows) applyStatusCounts(getGroup(row.key), row.status, row.count);
       if ("groups" in egStats) {
+        // fetchStatsForCampaignScope already summed the identity's members per key, so each key
+        // arrives once — the assignment stays an assignment.
         for (const g of (egStats as EmailGatewayGroupedStatsResponse).groups) {
           const group = getGroup(g.key);
           const merged = mergeRecipientStats(g.broadcast, g.transactional);
@@ -614,7 +746,7 @@ router.get("/orgs/stats", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
         .from(leadsCampaigns)
         .where(and(...conds.conds))
         .groupBy(leadsCampaigns.status),
-      fetchEmailGatewayStats(egParams, egContext),
+      fetchStatsForCampaignScope(conds.campaignScope, egParams, egContext, collapseKey),
     ]);
 
     const flat = newGroupStats();
