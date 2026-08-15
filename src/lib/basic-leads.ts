@@ -1,5 +1,5 @@
 import { sql } from "../db/index.js";
-import { leadCampaignBaseRelation, type LeadListScope } from "./lead-list-query.js";
+import { campaignScopeIds, leadCampaignBaseRelation, type LeadListScope } from "./lead-list-query.js";
 
 // Slim per-lead shape for `?view=basic` — the SAME object the route's toSlimLead
 // produced, but assembled in ONE flat SQL pass instead of hydrating the full lead
@@ -276,7 +276,7 @@ function basicLeadQuery(
     ) em ON true
     WHERE lc.org_id = ${f.orgId}
       ${f.brandId ? sql`AND ${f.brandId} = ANY(lc.brand_ids)` : sql``}
-      ${f.campaignId ? sql`AND lc.campaign_id = ${f.campaignId}` : sql``}
+      ${campaignScopeIds(f) ? sql`AND lc.campaign_id = ANY(${campaignScopeIds(f)!})` : sql``}
       ${f.queryOrgId ? sql`AND lc.org_id = ${f.queryOrgId}` : sql``}
       ${f.userId ? sql`AND lc.user_id = ${f.userId}` : sql``}
       ${f.workflowSlug ? sql`AND lc.workflow_slug = ${f.workflowSlug}` : sql``}
