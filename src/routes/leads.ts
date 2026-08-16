@@ -292,6 +292,60 @@ interface LeadCampaignRow {
 // relation by (created_at, id) so dedup is GLOBAL, not per-chunk. Scope filters live
 // both inside the dedup subquery (so the winner is chosen within scope) and on the
 // outer WHERE (required for the non-deduped campaign path; a no-op for the dedup path).
+/**
+ * The ONE membership row a caller names, or null.
+ *
+ * Addressed by the row's own `id` — the identity every list row already carries as `id` — so the
+ * caller needs nothing it did not get from the list. There is no dedup and no lifecycle filter
+ * here: the caller is naming a row it has already been shown, not asking which of a person's rows
+ * wins. `org_id` is the entitlement boundary and is part of the predicate rather than a check
+ * afterwards, so a row belonging to another org is indistinguishable from one that does not exist.
+ */
+async function fetchLeadCampaignRowById(
+  orgId: string,
+  id: string,
+): Promise<LeadCampaignRow | null> {
+  const rows = await sql<RawLeadCampaignRow[]>`
+    SELECT
+      lc.id, lc.lead_id, lc.campaign_id, lc.org_id, lc.user_id, lc.brand_ids,
+      lc.status, lc.status_reason, lc.status_details, lc.parent_run_id, lc.run_id,
+      lc.served_at, lc.workflow_slug, lc.feature_slug, lc.goal, lc.active_goal_id,
+      lc.brand_profile_id, lc.audience_id, lc.created_at,
+      l.apollo_person_id AS lead_apollo_person_id
+    FROM leads_campaigns lc
+    LEFT JOIN leads l ON l.id = lc.lead_id
+    WHERE lc.id = ${id} AND lc.org_id = ${orgId}
+    LIMIT 1
+  `;
+  return mapLeadCampaignRows(rows)[0] ?? null;
+}
+
+/** Shared raw-row → camelCase mapping for both list and detail reads. */
+function mapLeadCampaignRows(rows: RawLeadCampaignRow[]): LeadCampaignRow[] {
+  return rows.map((r) => ({
+    id: r.id,
+    leadId: r.lead_id,
+    campaignId: r.campaign_id,
+    orgId: r.org_id,
+    userId: r.user_id,
+    brandIds: r.brand_ids,
+    status: r.status,
+    statusReason: r.status_reason,
+    statusDetails: r.status_details,
+    parentRunId: r.parent_run_id,
+    runId: r.run_id,
+    servedAt: toIsoTimestamp(r.served_at),
+    workflowSlug: r.workflow_slug,
+    featureSlug: r.feature_slug,
+    goal: r.goal,
+    activeGoalId: r.active_goal_id,
+    brandProfileId: r.brand_profile_id,
+    audienceId: r.audience_id,
+    createdAt: r.created_at,
+    leadApolloPersonId: r.lead_apollo_person_id,
+  }));
+}
+
 async function fetchLeadCampaignChunk(
   scope: LeadListScope,
   cursor: LeadCampaignCursor | null,
@@ -320,28 +374,7 @@ async function fetchLeadCampaignChunk(
     ${offset == null || offset === 0 ? sql`` : sql`OFFSET ${offset}`}
   `;
 
-  return rows.map((r) => ({
-    id: r.id,
-    leadId: r.lead_id,
-    campaignId: r.campaign_id,
-    orgId: r.org_id,
-    userId: r.user_id,
-    brandIds: r.brand_ids,
-    status: r.status,
-    statusReason: r.status_reason,
-    statusDetails: r.status_details,
-    parentRunId: r.parent_run_id,
-    runId: r.run_id,
-    servedAt: toIsoTimestamp(r.served_at),
-    workflowSlug: r.workflow_slug,
-    featureSlug: r.feature_slug,
-    goal: r.goal,
-    activeGoalId: r.active_goal_id,
-    brandProfileId: r.brand_profile_id,
-    audienceId: r.audience_id,
-    createdAt: r.created_at,
-    leadApolloPersonId: r.lead_apollo_person_id,
-  }));
+  return mapLeadCampaignRows(rows);
 }
 
 // Resolve each lead's ACTIVE audience for its brand, server-to-server via
@@ -440,6 +473,51 @@ async function buildStatusMapForBasicRows(
   );
 
   return statusMap;
+}
+
+/**
+ * One element of the list response, and the whole of the detail response.
+ *
+ * The two routes MUST emit the same object for the same row — a detail panel is rendered from
+ * whichever of the two the consumer happened to read, so a field that exists on one and not the
+ * other is a panel that changes shape depending on how it was loaded. Building it in one place is
+ * what makes "the record carries everything the list carries" true by construction rather than by
+ * review.
+ */
+function serializeLeadItem(
+  row: LeadCampaignRow,
+  fullLead: FullLead | null,
+  email: { value: string; status: string | null } | null,
+  audience: AudienceCard | null,
+  deliveryStatus: FlattenedStatus,
+) {
+  return {
+    id: row.id,
+    leadId: row.leadId,
+    namespace: "apollo",
+    email: email?.value ?? "",
+    apolloPersonId: row.leadApolloPersonId ?? null,
+    parentRunId: row.parentRunId,
+    runId: row.runId,
+    brandIds: row.brandIds,
+    campaignId: row.campaignId,
+    orgId: row.orgId,
+    userId: row.userId ?? null,
+    workflowSlug: row.workflowSlug ?? null,
+    featureSlug: row.featureSlug ?? null,
+    goal: row.goal ?? null,
+    activeGoalId: row.activeGoalId ?? null,
+    brandProfileId: row.brandProfileId ?? null,
+    audienceId: row.audienceId ?? null,
+    audience: audience ?? null,
+    servedAt: row.servedAt,
+    status: row.status as "buffered" | "skipped" | "claimed" | "served",
+    emailStatus: email?.status ?? null,
+    lead: fullLead,
+    statusReason: row.statusReason ?? null,
+    statusDetails: row.statusDetails ?? null,
+    ...deliveryStatus,
+  };
 }
 
 /**
@@ -580,6 +658,9 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
             ? (statusResult ? flatten(statusResult) : DEFAULT_STATUS)
             : DEFAULT_STATUS;
 
+          // The slim path's `lead` is the basic projection, not a FullLead — that is the whole
+          // point of `?view=basic`, so it is passed through as-is rather than through the shared
+          // FullLead-typed serializer.
           const leadOut = {
             id: r.id,
             leadId: r.leadId,
@@ -687,39 +768,18 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
         const fullLead = fullLeadByLeadId.get(row.leadId) ?? null;
         const email = primaryEmail(fullLead ?? undefined);
         const emailValue = email?.value ?? "";
-        const emailStatus = email?.status ?? null;
         const statusResult = statusMap.get(emailValue);
         const deliveryStatus = hasScopeForStatus && row.status === "served"
           ? (statusResult ? flatten(statusResult) : DEFAULT_STATUS)
           : DEFAULT_STATUS;
 
-        const leadOut = {
-          id: row.id,
-          leadId: row.leadId,
-          namespace: "apollo",
-          email: emailValue,
-          apolloPersonId: row.leadApolloPersonId ?? null,
-          parentRunId: row.parentRunId,
-          runId: row.runId,
-          brandIds: row.brandIds,
-          campaignId: row.campaignId,
-          orgId: row.orgId,
-          userId: row.userId ?? null,
-          workflowSlug: row.workflowSlug ?? null,
-          featureSlug: row.featureSlug ?? null,
-          goal: row.goal ?? null,
-          activeGoalId: row.activeGoalId ?? null,
-          brandProfileId: row.brandProfileId ?? null,
-          audienceId: row.audienceId ?? null,
-          audience: audienceMap.get(row.leadId) ?? null,
-          servedAt: row.servedAt,
-          status: row.status as "buffered" | "skipped" | "claimed" | "served",
-          emailStatus,
-          lead: fullLead,
-          statusReason: row.statusReason ?? null,
-          statusDetails: row.statusDetails ?? null,
-          ...deliveryStatus,
-        };
+        const leadOut = serializeLeadItem(
+          row,
+          fullLead,
+          email,
+          audienceMap.get(row.leadId) ?? null,
+          deliveryStatus,
+        );
 
         res.write((wroteFirst ? "," : "") + JSON.stringify(leadOut));
         wroteFirst = true;
@@ -745,6 +805,104 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
     } else {
       res.status(500).json({ error: "Internal server error" });
     }
+  }
+});
+
+/** `leads_campaigns.id` is a uuid column, so anything else can only be a caller error, not a miss. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * GET /orgs/leads/:id — the full record of ONE lead, on its own.
+ *
+ * A surface that shows a table plus a detail panel for the row somebody clicked has, until now,
+ * had to read the FULL projection for the whole brand to make the panel work: ~57k rows and well
+ * over 100 MB on one production brand, in a browser tab that polls it. This is the read that lets
+ * such a caller take the slim list for the table and then ask for depth one row at a time.
+ *
+ * `:id` is the `id` of a list row — the `leads_campaigns` membership row — so the caller needs
+ * nothing it did not already receive. The response is `{ leadDetail: … }`, one object, byte-equal
+ * to the element the full list emits for the same row (both go through serializeLeadItem), so a
+ * panel renders from it alone.
+ *
+ * `brandId` / `campaignId` are the SAME optional scoping the list takes, and they mean the same
+ * thing here: which scope the delivery overlay answers for. A caller passes back whatever it
+ * listed with and the engagement numbers in the panel match the row in the table. Neither one is
+ * an entitlement check — `org_id` is, and it is in the lookup predicate.
+ *
+ * Deliberately NOT a filter on the list route: a consumer asking for one record should not be
+ * constructing a list query, and `{ leadDetail }` says what it is where a one-element `{ leads: [] }`
+ * would not.
+ */
+router.get("/orgs/leads/:id", apiKeyAuth, requireOrgId, async (req: AuthenticatedRequest, res) => {
+  try {
+    const id = req.params.id;
+    if (!UUID_RE.test(id)) {
+      return res.status(400).json({ error: "id must be the `id` of a lead row, a uuid" });
+    }
+
+    const row = await fetchLeadCampaignRowById(req.orgId!, id);
+    if (!row) return res.status(404).json({ error: "Lead not found" });
+
+    const { brandId, campaignId } = req.query;
+    const brandIdStr = typeof brandId === "string" ? brandId : undefined;
+    const campaignIdStr = typeof campaignId === "string" ? campaignId : undefined;
+
+    // A brand scope the row is not part of names a lead this caller is not reading in that scope;
+    // answer exactly as if it did not exist rather than leaking its existence.
+    if (brandIdStr && !row.brandIds.includes(brandIdStr)) {
+      return res.status(404).json({ error: "Lead not found" });
+    }
+
+    // Same campaign-identity resolution the list does, so a campaign-scoped panel reads the whole
+    // identity's delivery evidence and not just the live campaign row's (see flattenFamilyStatus).
+    const campaignFamily = campaignIdStr
+      ? await resolveCampaignFamily(campaignIdStr, {
+          orgId: req.orgId!,
+          userId: req.userId ?? null,
+          runId: req.runId ?? null,
+          brandId: brandIdStr ?? null,
+        })
+      : null;
+    const scopeCampaignIds = campaignFamily ?? (campaignIdStr ? [campaignIdStr] : null);
+    const familySet =
+      scopeCampaignIds && scopeCampaignIds.length > 1 ? new Set(scopeCampaignIds) : null;
+    const flatten = familySet
+      ? (result: StatusResult) => flattenFamilyStatus(result, familySet)
+      : campaignIdStr
+        ? flattenCampaignStatus
+        : flattenBrandStatus;
+
+    const fullLeadByLeadId = await buildFullLeadsBatch([row.leadId]);
+    const fullLead = fullLeadByLeadId.get(row.leadId) ?? null;
+    const emailContact = fullLead?.contacts.find((c) => c.channel === "email");
+    const email = emailContact ? { value: emailContact.value, status: emailContact.status } : null;
+
+    const audienceMap = await buildAudienceMapForRows(
+      [{ leadId: row.leadId, email: email?.value ?? null, audienceId: row.audienceId, brandIds: row.brandIds }],
+      brandIdStr,
+      { orgId: req.orgId!, userId: req.userId ?? null, runId: req.runId ?? null },
+    );
+
+    // Same rule as the list: evidence is only fetched for a served row in a named scope, so an
+    // unserved row (or an unscoped read) carries the same all-false overlay it does there.
+    let deliveryStatus: FlattenedStatus = DEFAULT_STATUS;
+    if ((brandIdStr || campaignIdStr) && row.status === "served" && email?.value) {
+      const response = await checkDeliveryStatus(
+        row.brandIds[0] ?? "unknown",
+        statusCampaignId(scopeCampaignIds),
+        [{ email: email.value }],
+        getServiceContext(req),
+      );
+      const result = response.results.find((r) => r.email === email.value);
+      deliveryStatus = result ? flatten(result) : DEFAULT_STATUS;
+    }
+
+    return res.json({
+      leadDetail: serializeLeadItem(row, fullLead, email, audienceMap.get(row.leadId) ?? null, deliveryStatus),
+    });
+  } catch (error) {
+    console.error("[lead-service] Lead detail error:", error);
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 
