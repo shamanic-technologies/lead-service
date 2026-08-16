@@ -85,7 +85,8 @@ function rawRow(i: number) {
   return {
     id: `lc-${String(i).padStart(4, "0")}`,
     lead_id: `lead-${i}`,
-    created_at: new Date("2026-01-01T00:00:00.000Z"),
+    // String, not Date — the shape postgres.js actually returns on this path.
+    created_at: "2026-01-01 00:00:00+00",
   };
 }
 
