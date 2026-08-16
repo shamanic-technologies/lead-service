@@ -40,12 +40,27 @@ function readBounds(node: SqlNode): { limit: number | null; offset: number | nul
   return { limit, offset, cursorId };
 }
 
+// Bind-faithful: postgres.js calls Buffer.byteLength() on every param, which THROWS on a Date
+// before the query is ever sent. A mock that ignores params lets a handler that binds a raw Date
+// ship green and 500 on the first production request — assert it here instead.
+function assertBindable(values: unknown[]): void {
+  for (const v of values) {
+    if (isNode(v)) { assertBindable(v.values); continue; }
+    if (v instanceof Date) {
+      throw new TypeError(
+        'The "string" argument must be of type string or an instance of Buffer or ArrayBuffer. Received an instance of Date',
+      );
+    }
+  }
+}
+
 function isExecutable(node: SqlNode): boolean {
   const text = node.strings.join(" ");
   return /ORDER BY lc\.created_at/.test(text);
 }
 
 function resolveRows(node: SqlNode): Array<Record<string, unknown>> {
+  assertBindable(node.values);
   const { limit, offset, cursorId } = readBounds(node);
   executed.push({ limit, offset, cursorId });
   // ids are lexically ordered and created_at is uniform, so `(created_at, id) > (c, cid)`

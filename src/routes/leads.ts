@@ -17,6 +17,7 @@ import {
   campaignScopeIds,
   encodeLeadCursor,
   leadCampaignBaseRelation,
+  leadCursorTimestampParam,
   leadStatusScope,
   parseLeadListPage,
   parseLeadStatusFilter,
@@ -367,7 +368,7 @@ async function fetchLeadCampaignChunk(
       ${scope.queryOrgId ? sql`AND lc.org_id = ${scope.queryOrgId}` : sql``}
       ${scope.userId ? sql`AND lc.user_id = ${scope.userId}` : sql``}
       ${scope.workflowSlug ? sql`AND lc.workflow_slug = ${scope.workflowSlug}` : sql``}
-      ${cursor ? sql`AND (lc.created_at, lc.id) > (${cursor.createdAt}, ${cursor.id})` : sql``}
+      ${cursor ? sql`AND (lc.created_at, lc.id) > (${leadCursorTimestampParam(cursor)}, ${cursor.id})` : sql``}
     ORDER BY lc.created_at ASC, lc.id ASC
     LIMIT ${limit}
     ${offset == null || offset === 0 ? sql`` : sql`OFFSET ${offset}`}
