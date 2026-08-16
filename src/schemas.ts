@@ -1505,6 +1505,20 @@ const LeadsResponseSchema = z
     description: "Response shape for GET /orgs/leads.",
   });
 
+const LeadDetailResponseSchema = z
+  .object({
+    leadDetail: LeadDetailSchema.openapi({
+      description:
+        "The one lead the caller named, byte-equal to the element GET /orgs/leads emits for the " +
+        "same row — a detail panel renders from it alone.",
+    }),
+  })
+  .openapi("LeadDetailResponse", {
+    description:
+      "Response shape for GET /orgs/leads/{id}. One record, not a list: a consumer asking for one " +
+      "lead should not be constructing a list query.",
+  });
+
 // --- Stats ---
 
 const RepliesDetailSchema = z.object({
@@ -1732,6 +1746,68 @@ registry.registerPath({
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     401: { description: "Unauthorized" },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/orgs/leads/{id}",
+  summary: "Read ONE lead's full record",
+  description:
+    "Returns the full record of a single lead — the same object GET /orgs/leads emits for that row " +
+    "(full canonical FullLead payload under `lead`, active audience, lifecycle fields and the " +
+    "delivery overlay), wrapped as `{ leadDetail }` rather than a one-element list. " +
+    "This is what a table + detail-panel surface reads: take the slim list for the table, then ask " +
+    "for depth one row at a time, instead of holding the full projection for a whole brand " +
+    "(~57k rows / >100 MB on the largest one) so that one panel can work. " +
+    "`id` is the `id` field of a list row (the leads_campaigns membership row), so a caller needs " +
+    "nothing it did not already receive from the list. Scoped like the list is: the read is " +
+    "org-scoped and a lead outside the caller's org is a 404, indistinguishable from one that does " +
+    "not exist. `brandId` / `campaignId` mean exactly what they mean on the list — which scope the " +
+    "delivery overlay answers for — so passing back whatever the table listed with makes the panel " +
+    "agree with the row.",
+  parameters: [
+    ...AuthHeaders,
+    {
+      in: "path" as const,
+      name: "id",
+      required: true,
+      description: "The `id` of a lead as returned by GET /orgs/leads. A non-uuid value is a 400.",
+      schema: { type: "string" as const, format: "uuid" },
+    },
+    {
+      in: "query" as const,
+      name: "brandId",
+      required: false,
+      description:
+        "Scope for the delivery overlay, same as on the list. A lead that does not belong to this " +
+        "brand is a 404. Absent (and no campaignId) => the overlay fields default to false/null.",
+      schema: { type: "string" as const },
+    },
+    {
+      in: "query" as const,
+      name: "campaignId",
+      required: false,
+      description:
+        "Campaign scope for the delivery overlay, same as on the list — resolved to the whole " +
+        "campaign IDENTITY, so evidence recorded under a stopped ancestor still counts.",
+      schema: { type: "string" as const },
+    },
+  ],
+  responses: {
+    200: {
+      description: "The lead's full record",
+      content: { "application/json": { schema: LeadDetailResponseSchema } },
+    },
+    400: {
+      description: "`id` is not a uuid",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: { description: "Unauthorized" },
+    404: {
+      description: "No such lead in this caller's org (or brand, when brandId is given)",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
   },
 });
 
