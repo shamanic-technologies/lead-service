@@ -19,6 +19,68 @@ export interface LeadListScope {
   queryOrgId?: string;
   userId?: string;
   workflowSlug?: string;
+  /**
+   * The lifecycle statuses the read answers for. Always populated by the route — absent from a
+   * caller's query means DEFAULT_LEAD_LIST_STATUSES, never "no filter". See parseLeadStatusFilter.
+   */
+  statuses?: readonly string[];
+}
+
+/** Every lifecycle state a `leads_campaigns` row can hold. */
+export const LEAD_LIFECYCLE_STATUSES = ["buffered", "skipped", "claimed", "served"] as const;
+export type LeadLifecycleStatus = (typeof LEAD_LIFECYCLE_STATUSES)[number];
+
+/**
+ * What `GET /orgs/leads` answers with when the caller names no status: the population a consumer
+ * can act on.
+ *
+ * `skipped` is excluded. A skipped row was never served, so it never carries delivery evidence —
+ * the overlay is only fetched for `status = 'served'` rows and every engagement field on a skipped
+ * row is false/null by construction. It is therefore unreachable from the customer dashboard (every
+ * tab there buckets on an engagement step) and scores zero in features-service's revenue engine
+ * (which keeps only persons with EV > 0 or a delivery milestone). For a large brand it is also ~82%
+ * of the rows and of the bytes, on an endpoint the dashboard polls every 30s. A caller that wants
+ * it asks for it: `?status=skipped`, or `?status=all` for the whole set.
+ */
+export const DEFAULT_LEAD_LIST_STATUSES: readonly LeadLifecycleStatus[] = ["buffered", "claimed", "served"];
+
+/**
+ * Resolve the `status` query param into the statuses a read answers for.
+ *
+ * Absent  → DEFAULT_LEAD_LIST_STATUSES. `all` → every lifecycle status. Otherwise a comma-separated
+ * list of lifecycle statuses. Fails loud (throws) on anything else: an unknown or empty value is a
+ * 400, never a silent fallback to a population the caller did not ask for.
+ */
+export function parseLeadStatusFilter(raw: unknown): readonly LeadLifecycleStatus[] {
+  if (raw === undefined) return DEFAULT_LEAD_LIST_STATUSES;
+  if (typeof raw !== "string") {
+    throw new Error("status must be a single comma-separated string");
+  }
+  const trimmed = raw.trim();
+  if (trimmed === "all") return LEAD_LIFECYCLE_STATUSES;
+
+  const parts = trimmed.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
+  if (parts.length === 0) {
+    throw new Error(`status must name at least one of: ${LEAD_LIFECYCLE_STATUSES.join(", ")}, or "all"`);
+  }
+  const unknown = parts.filter((p) => !(LEAD_LIFECYCLE_STATUSES as readonly string[]).includes(p));
+  if (unknown.length > 0) {
+    throw new Error(
+      `Unknown status value(s): ${unknown.join(", ")}. Valid: ${LEAD_LIFECYCLE_STATUSES.join(", ")}, or "all"`,
+    );
+  }
+  return Array.from(new Set(parts)) as LeadLifecycleStatus[];
+}
+
+/**
+ * The statuses a scope filters on, or null when it names every one of them (nothing to filter).
+ * Both list queries apply it, and the dedup subquery applies it too so the winning membership row
+ * is chosen among the statuses the caller asked for.
+ */
+export function leadStatusScope(f: LeadListScope): string[] | null {
+  const statuses = f.statuses ?? DEFAULT_LEAD_LIST_STATUSES;
+  if (statuses.length >= LEAD_LIFECYCLE_STATUSES.length) return null;
+  return [...statuses];
 }
 
 /** The campaign ids a scope filters on, or null when the read is brand/org-scoped. */
@@ -70,6 +132,7 @@ export function leadCampaignBaseRelation(f: LeadListScope) {
     WHERE lc0.org_id = ${f.orgId}
       ${f.brandId ? sql`AND ${f.brandId} = ANY(lc0.brand_ids)` : sql``}
       ${campaignIds ? sql`AND lc0.campaign_id = ANY(${campaignIds})` : sql``}
+      ${leadStatusScope(f) ? sql`AND lc0.status = ANY(${leadStatusScope(f)!})` : sql``}
       ${f.queryOrgId ? sql`AND lc0.org_id = ${f.queryOrgId}` : sql``}
       ${f.userId ? sql`AND lc0.user_id = ${f.userId}` : sql``}
       ${f.workflowSlug ? sql`AND lc0.workflow_slug = ${f.workflowSlug}` : sql``}
