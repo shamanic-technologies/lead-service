@@ -209,7 +209,8 @@ describe("GET /orgs/leads chunked streaming", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toContain("application/json");
-    expect(res.body).toEqual({ leads: [] });
+    // `nextCursor` is null on an unbounded read: this response IS the whole population.
+    expect(res.body).toEqual({ leads: [], nextCursor: null });
   });
 
   it("streams N rows spanning multiple chunks as one valid JSON, order preserved", async () => {
@@ -356,6 +357,8 @@ describe("GET /orgs/leads chunked streaming", () => {
         statuses: ["buffered", "claimed", "served"],
       },
       2,
+      // No `limit` param => the unbounded read, exactly as before bounds existed.
+      { limit: null, cursor: null, offset: null },
     ]);
     expect(buildFullLeadsBatchMock).not.toHaveBeenCalled();
     expect(res.body.leads[0].servedAt).toBe("2026-01-01T00:00:00.000Z");

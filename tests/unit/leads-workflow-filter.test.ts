@@ -74,7 +74,7 @@ describe("GET /orgs/leads workflowSlug filter", () => {
       .set("x-org-id", ORG);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ leads: [] });
+    expect(res.body).toEqual({ leads: [], nextCursor: null });
 
     const { sql, params } = compileWhere();
     // The column is always SELECTed; assert the FILTER predicate + bound value.
@@ -89,7 +89,7 @@ describe("GET /orgs/leads workflowSlug filter", () => {
       .set("x-org-id", ORG);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ leads: [] });
+    expect(res.body).toEqual({ leads: [], nextCursor: null });
 
     const { sql, params } = compileWhere();
     // No filter predicate (the column is still SELECTed, but never compared).
