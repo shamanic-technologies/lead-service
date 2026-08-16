@@ -26,6 +26,115 @@ export interface LeadListScope {
   statuses?: readonly string[];
 }
 
+/**
+ * How much of the population a read returns, and where it starts.
+ *
+ * `limit` absent means UNBOUNDED — the whole scoped population, which is what the staff console
+ * and features-service want and what every caller got before this existed. A caller that names a
+ * limit gets at most that many rows and a `nextCursor` to walk the rest with.
+ *
+ * The walk is keyset, over the same total order both list queries already use — `(created_at, id)`
+ * ascending on the (possibly deduped) membership relation. `id` is unique, so the order is total:
+ * no two rows tie, and a walk visits every row exactly once. `offset` is the positional form the
+ * gateway's published contract advertises; it is honoured over the same order, but `cursor` is the
+ * one that cannot drift under concurrent writes.
+ */
+export interface LeadListPage {
+  /** Max rows to return. null = unbounded (the whole scoped population). */
+  limit: number | null;
+  /** Keyset start position, exclusive. Mutually exclusive with `offset`. */
+  cursor: LeadListCursor | null;
+  /** Positional start, over the same order. Mutually exclusive with `cursor`. */
+  offset: number | null;
+}
+
+/** A position in the `(created_at, id)` order the list queries walk. */
+export interface LeadListCursor {
+  createdAt: Date;
+  id: string;
+}
+
+/** The unbounded read: what a caller that names no bound gets, exactly as before. */
+export const UNBOUNDED_LEAD_PAGE: LeadListPage = { limit: null, cursor: null, offset: null };
+
+/**
+ * Resolve `limit` into a row bound. Absent → null (unbounded). Anything that is not a positive
+ * integer is a 400 (throws) — a caller that asks for `limit=abc` or `limit=0` gets told, never a
+ * silently-ignored bound, which is the bug this exists to close.
+ */
+export function parseLeadLimit(raw: unknown): number | null {
+  if (raw === undefined) return null;
+  if (typeof raw !== "string") throw new Error("limit must be a single positive integer");
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) throw new Error(`limit must be a positive integer, got: ${raw}`);
+  const value = Number(trimmed);
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error(`limit must be a positive integer, got: ${raw}`);
+  }
+  return value;
+}
+
+/** Resolve `offset` into a positional start. Absent → null. Non-integer / negative → 400. */
+export function parseLeadOffset(raw: unknown): number | null {
+  if (raw === undefined) return null;
+  if (typeof raw !== "string") throw new Error("offset must be a single non-negative integer");
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) throw new Error(`offset must be a non-negative integer, got: ${raw}`);
+  const value = Number(trimmed);
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`offset must be a non-negative integer, got: ${raw}`);
+  }
+  return value;
+}
+
+/** Serialize a walk position into the opaque `nextCursor` string a caller hands back. */
+export function encodeLeadCursor(cursor: LeadListCursor): string {
+  const payload = JSON.stringify({ t: cursor.createdAt.toISOString(), i: cursor.id });
+  return Buffer.from(payload, "utf8").toString("base64url");
+}
+
+/** Parse a caller-supplied `cursor`. Absent → null. Anything unreadable is a 400, never ignored. */
+export function decodeLeadCursor(raw: unknown): LeadListCursor | null {
+  if (raw === undefined) return null;
+  if (typeof raw !== "string" || raw.trim() === "") {
+    throw new Error("cursor must be a single non-empty string returned as nextCursor");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(raw.trim(), "base64url").toString("utf8"));
+  } catch {
+    throw new Error("cursor is not a cursor this endpoint issued");
+  }
+  const value = parsed as { t?: unknown; i?: unknown };
+  if (typeof value?.t !== "string" || typeof value?.i !== "string" || value.i === "") {
+    throw new Error("cursor is not a cursor this endpoint issued");
+  }
+  const createdAt = new Date(value.t);
+  if (Number.isNaN(createdAt.getTime())) {
+    throw new Error("cursor is not a cursor this endpoint issued");
+  }
+  return { createdAt, id: value.i };
+}
+
+/**
+ * Resolve the `limit` / `cursor` / `offset` query params into one page descriptor.
+ * `cursor` and `offset` both name a start position, so naming both is a 400 rather than a
+ * silent pick of one.
+ */
+export function parseLeadListPage(query: {
+  limit?: unknown;
+  cursor?: unknown;
+  offset?: unknown;
+}): LeadListPage {
+  const limit = parseLeadLimit(query.limit);
+  const cursor = decodeLeadCursor(query.cursor);
+  const offset = parseLeadOffset(query.offset);
+  if (cursor && offset !== null) {
+    throw new Error("cursor and offset both name a start position — pass one, not both");
+  }
+  return { limit, cursor, offset };
+}
+
 /** Every lifecycle state a `leads_campaigns` row can hold. */
 export const LEAD_LIFECYCLE_STATUSES = ["buffered", "skipped", "claimed", "served"] as const;
 export type LeadLifecycleStatus = (typeof LEAD_LIFECYCLE_STATUSES)[number];

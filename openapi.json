@@ -1136,11 +1136,17 @@
             "items": {
               "$ref": "#/components/schemas/LeadDetail"
             },
-            "description": "All leads_campaigns rows matching the query, with full canonical lead payload + delivery overlay."
+            "description": "The leads_campaigns rows matching the query, with full canonical lead payload + delivery overlay. Without `limit` this is every matching row; with `limit` it is at most that many, in (created_at, id) ascending order."
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true,
+            "description": "Where to resume the walk: pass it back as `?cursor=` to get the rows strictly after the last one in this response. null means this response reached the end of the population — always null for an unbounded read (no `limit`)."
           }
         },
         "required": [
-          "leads"
+          "leads",
+          "nextCursor"
         ],
         "description": "Response shape for GET /orgs/leads."
       },
@@ -2410,7 +2416,7 @@
     "/orgs/leads": {
       "get": {
         "summary": "List leads with full enrichment and delivery status",
-        "description": "Returns leads_campaigns rows. Each row includes the full canonical lead payload (FullLead — see schema) under `lead`, plus delivery status (contacted, sent, sentCount, delivered, opened, clicked, bounced, unsubscribed, replied, replyClassification, lastDeliveredAt, firstClickedAt, global). Delivery status is fetched from email-gateway when brandId or campaignId is provided. With campaignId: campaign-scoped status. With brandId only: brand-scoped (cross-campaign). Without either: status fields default to false/null. By default the response carries the ACTIONABLE population only — `buffered`, `claimed` and `served` — and NOT `skipped`; use the `status` parameter to ask for a different set.",
+        "description": "Returns leads_campaigns rows. Each row includes the full canonical lead payload (FullLead — see schema) under `lead`, plus delivery status (contacted, sent, sentCount, delivered, opened, clicked, bounced, unsubscribed, replied, replyClassification, lastDeliveredAt, firstClickedAt, global). Delivery status is fetched from email-gateway when brandId or campaignId is provided. With campaignId: campaign-scoped status. With brandId only: brand-scoped (cross-campaign). Without either: status fields default to false/null. By default the response carries the ACTIONABLE population only — `buffered`, `claimed` and `served` — and NOT `skipped`; use the `status` parameter to ask for a different set. The response is UNBOUNDED unless the caller names a `limit`: without one it carries every matching row (what the staff console and features-service want). With `limit` it carries at most that many rows plus a `nextCursor` to walk the rest with. Rows come back in (created_at, id) ascending order, which is a total order, so a `limit` + `cursor` walk visits every row exactly once — no gaps, no repeats.",
         "parameters": [
           {
             "in": "header",
@@ -2582,6 +2588,35 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "description": "Maximum number of leads to return. ABSENT => unbounded: every matching row, which is what the staff console and features-service read. Present => at most that many rows, and a `nextCursor` when more may follow. There is no server-imposed ceiling; the caller decides how much it can hold. A value that is not a positive integer is a 400.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "description": "Resume position, taken verbatim from a previous response's `nextCursor`. Returns the rows strictly after it in (created_at, id) order, so a walk sees every row exactly once even while new leads are being written. Mutually exclusive with `offset`; naming both is a 400, as is a cursor this endpoint did not issue.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "description": "Positional start over the same (created_at, id) order — the positional form of the walk. Rows are appended in that order, so an offset walk is stable against new leads, but a row leaving the filtered set mid-walk shifts it; `cursor` cannot drift that way and is the one to prefer. Mutually exclusive with `cursor`. A negative or non-integer value is a 400.",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
           }
         ],
         "responses": {
@@ -2596,7 +2631,7 @@
             }
           },
           "400": {
-            "description": "Invalid `status` value",
+            "description": "Invalid `status`, `limit`, `cursor` or `offset` value",
             "content": {
               "application/json": {
                 "schema": {
