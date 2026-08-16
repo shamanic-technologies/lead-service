@@ -1604,7 +1604,9 @@ registry.registerPath({
     "plus delivery status (contacted, sent, sentCount, delivered, opened, clicked, bounced, unsubscribed, replied, replyClassification, lastDeliveredAt, firstClickedAt, global). " +
     "Delivery status is fetched from email-gateway when brandId or campaignId is provided. " +
     "With campaignId: campaign-scoped status. With brandId only: brand-scoped (cross-campaign). " +
-    "Without either: status fields default to false/null.",
+    "Without either: status fields default to false/null. " +
+    "By default the response carries the ACTIONABLE population only — `buffered`, `claimed` and " +
+    "`served` — and NOT `skipped`; use the `status` parameter to ask for a different set.",
   parameters: [
     ...AuthHeaders,
     {
@@ -1657,11 +1659,30 @@ registry.registerPath({
         "backward-compatible). Use `basic` for list views.",
       schema: { type: "string" as const, enum: ["basic", "full"] },
     },
+    {
+      in: "query" as const,
+      name: "status",
+      required: false,
+      description:
+        "Which lifecycle statuses to return, as a comma-separated list of " +
+        "`buffered`, `skipped`, `claimed`, `served` — or `all` for every one of them. " +
+        "ABSENT => `buffered,claimed,served`: the population a caller can act on. " +
+        "`skipped` rows are excluded by default because they were never served, so they carry no " +
+        "delivery evidence (every engagement field on them is false/null by construction) and no " +
+        "engagement-bucketed view can reach them — while being ~82% of the rows for a large brand. " +
+        "Pass `all` (or name `skipped` explicitly) to get them back. " +
+        "An unknown value is a 400, never a silent fallback.",
+      schema: { type: "string" as const },
+    },
   ],
   responses: {
     200: {
       description: "List of leads with full canonical payload + delivery overlay",
       content: { "application/json": { schema: LeadsResponseSchema } },
+    },
+    400: {
+      description: "Invalid `status` value",
+      content: { "application/json": { schema: ErrorResponseSchema } },
     },
     401: { description: "Unauthorized" },
   },
