@@ -36,12 +36,27 @@ function readBounds(node: SqlNode): { limit: number | null; offset: number | nul
   return { limit, offset, cursorId };
 }
 
+// Bind-faithful: postgres.js calls Buffer.byteLength() on every param, which THROWS on a Date
+// before the query is ever sent. A mock that ignores params lets a handler that binds a raw Date
+// ship green and 500 on the first production request — assert it here instead.
+function assertBindable(values: unknown[]): void {
+  for (const v of values) {
+    if (isNode(v)) { assertBindable(v.values); continue; }
+    if (v instanceof Date) {
+      throw new TypeError(
+        'The "string" argument must be of type string or an instance of Buffer or ArrayBuffer. Received an instance of Date',
+      );
+    }
+  }
+}
+
 vi.mock("../../src/db/index.js", () => ({
   sql: (strings: readonly string[], ...values: unknown[]) => {
     const node: SqlNode = { __sql: true, strings, values };
     if (!/ORDER BY lc\.created_at/.test(strings.join(" "))) return node;
     return {
       then: (resolve: (rows: unknown[]) => void) => {
+        assertBindable(node.values);
         const { limit, offset, cursorId } = readBounds(node);
         executed.push({ limit, offset, cursorId });
         let rows = cursorId === null ? mockRows : mockRows.filter((r) => (r.id as string) > cursorId);
