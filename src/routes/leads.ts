@@ -261,6 +261,8 @@ interface RawLeadCampaignRow {
   brand_profile_id: string | null;
   audience_id: string | null;
   created_at: Date | string;
+  // Full-precision text of the same column, for the keyset cursor (see LeadListCursor).
+  created_at_cursor: string;
   lead_apollo_person_id: string | null;
 }
 
@@ -284,6 +286,8 @@ interface LeadCampaignRow {
   brandProfileId: string | null;
   audienceId: string | null;
   createdAt: Date | string;
+  /** `created_at::text` — what a cursor is built from; keeps the microseconds a Date drops. */
+  cursorCreatedAt: string;
   leadApolloPersonId: string | null;
 }
 
@@ -304,6 +308,7 @@ async function fetchLeadCampaignChunk(
       lc.status, lc.status_reason, lc.status_details, lc.parent_run_id, lc.run_id,
       lc.served_at, lc.workflow_slug, lc.feature_slug, lc.goal, lc.active_goal_id,
       lc.brand_profile_id, lc.audience_id, lc.created_at,
+      lc.created_at::text AS created_at_cursor,
       l.apollo_person_id AS lead_apollo_person_id
     FROM ${leadCampaignBaseRelation(scope)}
     LEFT JOIN leads l ON l.id = lc.lead_id
@@ -340,6 +345,7 @@ async function fetchLeadCampaignChunk(
     brandProfileId: r.brand_profile_id,
     audienceId: r.audience_id,
     createdAt: r.created_at,
+    cursorCreatedAt: r.created_at_cursor,
     leadApolloPersonId: r.lead_apollo_person_id,
   }));
 }
@@ -555,7 +561,7 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       for await (const basicRows of streamBasicLeadChunks(scope, LEADS_STREAM_CHUNK_SIZE, page)) {
         rowCount += basicRows.length;
         const lastBasic = basicRows[basicRows.length - 1];
-        if (lastBasic) lastPosition = { createdAt: lastBasic.createdAt, id: lastBasic.id };
+        if (lastBasic) lastPosition = { createdAt: lastBasic.cursorCreatedAt, id: lastBasic.id };
 
         const statusMap = hasScopeForStatus
           ? await buildStatusMapForBasicRows(basicRows, statusCampaignIdStr, context)
@@ -726,7 +732,7 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       }
 
       const lastRow = chunkRows[chunkRows.length - 1];
-      cursor = { createdAt: lastRow.createdAt, id: lastRow.id };
+      cursor = { createdAt: lastRow.cursorCreatedAt, id: lastRow.id };
       if (chunkRows.length < take) break;
     }
 

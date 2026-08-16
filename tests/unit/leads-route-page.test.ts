@@ -117,7 +117,9 @@ function rawRow(i: number) {
     // A STRING, not a Date: postgres.js (prepare:false) hands timestamptz back either way, and on
     // this path it is a string in production. Building a cursor from it used to throw
     // `toISOString is not a function` mid-stream, which destroys the socket instead of 500ing.
-    created_at: "2026-01-01 00:00:00+00",
+    created_at: `2026-01-01 00:00:00.00000${i % 10}+00`,
+    // The cursor is built from the ::text column so the walk keeps every microsecond.
+    created_at_cursor: `2026-01-01 00:00:00.00000${i % 10}+00`,
     lead_apollo_person_id: null,
   };
 }
@@ -142,6 +144,7 @@ function basicRow(i: number) {
     brandProfileId: null,
     audienceId: null,
     createdAt: "2026-01-01 00:00:00+00",
+    cursorCreatedAt: "2026-01-01 00:00:00.000001+00",
     leadApolloPersonId: null,
     lead: null,
     email: null,

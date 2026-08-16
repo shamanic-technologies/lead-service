@@ -79,6 +79,8 @@ export interface BasicLeadRow {
   brandProfileId: string | null;
   audienceId: string | null;
   createdAt: Date;
+  /** `created_at::text` — what a cursor is built from; keeps the microseconds a Date drops. */
+  cursorCreatedAt: string;
   leadApolloPersonId: string | null;
   lead: BasicSlimLead | null;
   email: { value: string; status: string | null } | null;
@@ -113,6 +115,8 @@ interface RawBasicRow {
   brand_profile_id: string | null;
   audience_id: string | null;
   created_at: Date | string;
+  // Full-precision text of the same column, for the keyset cursor (see LeadListCursor).
+  created_at_cursor: string;
   l_id: string | null;
   apollo_person_id: string | null;
   first_name: string | null;
@@ -231,6 +235,7 @@ function mapRow(r: RawBasicRow): BasicLeadRow {
     brandProfileId: r.brand_profile_id,
     audienceId: r.audience_id,
     createdAt: toDateTimestamp(r.created_at),
+    cursorCreatedAt: r.created_at_cursor,
     leadApolloPersonId: r.apollo_person_id,
     lead,
     email: r.email_value != null ? { value: r.email_value, status: r.email_status } : null,
@@ -250,6 +255,7 @@ function basicLeadQuery(
       lc.served_at, lc.workflow_slug, lc.feature_slug,
       lc.goal, lc.active_goal_id, lc.brand_profile_id, lc.audience_id,
       lc.created_at,
+      lc.created_at::text AS created_at_cursor,
       l.id AS l_id, l.apollo_person_id, l.first_name, l.last_name, l.name,
       l.headline, l.linkedin_url, l.photo_url,
       l.seniority, l.departments, l.functions,
@@ -362,6 +368,6 @@ export async function* streamBasicLeadChunks(
 
     if (rows.length < take) return;
     const last = mapped[mapped.length - 1];
-    cursor = { createdAt: last.createdAt, id: last.id };
+    cursor = { createdAt: last.cursorCreatedAt, id: last.id };
   }
 }
