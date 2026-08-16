@@ -99,7 +99,10 @@ function rawRow(i: number) {
     active_goal_id: null,
     brand_profile_id: null,
     audience_id: null,
-    created_at: new Date("2026-01-01T00:00:00.000Z"),
+    // A STRING, not a Date: postgres.js (prepare:false) hands timestamptz back either way, and on
+    // this path it is a string in production. Building a cursor from it used to throw
+    // `toISOString is not a function` mid-stream, which destroys the socket instead of 500ing.
+    created_at: "2026-01-01 00:00:00+00",
     lead_apollo_person_id: null,
   };
 }
@@ -123,7 +126,7 @@ function basicRow(i: number) {
     activeGoalId: null,
     brandProfileId: null,
     audienceId: null,
-    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    createdAt: "2026-01-01 00:00:00+00",
     leadApolloPersonId: null,
     lead: null,
     email: null,

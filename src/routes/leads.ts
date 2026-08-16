@@ -20,6 +20,7 @@ import {
   leadStatusScope,
   parseLeadListPage,
   parseLeadStatusFilter,
+  type LeadListCursor,
   type LeadListPage,
   type LeadListScope,
 } from "../lib/lead-list-query.js";
@@ -234,10 +235,9 @@ const DEFAULT_STATUS: FlattenedStatus = {
 // The wire shape is byte-identical to the old res.json({ leads }) — `{"leads":[...]}`.
 const LEADS_STREAM_CHUNK_SIZE = Math.max(1, Number(process.env.LEADS_STREAM_CHUNK_SIZE) || 500);
 
-interface LeadCampaignCursor {
-  createdAt: Date;
-  id: string;
-}
+// postgres.js returns timestamptz as Date OR string depending on the path; the cursor carries
+// whichever came back and normalizes at encode time (see LeadListCursor).
+type LeadCampaignCursor = LeadListCursor;
 
 interface RawLeadCampaignRow {
   id: string;
@@ -259,7 +259,7 @@ interface RawLeadCampaignRow {
   active_goal_id: string | null;
   brand_profile_id: string | null;
   audience_id: string | null;
-  created_at: Date;
+  created_at: Date | string;
   lead_apollo_person_id: string | null;
 }
 
@@ -282,7 +282,7 @@ interface LeadCampaignRow {
   activeGoalId: string | null;
   brandProfileId: string | null;
   audienceId: string | null;
-  createdAt: Date;
+  createdAt: Date | string;
   leadApolloPersonId: string | null;
 }
 
@@ -453,7 +453,7 @@ async function buildStatusMapForBasicRows(
 function nextCursorFor(
   page: LeadListPage,
   rowCount: number,
-  last: { createdAt: Date; id: string } | null,
+  last: LeadListCursor | null,
 ): string | null {
   if (page.limit === null || last === null) return null;
   if (rowCount < page.limit) return null;
@@ -550,7 +550,7 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
 
       let wroteFirstBasic = false;
       let rowCount = 0;
-      let lastPosition: { createdAt: Date; id: string } | null = null;
+      let lastPosition: LeadListCursor | null = null;
       for await (const basicRows of streamBasicLeadChunks(scope, LEADS_STREAM_CHUNK_SIZE, page)) {
         rowCount += basicRows.length;
         const lastBasic = basicRows[basicRows.length - 1];

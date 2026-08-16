@@ -48,10 +48,28 @@ export interface LeadListPage {
   offset: number | null;
 }
 
-/** A position in the `(created_at, id)` order the list queries walk. */
+/**
+ * A position in the `(created_at, id)` order the list queries walk.
+ *
+ * `createdAt` is `Date | string` on purpose: postgres.js (`prepare:false`) hands a timestamptz
+ * column back as a `Date` on some paths and a raw string on others, and the row a cursor is built
+ * from comes straight off a raw `sql` query. Typing it `Date` and calling `.toISOString()` throws
+ * `is not a function` the moment it is a string — and on a streaming response that throw destroys
+ * the socket instead of producing a clean 500. Same hazard as `toIsoTimestamp` in basic-leads.ts.
+ */
 export interface LeadListCursor {
-  createdAt: Date;
+  createdAt: Date | string;
   id: string;
+}
+
+/** Normalize a raw timestamptz (Date OR string) into ISO. Fails loud on an unparseable value. */
+function toIsoCursorTimestamp(value: Date | string): string {
+  if (value instanceof Date) return value.toISOString();
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`[lead-service] invalid cursor created_at timestamp: ${value}`);
+  }
+  return parsed.toISOString();
 }
 
 /** The unbounded read: what a caller that names no bound gets, exactly as before. */
@@ -89,7 +107,7 @@ export function parseLeadOffset(raw: unknown): number | null {
 
 /** Serialize a walk position into the opaque `nextCursor` string a caller hands back. */
 export function encodeLeadCursor(cursor: LeadListCursor): string {
-  const payload = JSON.stringify({ t: cursor.createdAt.toISOString(), i: cursor.id });
+  const payload = JSON.stringify({ t: toIsoCursorTimestamp(cursor.createdAt), i: cursor.id });
   return Buffer.from(payload, "utf8").toString("base64url");
 }
 
