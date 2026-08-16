@@ -4,6 +4,7 @@ import {
   leadCampaignBaseRelation,
   leadStatusScope,
   UNBOUNDED_LEAD_PAGE,
+  type LeadListCursor,
   type LeadListPage,
   type LeadListScope,
 } from "./lead-list-query.js";
@@ -85,10 +86,9 @@ export interface BasicLeadRow {
 // The basic-view filters are exactly the shared list scope.
 export type BasicLeadFilters = LeadListScope;
 
-export interface BasicLeadCursor {
-  createdAt: Date;
-  id: string;
-}
+// Date OR string: postgres.js hands a timestamptz back either way depending on the path, and a
+// cursor is built straight off a raw row. See LeadListCursor.
+export type BasicLeadCursor = LeadListCursor;
 
 type RawTimestamp = Date | string | null;
 

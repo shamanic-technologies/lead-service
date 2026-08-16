@@ -63,6 +63,19 @@ describe("lead list cursor", () => {
     expect(encoded).not.toContain("2026");
   });
 
+  it("encodes a raw postgres.js timestamp STRING, not just a Date", () => {
+    // The production failure this closes: `created_at` came back as a string, and
+    // `.toISOString()` on it threw mid-stream — which destroys the socket rather than 500ing.
+    const encoded = encodeLeadCursor({ createdAt: "2026-01-02 03:04:05.678+00", id: "lc-42" });
+    expect(decodeLeadCursor(encoded)).toEqual({
+      createdAt: new Date("2026-01-02T03:04:05.678Z"),
+      id: "lc-42",
+    });
+    expect(() => encodeLeadCursor({ createdAt: "not-a-timestamp", id: "lc-1" })).toThrow(
+      /invalid cursor created_at/,
+    );
+  });
+
   it("is absent when the caller names none", () => {
     expect(decodeLeadCursor(undefined)).toBeNull();
   });
