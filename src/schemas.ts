@@ -1489,7 +1489,16 @@ const LeadDetailSchema = z
 const LeadsResponseSchema = z
   .object({
     leads: z.array(LeadDetailSchema).openapi({
-      description: "All leads_campaigns rows matching the query, with full canonical lead payload + delivery overlay.",
+      description:
+        "The leads_campaigns rows matching the query, with full canonical lead payload + delivery overlay. " +
+        "Without `limit` this is every matching row; with `limit` it is at most that many, in " +
+        "(created_at, id) ascending order.",
+    }),
+    nextCursor: z.string().nullable().openapi({
+      description:
+        "Where to resume the walk: pass it back as `?cursor=` to get the rows strictly after the " +
+        "last one in this response. null means this response reached the end of the population — " +
+        "always null for an unbounded read (no `limit`).",
     }),
   })
   .openapi("LeadsResponse", {
@@ -1606,7 +1615,12 @@ registry.registerPath({
     "With campaignId: campaign-scoped status. With brandId only: brand-scoped (cross-campaign). " +
     "Without either: status fields default to false/null. " +
     "By default the response carries the ACTIONABLE population only — `buffered`, `claimed` and " +
-    "`served` — and NOT `skipped`; use the `status` parameter to ask for a different set.",
+    "`served` — and NOT `skipped`; use the `status` parameter to ask for a different set. " +
+    "The response is UNBOUNDED unless the caller names a `limit`: without one it carries every " +
+    "matching row (what the staff console and features-service want). With `limit` it carries at " +
+    "most that many rows plus a `nextCursor` to walk the rest with. Rows come back in " +
+    "(created_at, id) ascending order, which is a total order, so a `limit` + `cursor` walk visits " +
+    "every row exactly once — no gaps, no repeats.",
   parameters: [
     ...AuthHeaders,
     {
@@ -1674,6 +1688,39 @@ registry.registerPath({
         "An unknown value is a 400, never a silent fallback.",
       schema: { type: "string" as const },
     },
+    {
+      in: "query" as const,
+      name: "limit",
+      required: false,
+      description:
+        "Maximum number of leads to return. ABSENT => unbounded: every matching row, which is what " +
+        "the staff console and features-service read. Present => at most that many rows, and a " +
+        "`nextCursor` when more may follow. There is no server-imposed ceiling; the caller decides " +
+        "how much it can hold. A value that is not a positive integer is a 400.",
+      schema: { type: "integer" as const, minimum: 1 },
+    },
+    {
+      in: "query" as const,
+      name: "cursor",
+      required: false,
+      description:
+        "Resume position, taken verbatim from a previous response's `nextCursor`. Returns the rows " +
+        "strictly after it in (created_at, id) order, so a walk sees every row exactly once even " +
+        "while new leads are being written. Mutually exclusive with `offset`; naming both is a 400, " +
+        "as is a cursor this endpoint did not issue.",
+      schema: { type: "string" as const },
+    },
+    {
+      in: "query" as const,
+      name: "offset",
+      required: false,
+      description:
+        "Positional start over the same (created_at, id) order — the positional form of the walk. " +
+        "Rows are appended in that order, so an offset walk is stable against new leads, but a row " +
+        "leaving the filtered set mid-walk shifts it; `cursor` cannot drift that way and is the " +
+        "one to prefer. Mutually exclusive with `cursor`. A negative or non-integer value is a 400.",
+      schema: { type: "integer" as const, minimum: 0 },
+    },
   ],
   responses: {
     200: {
@@ -1681,7 +1728,7 @@ registry.registerPath({
       content: { "application/json": { schema: LeadsResponseSchema } },
     },
     400: {
-      description: "Invalid `status` value",
+      description: "Invalid `status`, `limit`, `cursor` or `offset` value",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     401: { description: "Unauthorized" },

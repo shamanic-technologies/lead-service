@@ -3,6 +3,8 @@ import {
   campaignScopeIds,
   leadCampaignBaseRelation,
   leadStatusScope,
+  UNBOUNDED_LEAD_PAGE,
+  type LeadListPage,
   type LeadListScope,
 } from "./lead-list-query.js";
 
@@ -238,6 +240,7 @@ function basicLeadQuery(
   f: BasicLeadFilters,
   cursor: BasicLeadCursor | null,
   limit: number | null,
+  offset: number | null = null,
 ) {
   return sql<RawBasicRow[]>`
     SELECT
@@ -289,6 +292,7 @@ function basicLeadQuery(
       ${cursor ? sql`AND (lc.created_at, lc.id) > (${cursor.createdAt}, ${cursor.id})` : sql``}
     ORDER BY lc.created_at ASC, lc.id ASC
     ${limit == null ? sql`` : sql`LIMIT ${limit}`}
+    ${offset == null || offset === 0 ? sql`` : sql`OFFSET ${offset}`}
   `;
 }
 
@@ -314,12 +318,49 @@ export async function fetchBasicLeadRows(f: BasicLeadFilters): Promise<BasicLead
   return rows;
 }
 
+/**
+ * Stream the scoped population in chunks of at most `chunkSize`.
+ *
+ * An UNBOUNDED read (no limit, no start position — every caller before bounds existed, and the
+ * staff console today) keeps the server-side `.cursor()` path byte for byte: one query, streamed,
+ * no re-execution per chunk.
+ *
+ * A BOUNDED read walks by keyset over `(created_at, id)`, never fetching more rows than the caller
+ * asked for. That is what makes a bounded read cheap: the delivery overlay, the audience
+ * resolution and the JSON serialization are all per-returned-row, so a `limit=50` read does 50
+ * rows' worth of them instead of the brand's whole population.
+ */
 export async function* streamBasicLeadChunks(
   f: BasicLeadFilters,
-  limit: number,
+  chunkSize: number,
+  page: LeadListPage = UNBOUNDED_LEAD_PAGE,
 ): AsyncGenerator<BasicLeadRow[]> {
-  for await (const rows of basicLeadQuery(f, null, null).cursor(Math.max(1, limit))) {
-    if (rows.length === 0) continue;
-    yield rows.map(mapRow);
+  const size = Math.max(1, chunkSize);
+  if (page.limit === null && page.cursor === null && page.offset === null) {
+    for await (const rows of basicLeadQuery(f, null, null).cursor(size)) {
+      if (rows.length === 0) continue;
+      yield rows.map(mapRow);
+    }
+    return;
+  }
+
+  let cursor: BasicLeadCursor | null = page.cursor;
+  // OFFSET only positions the FIRST page; the walk continues by keyset from there.
+  let offset: number | null = page.offset;
+  let remaining = page.limit;
+
+  while (remaining === null || remaining > 0) {
+    const take = remaining === null ? size : Math.min(size, remaining);
+    const rows = await basicLeadQuery(f, cursor, take, offset);
+    offset = null;
+    if (rows.length === 0) return;
+
+    const mapped = rows.map(mapRow);
+    yield mapped;
+    if (remaining !== null) remaining -= mapped.length;
+
+    if (rows.length < take) return;
+    const last = mapped[mapped.length - 1];
+    cursor = { createdAt: last.createdAt, id: last.id };
   }
 }

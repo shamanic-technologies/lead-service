@@ -15,9 +15,12 @@ import { buildFullLeadsBatch, type FullLead } from "../lib/lead-shape.js";
 import { streamBasicLeadChunks, toIsoTimestamp, type BasicLeadRow } from "../lib/basic-leads.js";
 import {
   campaignScopeIds,
+  encodeLeadCursor,
   leadCampaignBaseRelation,
   leadStatusScope,
+  parseLeadListPage,
   parseLeadStatusFilter,
+  type LeadListPage,
   type LeadListScope,
 } from "../lib/lead-list-query.js";
 import { resolveAudiencesForBrand, type AudienceCard, type AudienceResolveContext } from "../lib/audience-client.js";
@@ -291,6 +294,8 @@ interface LeadCampaignRow {
 async function fetchLeadCampaignChunk(
   scope: LeadListScope,
   cursor: LeadCampaignCursor | null,
+  limit: number = LEADS_STREAM_CHUNK_SIZE,
+  offset: number | null = null,
 ): Promise<LeadCampaignRow[]> {
   const rows = await sql<RawLeadCampaignRow[]>`
     SELECT
@@ -310,7 +315,8 @@ async function fetchLeadCampaignChunk(
       ${scope.workflowSlug ? sql`AND lc.workflow_slug = ${scope.workflowSlug}` : sql``}
       ${cursor ? sql`AND (lc.created_at, lc.id) > (${cursor.createdAt}, ${cursor.id})` : sql``}
     ORDER BY lc.created_at ASC, lc.id ASC
-    LIMIT ${LEADS_STREAM_CHUNK_SIZE}
+    LIMIT ${limit}
+    ${offset == null || offset === 0 ? sql`` : sql`OFFSET ${offset}`}
   `;
 
   return rows.map((r) => ({
@@ -435,6 +441,25 @@ async function buildStatusMapForBasicRows(
   return statusMap;
 }
 
+/**
+ * Where the caller resumes, or null when this response is the end of the population.
+ *
+ * A bounded read that came back FULL may have more behind it, so it carries the position of its
+ * last row; the caller passes it back as `?cursor=` and continues from strictly after it. A read
+ * that came back short (or was never bounded) has reached the end, and says so with null. A walk
+ * that lands exactly on the last row gets one more request that returns zero rows and a null
+ * cursor — the cost of not counting the whole population on every page.
+ */
+function nextCursorFor(
+  page: LeadListPage,
+  rowCount: number,
+  last: { createdAt: Date; id: string } | null,
+): string | null {
+  if (page.limit === null || last === null) return null;
+  if (rowCount < page.limit) return null;
+  return encodeLeadCursor(last);
+}
+
 router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedRequest, res) => {
   let streamingStarted = false;
   try {
@@ -453,8 +478,14 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
     // (DEFAULT_LEAD_LIST_STATUSES — everything but `skipped`); `?status=all` or an explicit list
     // asks for more. A bad value is a 400 before any work starts, never a silent fallback.
     let statuses: readonly string[];
+    let page: LeadListPage;
     try {
       statuses = parseLeadStatusFilter(req.query.status);
+      // How much of that population to return, and where to start. Absent `limit` means the whole
+      // thing — the read every caller got before bounds existed, and what the staff console still
+      // asks for. Anything unreadable is a 400 before any work starts: a bound that is accepted
+      // and dropped is the bug being fixed here, so nothing about paging fails quietly.
+      page = parseLeadListPage(req.query);
     } catch (error) {
       return res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -519,8 +550,11 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
 
       let wroteFirstBasic = false;
       let rowCount = 0;
-      for await (const basicRows of streamBasicLeadChunks(scope, LEADS_STREAM_CHUNK_SIZE)) {
+      let lastPosition: { createdAt: Date; id: string } | null = null;
+      for await (const basicRows of streamBasicLeadChunks(scope, LEADS_STREAM_CHUNK_SIZE, page)) {
         rowCount += basicRows.length;
+        const lastBasic = basicRows[basicRows.length - 1];
+        if (lastBasic) lastPosition = { createdAt: lastBasic.createdAt, id: lastBasic.id };
 
         const statusMap = hasScopeForStatus
           ? await buildStatusMapForBasicRows(basicRows, statusCampaignIdStr, context)
@@ -578,7 +612,7 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
         }
       }
 
-      res.write("]}");
+      res.write(`],"nextCursor":${JSON.stringify(nextCursorFor(page, rowCount, lastPosition))}}`);
       res.end();
 
       if (req.runId) {
@@ -600,12 +634,18 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
     streamingStarted = true;
 
     let wroteFirst = false;
-    let cursor: LeadCampaignCursor | null = null;
+    let cursor: LeadCampaignCursor | null = page.cursor;
+    // OFFSET positions the FIRST chunk only; the walk continues by keyset from there.
+    let offset: number | null = page.offset;
+    let remaining: number | null = page.limit;
     let rowCount = 0;
-    while (true) {
-      const chunkRows = await fetchLeadCampaignChunk(scope, cursor);
+    while (remaining === null || remaining > 0) {
+      const take = remaining === null ? LEADS_STREAM_CHUNK_SIZE : Math.min(LEADS_STREAM_CHUNK_SIZE, remaining);
+      const chunkRows = await fetchLeadCampaignChunk(scope, cursor, take, offset);
+      offset = null;
       if (chunkRows.length === 0) break;
       rowCount += chunkRows.length;
+      if (remaining !== null) remaining -= chunkRows.length;
       const chunkLeadIds = Array.from(new Set(chunkRows.map((r) => r.leadId)));
       const fullLeadByLeadId = await buildFullLeadsBatch(chunkLeadIds);
 
@@ -686,9 +726,10 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
 
       const lastRow = chunkRows[chunkRows.length - 1];
       cursor = { createdAt: lastRow.createdAt, id: lastRow.id };
+      if (chunkRows.length < take) break;
     }
 
-    res.write("]}");
+    res.write(`],"nextCursor":${JSON.stringify(nextCursorFor(page, rowCount, cursor))}}`);
     res.end();
 
     if (req.runId) {
