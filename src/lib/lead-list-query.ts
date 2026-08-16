@@ -62,6 +62,18 @@ export interface LeadListCursor {
   id: string;
 }
 
+/**
+ * The value to BIND for a cursor's timestamp — always a string, never a `Date`.
+ *
+ * postgres.js's Bind calls `Buffer.byteLength(value)` on a raw `sql` template param, which throws
+ * `ERR_INVALID_ARG_TYPE ... Received an instance of Date` before the query is ever sent. A cursor
+ * decoded off the wire holds a real `Date`, so binding it directly 500s every resumed page. The
+ * ISO string casts to the timestamptz column. Same hazard as the write-side rule in CLAUDE.md.
+ */
+export function leadCursorTimestampParam(cursor: LeadListCursor): string {
+  return toIsoCursorTimestamp(cursor.createdAt);
+}
+
 /** Normalize a raw timestamptz (Date OR string) into ISO. Fails loud on an unparseable value. */
 function toIsoCursorTimestamp(value: Date | string): string {
   if (value instanceof Date) return value.toISOString();

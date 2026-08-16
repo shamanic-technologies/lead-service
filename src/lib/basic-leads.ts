@@ -2,6 +2,7 @@ import { sql } from "../db/index.js";
 import {
   campaignScopeIds,
   leadCampaignBaseRelation,
+  leadCursorTimestampParam,
   leadStatusScope,
   UNBOUNDED_LEAD_PAGE,
   type LeadListCursor,
@@ -289,7 +290,7 @@ function basicLeadQuery(
       ${f.queryOrgId ? sql`AND lc.org_id = ${f.queryOrgId}` : sql``}
       ${f.userId ? sql`AND lc.user_id = ${f.userId}` : sql``}
       ${f.workflowSlug ? sql`AND lc.workflow_slug = ${f.workflowSlug}` : sql``}
-      ${cursor ? sql`AND (lc.created_at, lc.id) > (${cursor.createdAt}, ${cursor.id})` : sql``}
+      ${cursor ? sql`AND (lc.created_at, lc.id) > (${leadCursorTimestampParam(cursor)}, ${cursor.id})` : sql``}
     ORDER BY lc.created_at ASC, lc.id ASC
     ${limit == null ? sql`` : sql`LIMIT ${limit}`}
     ${offset == null || offset === 0 ? sql`` : sql`OFFSET ${offset}`}
