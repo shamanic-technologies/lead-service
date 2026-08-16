@@ -100,8 +100,10 @@ function rawRow(i: number) {
   return {
     id: `lc-${String(i).padStart(4, "0")}`,
     lead_id: `lead-${i}`,
-    // String, not Date — the shape postgres.js actually returns on this path.
-    created_at: "2026-01-01 00:00:00+00",
+    // String, not Date — the shape postgres.js actually returns on this path. The MICROseconds
+    // matter: a cursor that floors them to milliseconds re-reads rows on the next page.
+    created_at: `2026-01-01 00:00:00.00000${i % 10}+00`,
+    created_at_cursor: `2026-01-01 00:00:00.00000${i % 10}+00`,
   };
 }
 
@@ -153,7 +155,8 @@ describe("streamBasicLeadChunks — bounded reads", () => {
       const ids = await collect(page);
       seen.push(...ids);
       if (ids.length < 10) break;
-      cursor = encodeLeadCursor({ createdAt: new Date("2026-01-01T00:00:00.000Z"), id: ids[ids.length - 1] });
+      const lastRow = mockRows.find((r) => r.id === ids[ids.length - 1])!;
+      cursor = encodeLeadCursor({ createdAt: lastRow.created_at_cursor as string, id: lastRow.id as string });
     }
     expect(seen).toHaveLength(57);
     expect(new Set(seen).size).toBe(57);
@@ -175,7 +178,7 @@ describe("streamBasicLeadChunks — bounded reads", () => {
   });
 });
 
-function decodeCursor(encoded: string): { createdAt: Date; id: string } {
+function decodeCursor(encoded: string): { createdAt: string; id: string } {
   const parsed = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as { t: string; i: string };
-  return { createdAt: new Date(parsed.t), id: parsed.i };
+  return { createdAt: parsed.t, id: parsed.i };
 }

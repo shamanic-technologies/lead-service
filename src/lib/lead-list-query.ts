@@ -51,37 +51,38 @@ export interface LeadListPage {
 /**
  * A position in the `(created_at, id)` order the list queries walk.
  *
- * `createdAt` is `Date | string` on purpose: postgres.js (`prepare:false`) hands a timestamptz
- * column back as a `Date` on some paths and a raw string on others, and the row a cursor is built
- * from comes straight off a raw `sql` query. Typing it `Date` and calling `.toISOString()` throws
- * `is not a function` the moment it is a string — and on a streaming response that throw destroys
- * the socket instead of producing a clean 500. Same hazard as `toIsoTimestamp` in basic-leads.ts.
+ * `createdAt` is TEXT, straight out of Postgres (`lc.created_at::text`) and carried through the
+ * cursor verbatim — never a `Date`, and never re-rendered through one. Two reasons, both of which
+ * were production failures:
+ *
+ * 1. PRECISION. `timestamptz` holds MICROseconds; a JS `Date` holds milliseconds. Round-tripping
+ *    the position through a `Date` floors it, so the resumed page re-reads every row whose
+ *    `created_at` falls in the microseconds that were dropped. A full walk of one 57k-row brand
+ *    came back with 57,737 rows for 57,622 people — 115 repeats, no gaps. Text keeps every digit,
+ *    so `>` means exactly what the previous page ended at.
+ * 2. BIND. postgres.js's Bind calls `Buffer.byteLength()` on a raw `sql` param, which throws
+ *    `ERR_INVALID_ARG_TYPE ... Received an instance of Date` before the query is ever sent, so a
+ *    `Date` position 500s every resumed page.
+ *
+ * The queries select the column twice — typed for the row payload, and `::text` for this.
  */
 export interface LeadListCursor {
-  createdAt: Date | string;
+  /** `lc.created_at::text` — full-precision, bindable as-is. */
+  createdAt: string;
   id: string;
 }
 
-/**
- * The value to BIND for a cursor's timestamp — always a string, never a `Date`.
- *
- * postgres.js's Bind calls `Buffer.byteLength(value)` on a raw `sql` template param, which throws
- * `ERR_INVALID_ARG_TYPE ... Received an instance of Date` before the query is ever sent. A cursor
- * decoded off the wire holds a real `Date`, so binding it directly 500s every resumed page. The
- * ISO string casts to the timestamptz column. Same hazard as the write-side rule in CLAUDE.md.
- */
+/** The value to BIND for a cursor's timestamp: the text Postgres gave us, unmodified. */
 export function leadCursorTimestampParam(cursor: LeadListCursor): string {
-  return toIsoCursorTimestamp(cursor.createdAt);
+  return cursor.createdAt;
 }
 
-/** Normalize a raw timestamptz (Date OR string) into ISO. Fails loud on an unparseable value. */
-function toIsoCursorTimestamp(value: Date | string): string {
-  if (value instanceof Date) return value.toISOString();
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
+/** Fail loud on a cursor timestamp that is not a timestamp at all. */
+function assertCursorTimestamp(value: string): string {
+  if (typeof value !== "string" || Number.isNaN(new Date(value).getTime())) {
     throw new Error(`[lead-service] invalid cursor created_at timestamp: ${value}`);
   }
-  return parsed.toISOString();
+  return value;
 }
 
 /** The unbounded read: what a caller that names no bound gets, exactly as before. */
@@ -119,7 +120,7 @@ export function parseLeadOffset(raw: unknown): number | null {
 
 /** Serialize a walk position into the opaque `nextCursor` string a caller hands back. */
 export function encodeLeadCursor(cursor: LeadListCursor): string {
-  const payload = JSON.stringify({ t: toIsoCursorTimestamp(cursor.createdAt), i: cursor.id });
+  const payload = JSON.stringify({ t: assertCursorTimestamp(cursor.createdAt), i: cursor.id });
   return Buffer.from(payload, "utf8").toString("base64url");
 }
 
@@ -139,11 +140,12 @@ export function decodeLeadCursor(raw: unknown): LeadListCursor | null {
   if (typeof value?.t !== "string" || typeof value?.i !== "string" || value.i === "") {
     throw new Error("cursor is not a cursor this endpoint issued");
   }
-  const createdAt = new Date(value.t);
-  if (Number.isNaN(createdAt.getTime())) {
+  // Kept as TEXT, byte for byte — parsing it into a Date here would drop the microseconds the
+  // walk depends on (see LeadListCursor).
+  if (Number.isNaN(new Date(value.t).getTime())) {
     throw new Error("cursor is not a cursor this endpoint issued");
   }
-  return { createdAt, id: value.i };
+  return { createdAt: value.t, id: value.i };
 }
 
 /**

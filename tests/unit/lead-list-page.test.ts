@@ -52,25 +52,28 @@ describe("parseLeadOffset", () => {
 
 describe("lead list cursor", () => {
   it("round-trips a walk position", () => {
-    const position = { createdAt: new Date("2026-01-02T03:04:05.678Z"), id: "lc-42" };
+    const position = { createdAt: "2026-01-02 03:04:05.678901+00", id: "lc-42" };
     const encoded = encodeLeadCursor(position);
     expect(decodeLeadCursor(encoded)).toEqual(position);
   });
 
+  it("keeps MICROseconds — a position round-tripped through a Date repeats rows", () => {
+    // timestamptz holds microseconds, a JS Date holds milliseconds. Flooring the position makes
+    // the next page re-read every row inside the dropped microseconds: a real walk of one 57k-row
+    // brand came back with 115 repeats before the cursor carried text.
+    const position = { createdAt: "2026-01-02 03:04:05.678901+00", id: "lc-42" };
+    const decoded = decodeLeadCursor(encodeLeadCursor(position))!;
+    expect(decoded.createdAt).toBe("2026-01-02 03:04:05.678901+00");
+    expect(new Date(decoded.createdAt).toISOString()).not.toBe(decoded.createdAt);
+  });
+
   it("is opaque — no caller can read a position out of it by hand", () => {
-    const encoded = encodeLeadCursor({ createdAt: new Date("2026-01-02T03:04:05.678Z"), id: "lc-42" });
+    const encoded = encodeLeadCursor({ createdAt: "2026-01-02 03:04:05.678901+00", id: "lc-42" });
     expect(encoded).not.toContain("lc-42");
     expect(encoded).not.toContain("2026");
   });
 
-  it("encodes a raw postgres.js timestamp STRING, not just a Date", () => {
-    // The production failure this closes: `created_at` came back as a string, and
-    // `.toISOString()` on it threw mid-stream — which destroys the socket rather than 500ing.
-    const encoded = encodeLeadCursor({ createdAt: "2026-01-02 03:04:05.678+00", id: "lc-42" });
-    expect(decodeLeadCursor(encoded)).toEqual({
-      createdAt: new Date("2026-01-02T03:04:05.678Z"),
-      id: "lc-42",
-    });
+  it("fails loud on a position that is not a timestamp at all", () => {
     expect(() => encodeLeadCursor({ createdAt: "not-a-timestamp", id: "lc-1" })).toThrow(
       /invalid cursor created_at/,
     );
@@ -92,10 +95,10 @@ describe("lead list cursor", () => {
 
 describe("parseLeadListPage", () => {
   it("reads limit, cursor and offset together", () => {
-    const cursor = encodeLeadCursor({ createdAt: new Date("2026-01-01T00:00:00.000Z"), id: "lc-1" });
+    const cursor = encodeLeadCursor({ createdAt: "2026-01-01 00:00:00+00", id: "lc-1" });
     expect(parseLeadListPage({ limit: "50", cursor })).toEqual({
       limit: 50,
-      cursor: { createdAt: new Date("2026-01-01T00:00:00.000Z"), id: "lc-1" },
+      cursor: { createdAt: "2026-01-01 00:00:00+00", id: "lc-1" },
       offset: null,
     });
     expect(parseLeadListPage({ limit: "50", offset: "100" })).toEqual({
@@ -107,7 +110,7 @@ describe("parseLeadListPage", () => {
   });
 
   it("refuses two start positions at once rather than silently picking one", () => {
-    const cursor = encodeLeadCursor({ createdAt: new Date("2026-01-01T00:00:00.000Z"), id: "lc-1" });
+    const cursor = encodeLeadCursor({ createdAt: "2026-01-01 00:00:00+00", id: "lc-1" });
     expect(() => parseLeadListPage({ cursor, offset: "10" })).toThrow(/one, not both/);
   });
 });
