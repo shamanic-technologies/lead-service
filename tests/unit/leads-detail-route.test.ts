@@ -21,6 +21,13 @@ vi.mock("../../src/db/index.js", () => ({
     if (!/WHERE lc\.id =/.test(text)) return node;
     return {
       then: (resolve: (rows: unknown[]) => void) => {
+        // Bind-faithful: postgres.js throws ERR_INVALID_ARG_TYPE on a raw Date param, and a plain
+        // mock would let a handler that binds one ship green. See CLAUDE.md.
+        for (const v of values) {
+          if (v instanceof Date) {
+            throw new TypeError('The "string" argument must be of type string. Received an instance of Date');
+          }
+        }
         const [id, orgId] = values;
         lookups.push({ id, orgId });
         const row = storedRows.find((r) => r.id === id && r.org_id === orgId);
