@@ -13,7 +13,13 @@ import { resolveCampaignFamily } from "../lib/campaign-identity-client.js";
 import { traceEvent } from "../lib/trace-event.js";
 import { buildFullLeadsBatch, type FullLead } from "../lib/lead-shape.js";
 import { streamBasicLeadChunks, toIsoTimestamp, type BasicLeadRow } from "../lib/basic-leads.js";
-import { campaignScopeIds, leadCampaignBaseRelation, type LeadListScope } from "../lib/lead-list-query.js";
+import {
+  campaignScopeIds,
+  leadCampaignBaseRelation,
+  leadStatusScope,
+  parseLeadStatusFilter,
+  type LeadListScope,
+} from "../lib/lead-list-query.js";
 import { resolveAudiencesForBrand, type AudienceCard, type AudienceResolveContext } from "../lib/audience-client.js";
 
 const router = Router();
@@ -298,6 +304,7 @@ async function fetchLeadCampaignChunk(
     WHERE lc.org_id = ${scope.orgId}
       ${scope.brandId ? sql`AND ${scope.brandId} = ANY(lc.brand_ids)` : sql``}
       ${campaignScopeIds(scope) ? sql`AND lc.campaign_id = ANY(${campaignScopeIds(scope)!})` : sql``}
+      ${leadStatusScope(scope) ? sql`AND lc.status = ANY(${leadStatusScope(scope)!})` : sql``}
       ${scope.queryOrgId ? sql`AND lc.org_id = ${scope.queryOrgId}` : sql``}
       ${scope.userId ? sql`AND lc.user_id = ${scope.userId}` : sql``}
       ${scope.workflowSlug ? sql`AND lc.workflow_slug = ${scope.workflowSlug}` : sql``}
@@ -442,6 +449,16 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
     const userIdStr = typeof userId === "string" ? userId : undefined;
     const workflowSlugStr = typeof workflowSlug === "string" ? workflowSlug : undefined;
 
+    // Which lifecycle statuses this read answers for. Absent means the actionable population
+    // (DEFAULT_LEAD_LIST_STATUSES — everything but `skipped`); `?status=all` or an explicit list
+    // asks for more. A bad value is a 400 before any work starts, never a silent fallback.
+    let statuses: readonly string[];
+    try {
+      statuses = parseLeadStatusFilter(req.query.status);
+    } catch (error) {
+      return res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+
     // A campaign as the customer knows it is an IDENTITY (org, brand, sales funnel, acquisition
     // channel), not one stored campaign row: campaign-service used to mint a new row on every
     // workflow switch, so one campaign lives in storage as many. A campaign-scoped read totals the
@@ -468,6 +485,7 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       queryOrgId: queryOrgIdStr,
       userId: userIdStr,
       workflowSlug: workflowSlugStr,
+      statuses,
     };
 
     const scopeCampaignIds = campaignScopeIds(scope);

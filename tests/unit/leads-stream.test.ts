@@ -352,6 +352,8 @@ describe("GET /orgs/leads chunked streaming", () => {
         queryOrgId: undefined,
         userId: undefined,
         workflowSlug: undefined,
+        // No `status` param => the actionable population, skipped excluded.
+        statuses: ["buffered", "claimed", "served"],
       },
       2,
     ]);
@@ -529,5 +531,59 @@ describe("GET /orgs/leads chunked streaming", () => {
     expect(res.status).toBe(200);
     // Broadcast + transactional are disjoint sending channels → total = 2 + 1.
     expect(res.body.leads[0].sentCount).toBe(3);
+  });
+
+  // The population the read answers for. Default excludes `skipped` (never served, so it can
+  // carry no delivery evidence and no engagement-bucketed view can reach it); a caller that
+  // wants it names it, or asks for `all`.
+  describe("status filter", () => {
+    it("scopes the full path to the actionable statuses when no status is named", async () => {
+      mockRows = [rawRow(1)];
+      const res = await request(app)
+        .get(`/orgs/leads?brandId=${BRAND}`)
+        .set("x-api-key", "test-api-key")
+        .set("x-org-id", ORG);
+
+      expect(res.status).toBe(200);
+      const { leadStatusScope } = await import("../../src/lib/lead-list-query.js");
+      expect(leadStatusScope({ orgId: ORG })).toEqual(["buffered", "claimed", "served"]);
+    });
+
+    it("forwards an explicit status list to the slim path", async () => {
+      streamBasicLeadChunksMock.mockImplementationOnce(() => basicChunks([[basicRow(1, "served")]]));
+      const res = await request(app)
+        .get(`/orgs/leads?brandId=${BRAND}&view=basic&status=served`)
+        .set("x-api-key", "test-api-key")
+        .set("x-org-id", ORG);
+
+      expect(res.status).toBe(200);
+      expect(streamBasicLeadChunksMock.mock.calls[0][0].statuses).toEqual(["served"]);
+    });
+
+    it("status=all asks for every lifecycle status, skipped included", async () => {
+      streamBasicLeadChunksMock.mockImplementationOnce(() => basicChunks([[basicRow(1, "skipped")]]));
+      const res = await request(app)
+        .get(`/orgs/leads?brandId=${BRAND}&view=basic&status=all`)
+        .set("x-api-key", "test-api-key")
+        .set("x-org-id", ORG);
+
+      expect(res.status).toBe(200);
+      expect(streamBasicLeadChunksMock.mock.calls[0][0].statuses).toEqual([
+        "buffered", "skipped", "claimed", "served",
+      ]);
+      expect(res.body.leads[0].status).toBe("skipped");
+    });
+
+    it("400s an unknown status before any work starts, and never streams a partial body", async () => {
+      const res = await request(app)
+        .get(`/orgs/leads?brandId=${BRAND}&status=bogus`)
+        .set("x-api-key", "test-api-key")
+        .set("x-org-id", ORG);
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/Unknown status value/);
+      expect(streamBasicLeadChunksMock).not.toHaveBeenCalled();
+      expect(buildFullLeadsBatchMock).not.toHaveBeenCalled();
+    });
   });
 });
