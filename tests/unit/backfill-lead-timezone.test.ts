@@ -118,7 +118,11 @@ describe("backfill-lead-timezone", () => {
 
     const all = queries.join("\n");
     expect(all).toContain("l.timezone IS NULL");
-    expect(all).toContain("k.apollo_person_id = l.apollo_person_id");
+    // hashed array probe, not a join against unnest() — the join form plans as a
+    // nested loop over a function scan and does not finish at production size
+    expect(all).toContain("l.apollo_person_id = ANY(");
+    // a lead with no apollo person id must stay in the complement, not vanish
+    expect(all).toContain("coalesce(l.apollo_person_id = ANY(");
     // "no location" is what stays null on purpose — it is counted, not guessed
     expect(all).toContain("coalesce(l.city, '') = '' AND coalesce(l.country, '') = ''");
     expect(params[0]?.[0]).toEqual(["abc123"]);

@@ -150,8 +150,16 @@ export interface BackfillPlan {
 }
 
 /**
- * Count every bucket without writing. The recoverable count is the same join the
- * UPDATE performs, so the dry-run and the apply can never disagree about scope.
+ * Count every bucket without writing. The recoverable count keys on the same
+ * `apollo_person_id` the UPDATE matches on, so the dry-run and the apply can
+ * never disagree about scope.
+ *
+ * `= ANY(array)` rather than a join against `unnest(...)`: Postgres hashes the
+ * array once and probes it per row, where the join form plans as a nested loop
+ * over a function scan — 86k leads × 41k known people, which does not finish.
+ * `coalesce(..., false)` because the comparison is NULL for a lead with no
+ * apollo person id, and a NULL would drop that lead out of BOTH the recoverable
+ * bucket and its complement, silently shrinking the totals.
  */
 export async function buildPlan(mappings: Mapping[]): Promise<BackfillPlan> {
   const ids = mappings.map((m) => m.apolloPersonId);
@@ -163,12 +171,8 @@ export async function buildPlan(mappings: Mapping[]): Promise<BackfillPlan> {
       unresolved_with_location: string;
     }[]
   >`
-    WITH known AS (SELECT unnest(${ids}::text[]) AS apollo_person_id),
-    scoped AS (
-      SELECT l.id,
-             (l.apollo_person_id IS NOT NULL
-               AND EXISTS (SELECT 1 FROM known k WHERE k.apollo_person_id = l.apollo_person_id)
-             ) AS recoverable,
+    WITH scoped AS (
+      SELECT coalesce(l.apollo_person_id = ANY(${ids}::text[]), false) AS recoverable,
              (coalesce(l.city, '') = '' AND coalesce(l.country, '') = '') AS no_location
       FROM leads l
       WHERE l.timezone IS NULL
