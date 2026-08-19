@@ -10,10 +10,27 @@ export interface LeadListScope {
   /** The campaign the caller asked for. Kept for logging/telemetry; the FILTER is campaignIds. */
   campaignId?: string;
   /**
+   * The OFFER the caller asked for. Kept for logging/telemetry; the FILTER is campaignIds.
+   *
+   * A lead's offer is the offer named by the campaign it was served under (see
+   * offer-campaigns-client.ts), and `leads_campaigns.campaign_id` is that frozen attribution — so
+   * offer scope resolves to a set of campaign ids and rides the campaign-id filter below rather
+   * than adding a parallel one. It is therefore mutually exclusive with `campaignId`: a campaign
+   * already sells exactly one offer, so naming both is contradictory and the route 400s it.
+   *
+   * Set only when `campaignIds` is NON-EMPTY. An offer that resolves to no campaigns matches
+   * nothing, and the route answers it with an empty list before a scope is ever built — never by
+   * dropping the filter, which would serve the whole brand under the offer's name.
+   */
+  offerId?: string;
+  /**
    * The campaign IDENTITY's members — every stored campaign row the customer reads as the ONE
    * campaign they asked for (see campaign-identity.ts). Resolved by the route from campaign-service;
    * `[campaignId]` when the identity has a single member or could not be resolved. Absent means the
    * read is not campaign-scoped at all.
+   *
+   * Under an OFFER scope this is instead every campaign in the org that names that offer (see
+   * `offerId`). Either way it is the one campaign-id filter both list queries apply.
    */
   campaignIds?: string[];
   queryOrgId?: string;
