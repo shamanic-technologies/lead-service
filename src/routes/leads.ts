@@ -10,6 +10,7 @@ import {
   type GlobalStatus,
 } from "../lib/email-gateway-client.js";
 import { resolveCampaignFamily } from "../lib/campaign-identity-client.js";
+import { resolveOfferCampaignIds, OfferCampaignsUnavailableError } from "../lib/offer-campaigns-client.js";
 import { traceEvent } from "../lib/trace-event.js";
 import { buildFullLeadsBatch, type FullLead } from "../lib/lead-shape.js";
 import { streamBasicLeadChunks, toIsoTimestamp, type BasicLeadRow } from "../lib/basic-leads.js";
@@ -553,8 +554,9 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       traceEvent(req.runId, { service: "lead-service", event: "leads-query-start", detail: `orgId=${req.orgId}` }, req.headers).catch(() => {});
     }
 
-    const { brandId, campaignId, orgId: queryOrgId, userId, workflowSlug } = req.query;
+    const { brandId, campaignId, offerId, orgId: queryOrgId, userId, workflowSlug } = req.query;
     const campaignIdStr = typeof campaignId === "string" ? campaignId : undefined;
+    const offerIdStr = typeof offerId === "string" ? offerId : undefined;
     const brandIdStr = typeof brandId === "string" ? brandId : undefined;
     const queryOrgIdStr = typeof queryOrgId === "string" ? queryOrgId : undefined;
     const userIdStr = typeof userId === "string" ? userId : undefined;
@@ -574,6 +576,48 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       page = parseLeadListPage(req.query);
     } catch (error) {
       return res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+
+    // A campaign sells exactly ONE offer, so naming both an offer and a campaign states two
+    // narrowings where one already implies the other — either the campaign is in the offer (the
+    // offer adds nothing) or it is not (the pair matches nothing, and whichever the caller meant
+    // is unknowable). Refused rather than silently resolved one way.
+    if (offerIdStr && campaignIdStr) {
+      return res.status(400).json({
+        error:
+          "offerId and campaignId both narrow the read and a campaign already sells exactly one offer — pass one, not both",
+      });
+    }
+
+    // A lead's offer is the offer named by the campaign it was served under, and `campaign_id` on
+    // the membership row is that frozen attribution — so an offer scope resolves to the campaign
+    // ids selling it and rides the SAME campaign-id filter a campaign scope uses. FAIL LOUD: with
+    // campaign-service unreachable those ids are unknown, and dropping the filter would serve the
+    // whole BRAND under one offer's name, which is exactly the bug offer scope fixes.
+    let offerCampaignIds: string[] | null = null;
+    if (offerIdStr) {
+      try {
+        offerCampaignIds = await resolveOfferCampaignIds(offerIdStr, {
+          orgId: req.orgId!,
+          userId: req.userId ?? null,
+          runId: req.runId ?? null,
+          brandId: brandIdStr ?? null,
+        });
+      } catch (error) {
+        console.error(
+          `[lead-service] offer scope unresolved for offerId=${offerIdStr} orgId=${req.orgId} — ` +
+            `refusing the read rather than widening it to the brand: ${(error as Error).message}`,
+        );
+        return res.status(502).json({
+          error: error instanceof OfferCampaignsUnavailableError ? error.message : "campaign-service unavailable",
+        });
+      }
+
+      // No campaign sells this offer yet, so no lead has been served under it. That is a real,
+      // correct answer — and the one place a missing filter would otherwise become the brand.
+      if (offerCampaignIds.length === 0) {
+        return res.json({ leads: [], nextCursor: null });
+      }
     }
 
     // A campaign as the customer knows it is an IDENTITY (org, brand, sales funnel, acquisition
@@ -598,7 +642,8 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       orgId: req.orgId!,
       brandId: brandIdStr,
       campaignId: campaignIdStr,
-      campaignIds: campaignFamily ?? undefined,
+      offerId: offerIdStr,
+      campaignIds: offerCampaignIds ?? campaignFamily ?? undefined,
       queryOrgId: queryOrgIdStr,
       userId: userIdStr,
       workflowSlug: workflowSlugStr,
@@ -610,10 +655,15 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
     const familySet =
       scopeCampaignIds && scopeCampaignIds.length > 1 ? new Set(scopeCampaignIds) : null;
 
-    const hasScopeForStatus = !!(campaignIdStr || brandIdStr);
+    const hasScopeForStatus = !!(campaignIdStr || brandIdStr || offerIdStr);
+    // Keyed on the resolved campaign ids, not on which param named them: a scope carrying ONE
+    // campaign row asks email-gateway in campaign mode, several take brand mode and read the
+    // per-campaign breakdown back out (aggregateFamilyScope). Identical to the previous
+    // `campaignIdStr` test for every campaign-scoped read — that param sets these ids — and it is
+    // what gives an offer's several campaigns the same widened engagement a campaign identity gets.
     const flatten = familySet
       ? (result: StatusResult) => flattenFamilyStatus(result, familySet)
-      : campaignIdStr
+      : scopeCampaignIds
         ? flattenCampaignStatus
         : flattenBrandStatus;
     const context = getServiceContext(req);

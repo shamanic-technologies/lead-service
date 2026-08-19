@@ -2563,6 +2563,15 @@
           },
           {
             "in": "query",
+            "name": "offerId",
+            "required": false,
+            "description": "Restrict returned leads to ONE offer — brand-service's proposition level, between the brand and the campaign. A lead's offer is the offer named by the campaign it was served under: the membership row's `campaign_id` is a frozen attribution, and campaign-service records which offer each campaign sells, so this resolves to every campaign in the org naming that offer and filters on the same `campaign_id` a campaignId read filters on. Delivery status is offer-scoped (the union over those campaigns), the same way a campaign identity's is. MUTUALLY EXCLUSIVE with `campaignId` — a campaign already sells exactly one offer, so naming both is a 400 rather than one silently winning. An offer no campaign sells yet returns an empty list, never the brand's leads. If campaign-service cannot say which campaigns sell it, the read is refused with a 502 — never widened to the brand. When absent, behavior + response shape are unchanged.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "orgId",
             "required": false,
             "schema": {
@@ -2650,7 +2659,7 @@
             }
           },
           "400": {
-            "description": "Invalid `status`, `limit`, `cursor` or `offset` value",
+            "description": "Invalid `status`, `limit`, `cursor` or `offset` value, or `offerId` and `campaignId` both named",
             "content": {
               "application/json": {
                 "schema": {
@@ -2661,6 +2670,16 @@
           },
           "401": {
             "description": "Unauthorized"
+          },
+          "502": {
+            "description": "`offerId` was named and campaign-service could not say which campaigns sell it — the read is refused rather than widened to the brand",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
