@@ -27,6 +27,7 @@ import {
   type LeadListScope,
 } from "../lib/lead-list-query.js";
 import { resolveAudiencesForBrand, type AudienceCard, type AudienceResolveContext } from "../lib/audience-client.js";
+import { createOfferCardResolver, type OfferCard } from "../lib/offer-card-client.js";
 
 const router = Router();
 
@@ -497,6 +498,7 @@ function serializeLeadItem(
   fullLead: FullLead | null,
   email: { value: string; status: string | null } | null,
   audience: AudienceCard | null,
+  offer: OfferCard | null,
   deliveryStatus: FlattenedStatus,
 ) {
   return {
@@ -516,6 +518,10 @@ function serializeLeadItem(
     goal: row.goal ?? null,
     activeGoalId: row.activeGoalId ?? null,
     brandProfileId: row.brandProfileId ?? null,
+    // The offer this lead belongs to: the offer named by the campaign it was served under, i.e. by
+    // the `campaignId` above. null when that campaign names none — or when it could not be asked,
+    // which is loud in the logs (see offer-card-client.ts). Never inferred from the brand.
+    offer: offer ?? null,
     audienceId: row.audienceId ?? null,
     audience: audience ?? null,
     servedAt: row.servedAt,
@@ -672,6 +678,15 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       userId: req.userId ?? null,
       runId: req.runId ?? null,
     };
+    // ONE resolver for the whole response, built before the walk: the campaign -> offer read is
+    // org-wide and each brand's offer catalogue is read once, so naming the offer on fifty thousand
+    // rows costs the same two calls as naming it on one. Never constructed inside the chunk loop.
+    const offerResolver = createOfferCardResolver({
+      orgId: req.orgId!,
+      userId: req.userId ?? null,
+      runId: req.runId ?? null,
+      brandId: brandIdStr ?? null,
+    });
     // `?view=basic` => slim per-lead payload. Anything else (incl. absent) => full
     // FullLead, the existing default. No Zod default: a missing param is full.
     const slim = req.query.view === "basic";
@@ -707,6 +722,8 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
           audienceCtx,
         );
 
+        const offerMap = await offerResolver.resolve(basicRows.map((r) => r.campaignId));
+
         for (const r of basicRows) {
           const emailValue = r.email?.value ?? "";
           const emailStatus = r.email?.status ?? null;
@@ -735,6 +752,9 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
             goal: r.goal ?? null,
             activeGoalId: r.activeGoalId ?? null,
             brandProfileId: r.brandProfileId ?? null,
+            // Same field, same meaning, same resolver as the full path — a panel rendered from a
+            // slim row must not be missing the offer the full row names.
+            offer: offerMap.get(r.campaignId) ?? null,
             audienceId: r.audienceId ?? null,
             audience: audienceMap.get(r.leadId) ?? null,
             servedAt: r.servedAt,
@@ -799,6 +819,8 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
         audienceCtx,
       );
 
+      const offerMap = await offerResolver.resolve(chunkRows.map((row) => row.campaignId));
+
       // Delivery-status overlay, scoped to this chunk's served rows only.
       const statusMap = new Map<string, StatusResult>();
       if (hasScopeForStatus) {
@@ -835,6 +857,7 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
           fullLead,
           email,
           audienceMap.get(row.leadId) ?? null,
+          offerMap.get(row.campaignId) ?? null,
           deliveryStatus,
         );
 
@@ -940,6 +963,15 @@ router.get("/orgs/leads/:id", apiKeyAuth, requireOrgId, async (req: Authenticate
       { orgId: req.orgId!, userId: req.userId ?? null, runId: req.runId ?? null },
     );
 
+    // One row, so the resolver's memoization buys nothing here — it exists so this route emits the
+    // same offer, resolved the same way, as the list element for the same row.
+    const offerMap = await createOfferCardResolver({
+      orgId: req.orgId!,
+      userId: req.userId ?? null,
+      runId: req.runId ?? null,
+      brandId: brandIdStr ?? null,
+    }).resolve([row.campaignId]);
+
     // Same rule as the list: evidence is only fetched for a served row in a named scope, so an
     // unserved row (or an unscoped read) carries the same all-false overlay it does there.
     let deliveryStatus: FlattenedStatus = DEFAULT_STATUS;
@@ -955,7 +987,14 @@ router.get("/orgs/leads/:id", apiKeyAuth, requireOrgId, async (req: Authenticate
     }
 
     return res.json({
-      leadDetail: serializeLeadItem(row, fullLead, email, audienceMap.get(row.leadId) ?? null, deliveryStatus),
+      leadDetail: serializeLeadItem(
+        row,
+        fullLead,
+        email,
+        audienceMap.get(row.leadId) ?? null,
+        offerMap.get(row.campaignId) ?? null,
+        deliveryStatus,
+      ),
     });
   } catch (error) {
     console.error("[lead-service] Lead detail error:", error);
