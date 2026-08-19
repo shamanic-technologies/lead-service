@@ -1274,6 +1274,35 @@ const LeadDetailSchema = z
         description: "Explicit brand profile ID stored on the leads_campaigns row. null means unattributed.",
         example: "brand_profile_123",
       }),
+    offer: z
+      .object({
+        id: z
+          .string()
+          .openapi({
+            description: "Offer UUID (brand-service offer.offerId).",
+            example: "0ffe0000-0000-4000-8000-000000000001",
+          }),
+        name: z
+          .string()
+          .nullable()
+          .openapi({
+            description:
+              "Offer display name, from brand-service. null when the campaign names an offer " +
+              "brand-service does not list back (a deleted offer, or a brand that could not be " +
+              "reached) — the id is still true, so it is stated rather than dropping the offer.",
+            example: "Fractional CFO retainer",
+          }),
+      })
+      .nullable()
+      .openapi({
+        description:
+          "The OFFER this lead belongs to — brand-service's proposition level, between the brand " +
+          "and the campaign. Resolved server-side as the offer named by the campaign the lead was " +
+          "served under (`campaignId` above, the attribution frozen on the leads_campaigns row), " +
+          "with its name read from brand-service. null when that campaign names no offer, and also " +
+          "when the resolution was unavailable (logged loudly server-side) — never inferred from " +
+          "the lead's brand, its funnel or a sibling campaign. Present on every lead in both views.",
+      }),
     audienceId: z
       .string()
       .nullable()
