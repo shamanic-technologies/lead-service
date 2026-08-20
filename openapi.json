@@ -46,10 +46,14 @@
           "reason": {
             "type": "string",
             "enum": [
+              "audience_exhausted",
+              "no_audience",
+              "serve_timed_out",
+              "audience_not_serveable",
               "credit_insufficient"
             ],
-            "description": "Optional reason when found=false. credit_insufficient means the org has no available platform credits, so no paid enrichment/search/LLM action was performed.",
-            "example": "credit_insufficient"
+            "description": "Why the answer is empty. Always present when found=false; absent when a lead was served. ONLY `audience_exhausted` is evidence that a population ran out — human-service walked the audience this service was told to serve and reported nobody left. Every other value states that no exhaustion was observed: `no_audience` means the caller sent no x-audience-id, so this service (which never picks audiences) looked at nobody; `serve_timed_out` means the serve budget expired before the look finished; `audience_not_serveable` means the named audience has no committed provider yet, so its population is unknown rather than empty; `credit_insufficient` means the org has no platform credit, so no paid enrichment/search/LLM action was performed. Decide whether outreach may stop by testing for `audience_exhausted` specifically — never by excluding known-benign values, so a reason added later defaults to not-exhaustion.",
+            "example": "audience_exhausted"
           }
         },
         "required": [

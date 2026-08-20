@@ -160,7 +160,18 @@ router.post("/orgs/buffer/next", apiKeyAuth, requireOrgId, requireRunId, async (
       response: result,
     });
 
-    traceEvent(serveRunId, { service: "lead-service", event: "buffer-next-done", detail: `found=${result.found}`, data: { found: result.found } }, req.headers).catch(() => {});
+    // The reason rides the trace too: a run tree that only recorded found=false cannot
+    // tell an exhausted audience from a run that was never given one to look at.
+    traceEvent(
+      serveRunId,
+      {
+        service: "lead-service",
+        event: "buffer-next-done",
+        detail: result.found ? "found=true" : `found=false reason=${result.reason}`,
+        data: { found: result.found, reason: result.reason ?? null },
+      },
+      req.headers,
+    ).catch(() => {});
 
     const runStatus = "completed";
     await updateRun(serveRunId, runStatus, runMeta);

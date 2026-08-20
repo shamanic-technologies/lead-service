@@ -8,6 +8,12 @@ import {
 } from "./leads-registry.js";
 import { buildFullLead } from "./lead-shape.js";
 import { getCurrentGoal } from "./brand-client.js";
+import {
+  AUDIENCE_EXHAUSTED_REASON,
+  NO_AUDIENCE_REASON,
+  SERVE_TIMED_OUT_REASON,
+  type ServeEmptyReason,
+} from "./serve-reasons.js";
 
 interface PullNextParams {
   orgId: string;
@@ -28,6 +34,11 @@ interface PullNextParams {
 
 interface PullNextResult {
   found: boolean;
+  /**
+   * Present on every empty answer, absent when a lead was served. Only
+   * `audience_exhausted` says a population ran out — see serve-reasons.ts.
+   */
+  reason?: ServeEmptyReason;
   lead?: {
     leadId: string;
     email: string;
@@ -56,12 +67,17 @@ interface PullNextResult {
  * the audience's canonical filters, provider routing, and dedup/suppression.
  * No audience id (campaign selected none) or an exhausted audience surfaces
  * cleanly as found:false; real errors (serve-next non-2xx, network) fail loud.
+ *
+ * Every empty answer names WHY it is empty. Only `audience_exhausted` means a
+ * population ran out — being told to serve no audience, or running out of time
+ * before the look finished, is not evidence about anybody's population, and the
+ * caller stops a campaign for good on the strength of that distinction.
  */
 export async function pullNext(
   params: PullNextParams,
   signal?: AbortSignal,
 ): Promise<PullNextResult> {
-  if (signal?.aborted) return { found: false };
+  if (signal?.aborted) return { found: false, reason: SERVE_TIMED_OUT_REASON };
 
   // 1. The audience is selected by campaign-service per run and passed in via the
   // x-audience-id header. lead-service does NOT re-rank or re-select. No audience
@@ -69,9 +85,11 @@ export async function pullNext(
   const audienceId = params.audienceId ?? null;
   if (!audienceId) {
     console.log(
-      `[lead-service] pullNext found=false campaign=${params.campaignId} reason=no_audience brand=${params.brandId} feature=${params.featureSlug}`,
+      `[lead-service] pullNext found=false campaign=${params.campaignId} reason=${NO_AUDIENCE_REASON} brand=${params.brandId} feature=${params.featureSlug}`,
     );
-    return { found: false };
+    // Nothing was looked at: this service does not choose audiences, so an absent
+    // x-audience-id means the caller named nobody to serve. NOT exhaustion.
+    return { found: false, reason: NO_AUDIENCE_REASON };
   }
 
   const baseCtx: ServiceContext = {
@@ -93,16 +111,18 @@ export async function pullNext(
   const goal = await getCurrentGoal(params.brandId, params.orgId, baseCtx);
   const ctx: ServiceContext = { ...baseCtx, goal };
 
-  if (signal?.aborted) return { found: false };
+  if (signal?.aborted) return { found: false, reason: SERVE_TIMED_OUT_REASON };
 
   // 3. Next unserved person of that audience (human-service owns filters/provider/dedup).
   const served = await serveNext(audienceId, ctx);
 
   if (served.status === "exhausted" || !served.person) {
     console.log(
-      `[lead-service] pullNext found=false campaign=${params.campaignId} reason=exhausted audienceId=${audienceId}`,
+      `[lead-service] pullNext found=false campaign=${params.campaignId} reason=${AUDIENCE_EXHAUSTED_REASON} audienceId=${audienceId}`,
     );
-    return { found: false };
+    // The audience was walked and has nobody left — the one empty answer here that
+    // is evidence about a population.
+    return { found: false, reason: AUDIENCE_EXHAUSTED_REASON };
   }
 
   const person: Person = served.person;

@@ -3,6 +3,9 @@ import {
   OpenAPIRegistry,
   extendZodWithOpenApi,
 } from "@asteasolutions/zod-to-openapi";
+// The published `reason` enum IS the empty-serve vocabulary — read it from the one module
+// that declares it, so the contract cannot drift from what the serve path actually returns.
+import { SERVE_EMPTY_REASONS } from "./lib/serve-reasons.js";
 
 extendZodWithOpenApi(z);
 
@@ -1025,12 +1028,22 @@ export const BufferNextResponseSchema = z
       }),
     lead: ServedLeadSchema.optional(),
     reason: z
-      .enum(["credit_insufficient"])
+      .enum(SERVE_EMPTY_REASONS)
       .optional()
       .openapi({
         description:
-          "Optional reason when found=false. credit_insufficient means the org has no available platform credits, so no paid enrichment/search/LLM action was performed.",
-        example: "credit_insufficient",
+          "Why the answer is empty. Always present when found=false; absent when a lead was served. " +
+          "ONLY `audience_exhausted` is evidence that a population ran out — human-service walked the " +
+          "audience this service was told to serve and reported nobody left. Every other value states " +
+          "that no exhaustion was observed: `no_audience` means the caller sent no x-audience-id, so " +
+          "this service (which never picks audiences) looked at nobody; `serve_timed_out` means the " +
+          "serve budget expired before the look finished; `audience_not_serveable` means the named " +
+          "audience has no committed provider yet, so its population is unknown rather than empty; " +
+          "`credit_insufficient` means the org has no platform credit, so no paid enrichment/search/LLM " +
+          "action was performed. Decide whether outreach may stop by testing for `audience_exhausted` " +
+          "specifically — never by excluding known-benign values, so a reason added later defaults to " +
+          "not-exhaustion.",
+        example: "audience_exhausted",
       }),
   })
   .openapi("BufferNextResponse", {

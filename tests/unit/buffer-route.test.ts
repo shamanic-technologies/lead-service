@@ -126,6 +126,25 @@ describe("POST /orgs/buffer/next — pre-serve failure handling", () => {
     expect(createRun).not.toHaveBeenCalled();
   });
 
+  it("puts the empty answer's reason on the wire, so a caller can tell why it is empty", async () => {
+    // The handler passes pullNext's result through verbatim; without the reason reaching
+    // the body, a first ask that looked at nobody is byte-identical to a walked, dry
+    // audience — and the caller stops the campaign for good on that reading.
+    pullNext.mockResolvedValueOnce({ found: false, reason: "no_audience" });
+    createRun.mockResolvedValueOnce({ id: "serve-run-1" });
+    updateRun.mockResolvedValue(undefined);
+
+    const res = await post(app);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ found: false, reason: "no_audience" });
+    expect(res.body.reason).not.toBe("audience_exhausted");
+    // and the cached idempotent replay carries it too
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ response: { found: false, reason: "no_audience" } }),
+    );
+  });
+
   it("still returns the cached response on an idempotency hit (early return preserved)", async () => {
     findFirst.mockResolvedValueOnce({ response: { found: true, lead: { leadId: "cached-1" } } });
 
