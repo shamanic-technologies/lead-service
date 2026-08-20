@@ -1,0 +1,50 @@
+-- Derive the input set for scripts/backfill-lead-timezone.ts.
+--
+-- Apollo returns a person's IANA timezone on the ENRICHMENT response only (never
+-- on search), and has since February 2026. lead-service only started persisting
+-- it onto the lead in August, so every lead enriched before that carries a null
+-- `leads.timezone` even though the value was already paid for and stored. A lead
+-- with no timezone is refused at the send step, after we paid to find the person,
+-- enrich them and generate their email.
+--
+-- This query reads apollo-service's OWN store. It is a plain SELECT against
+-- `apollo_people_enrichments` — it calls no Apollo API, decrypts no key,
+-- authorizes no credit, and therefore CANNOT spend a credit. That is the whole
+-- reason the repair is shaped as an operator SQL step plus a local script rather
+-- than a call to apollo-service `POST /enrich`: that route buys on a cache miss,
+-- and its cache hit additionally requires `email IS NOT NULL AND email_status =
+-- 'verified' AND created_at > 12 months ago`, so a 28k-row repair driven through
+-- it would have re-purchased every person those predicates exclude.
+--
+-- It lives in SQL, against a sibling's database, for the same reason
+-- exclude-vendor-contacted.sql does: only apollo-service's own store can answer
+-- what Apollo returned for a person, and lead-service must not reach into a
+-- sibling's store from its own source tree.
+--
+-- COALESCE(time_zone, response_raw->>'time_zone') is load-bearing. apollo-service
+-- promotes the typed `time_zone` column only for enrichments written after its
+-- own reader landed; on 2026-08-18 production held 43,966 rows carrying the value
+-- in the raw payload against 17,317 in the typed column. Reading the typed column
+-- alone recovers ~17k people instead of ~28k. (The gap is apollo-service's own
+-- bronze→silver promotion to close — it also makes the LIVE `/enrich` cache hit
+-- return a null timezone for those people. Tracked separately; this query does
+-- not depend on it.)
+--
+-- Run against the apollo-service database (production is the Hetzner box:
+-- `docker exec distribute-postgres-1 psql -U postgres -d apollo_service`), then
+-- feed the CSV to the backfill:
+--
+--   psql -U postgres -d apollo_service -f apollo-lead-timezones.sql
+--   LEAD_SERVICE_DATABASE_URL=... npx tsx scripts/backfill-lead-timezone.ts \
+--     --input /tmp/apollo-lead-timezones.csv --dry-run
+--
+-- The output is every person Apollo has ever given us a timezone for, keyed on
+-- the same `apollo_person_id` lead-service stores. It is deliberately NOT
+-- narrowed to the leads that need it: the script does the matching, so the CSV
+-- needs no lead-side input and the two databases never have to be joined.
+--
+-- One row per person, newest enrichment wins — a re-enrichment can correct a
+-- person's location, and the most recent answer is the one to carry.
+\set ON_ERROR_STOP on
+
+\copy (SELECT DISTINCT ON (apollo_person_id) apollo_person_id, COALESCE(time_zone, response_raw->>'time_zone') AS timezone FROM apollo_people_enrichments WHERE apollo_person_id IS NOT NULL AND COALESCE(time_zone, response_raw->>'time_zone') IS NOT NULL ORDER BY apollo_person_id, created_at DESC) TO '/tmp/apollo-lead-timezones.csv' CSV HEADER

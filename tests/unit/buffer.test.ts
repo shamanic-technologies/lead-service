@@ -130,7 +130,13 @@ describe("pullNext (audience serve-next flow)", () => {
   it("returns found=false WITHOUT serving or fetching goal when no x-audience-id is supplied", async () => {
     const result = await pullNext({ ...baseParams, audienceId: undefined });
 
-    expect(result).toEqual({ found: false });
+    // Empty because nobody was named to look at — NOT because anybody ran out. A brand-new
+    // campaign's very first ask lands here, and the caller stops a campaign for good if it
+    // reads this as exhaustion (campaign 4769db14, 2026-08-20 10:08: 26ms, no audience id,
+    // stopped `audience_exhausted` while its sibling served 109 leads for the same brand
+    // that day). So the reason must never be the exhausted one.
+    expect(result).toEqual({ found: false, reason: "no_audience" });
+    expect(result.reason).not.toBe("audience_exhausted");
     expect(getCurrentGoal).not.toHaveBeenCalled();
     expect(serveNext).not.toHaveBeenCalled();
     expect(upsertLeadFromPerson).not.toHaveBeenCalled();
@@ -150,8 +156,39 @@ describe("pullNext (audience serve-next flow)", () => {
 
     const result = await pullNext(baseParams);
 
-    expect(result).toEqual({ found: false });
+    // The audience WAS walked and came back empty — the one empty answer that is
+    // evidence about a population, and the only one a caller may act on terminally.
+    expect(result).toEqual({ found: false, reason: "audience_exhausted" });
     expect(upsertLeadFromPerson).not.toHaveBeenCalled();
+  });
+
+  it("names a timed-out look as timed out, never as an exhausted audience", async () => {
+    // The serve budget expired before serve-next answered. An unfinished look says
+    // nothing about who is left, so it must not arrive looking like exhaustion.
+    const result = await pullNext(baseParams, AbortSignal.abort());
+
+    expect(result).toEqual({ found: false, reason: "serve_timed_out" });
+    expect(serveNext).not.toHaveBeenCalled();
+    expect(getCurrentGoal).not.toHaveBeenCalled();
+  });
+
+  it("gives exactly one empty answer that means exhaustion, and it is the walked one", async () => {
+    // Guards the distinction itself rather than any single branch: if a future empty
+    // answer starts claiming exhaustion, this fails.
+    const noAudience = await pullNext({ ...baseParams, audienceId: undefined });
+    const timedOut = await pullNext(baseParams, AbortSignal.abort());
+    serveNext.mockResolvedValueOnce({ status: "exhausted", person: null });
+    const exhausted = await pullNext(baseParams);
+
+    const exhaustedClaims = [noAudience, timedOut, exhausted].filter(
+      (r) => r.reason === "audience_exhausted",
+    );
+    expect(exhaustedClaims).toEqual([exhausted]);
+    // and every empty answer says something — silence is what made them identical.
+    for (const r of [noAudience, timedOut, exhausted]) {
+      expect(r.found).toBe(false);
+      expect(r.reason).toBeTruthy();
+    }
   });
 
   it("records the serve against the lead that owns the email, never an email-less lead", async () => {

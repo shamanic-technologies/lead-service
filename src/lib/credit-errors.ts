@@ -1,4 +1,8 @@
-export const CREDIT_INSUFFICIENT_REASON = "credit_insufficient" as const;
+// The empty-serve vocabulary lives in one place (serve-reasons.ts) so a caller reading
+// `reason` sees a closed set, and so nothing here can drift from what the schema publishes.
+import { CREDIT_INSUFFICIENT_REASON } from "./serve-reasons.js";
+
+export { CREDIT_INSUFFICIENT_REASON };
 
 export type CreditInsufficientReason = typeof CREDIT_INSUFFICIENT_REASON;
 
