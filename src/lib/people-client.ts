@@ -38,7 +38,7 @@ export function isPeopleCreditInsufficientError(error: unknown): boolean {
 }
 
 /** Reason returned to the caller when the resolved audience cannot be served. */
-export const AUDIENCE_NOT_SERVEABLE_REASON = "audience_not_serveable" as const;
+export { AUDIENCE_NOT_SERVEABLE_REASON } from "./serve-reasons.js";
 
 /**
  * True when serve-next refused because the audience has no committed provider.
