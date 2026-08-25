@@ -1,5 +1,6 @@
-import { sql } from "drizzle-orm";
+import { and, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
+import { leadsCampaigns } from "../db/schema.js";
 import { checkDeliveryStatus, type StatusResult } from "./email-gateway-client.js";
 
 /**
@@ -224,13 +225,16 @@ export async function loadRetryCandidates(params: {
  */
 export async function markSentCandidates(ids: string[], nowMs: number): Promise<void> {
   if (ids.length === 0) return;
-  const now = new Date(nowMs).toISOString();
-  await db.execute(sql`
-    UPDATE leads_campaigns
-       SET sent_at = ${now}, updated_at = ${now}
-     WHERE id::text = ANY(${ids}::text[])
-       AND sent_at IS NULL
-  `);
+  const now = new Date(nowMs);
+  // Built through the query builder rather than a raw `= ANY(${ids}::text[])`. The driver
+  // renders a bare JS array parameter as a ROW, so hand-casting it to an array type fails
+  // at runtime with `cannot cast type record to text[]` — which is what shipped, and what
+  // took a live campaign's serve down every minute until this was corrected. The builder
+  // owns the parameter's type, so there is nothing left to cast by hand.
+  await db
+    .update(leadsCampaigns)
+    .set({ sentAt: now, updatedAt: now })
+    .where(and(inArray(leadsCampaigns.id, ids), isNull(leadsCampaigns.sentAt)));
 }
 
 /**
