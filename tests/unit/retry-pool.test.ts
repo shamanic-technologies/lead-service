@@ -122,8 +122,23 @@ function execute(query: { queryChunks: unknown[] }): Promise<unknown[]> {
   return Promise.resolve(eligible);
 }
 
+const markSentUpdates: { ids: unknown; set: unknown }[] = [];
+
+// `update` is a builder chain, so the mock has to be one too. Note what that means: this
+// double cannot fail the way a real database does — the statement it stands in for shipped
+// broken past a green run of this very file. The statements themselves are exercised in
+// tests/integration/retry-pool-sql.test.ts, against a real database; keep them there.
 vi.mock("../../src/db/index.js", () => ({
-  db: { execute: (q: { queryChunks: unknown[] }) => execute(q) },
+  db: {
+    execute: (q: { queryChunks: unknown[] }) => execute(q),
+    update: () => ({
+      set: (values: unknown) => ({
+        where: async (predicate: unknown) => {
+          markSentUpdates.push({ ids: predicate, set: values });
+        },
+      }),
+    }),
+  },
 }));
 
 const checkDeliveryStatus = vi.fn();
@@ -337,6 +352,7 @@ describe("pickRetryCandidate", () => {
   });
 
   it("marks a sent person terminal, never returns them, and never re-queries them", async () => {
+    markSentUpdates.length = 0;
     rows = [row({ id: "aaaaaaaa-0000-4000-8000-000000000001" })];
     checkDeliveryStatus.mockResolvedValue({
       results: [
@@ -348,7 +364,13 @@ describe("pickRetryCandidate", () => {
     });
 
     expect(await pickRetryCandidate(base)).toBeNull();
-    expect(rows[0].sent_at).toBe(new Date(NOW).toISOString());
+    expect(markSentUpdates).toHaveLength(1);
+    expect(markSentUpdates[0].set).toMatchObject({ sentAt: new Date(NOW) });
+
+    // The fixture stands in for what the database persists from that write. Asserting the
+    // row here would only be asserting this file's own double — the statement itself is
+    // executed against a real database in tests/integration/retry-pool-sql.test.ts.
+    rows[0].sent_at = new Date(NOW).toISOString();
 
     // A later pull neither sees nor asks about them.
     checkDeliveryStatus.mockClear();
