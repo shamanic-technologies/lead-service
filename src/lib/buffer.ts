@@ -8,6 +8,7 @@ import {
 } from "./leads-registry.js";
 import { buildFullLead } from "./lead-shape.js";
 import { getCurrentGoal } from "./brand-client.js";
+import { pickRetryCandidate } from "./retry-pool.js";
 import {
   AUDIENCE_EXHAUSTED_REASON,
   NO_AUDIENCE_REASON,
@@ -59,8 +60,14 @@ interface PullNextResult {
  *   1. Use the audience id the campaign passed in (x-audience-id header).
  *      campaign-service owns audience selection per run and propagates it down
  *      the workflow DAG; lead-service does NOT re-rank or re-select.
- *   2. Ask human-service serve-next for that audience's next unserved person.
- *   3. Record the person into lead-service silver (leads + leads_campaigns) and
+ *   2. Drain the already-paid pool first: a person this campaign already served,
+ *      already paid for, and never handed to the sending vendor. Every serve is
+ *      billed and suppressed for three months on the spot, so a downstream failure
+ *      after the serve leaves a prospect the brand owns and can never be offered
+ *      again by serve-next. See retry-pool.ts.
+ *   3. Only when nobody is retryable, ask human-service serve-next for that
+ *      audience's next unserved person.
+ *   4. Record the person into lead-service silver (leads + leads_campaigns) and
  *      return it in the same FullLead shape the workflow already consumes.
  *
  * lead-service generates NO filters and takes NO provider — human-service owns
@@ -113,7 +120,51 @@ export async function pullNext(
 
   if (signal?.aborted) return { found: false, reason: SERVE_TIMED_OUT_REASON };
 
-  // 3. Next unserved person of that audience (human-service owns filters/provider/dedup).
+  // 3. Drain the already-paid pool BEFORE buying anyone new.
+  //
+  // Every serve is billed and suppressed for three months on the spot, so a person
+  // dropped by a downstream failure is a prospect the brand paid for and can no longer
+  // reach — `serveNext` will never offer them again. Look at this campaign's own
+  // uncontacted serves first: one batched, campaign-scoped email-gateway call decides
+  // who was never handed to the vendor, and the winner is claimed atomically so two
+  // concurrent runs cannot take the same person. Nobody retryable (or email-gateway
+  // unreachable, which is fail-closed) falls through to serveNext exactly as before.
+  const retry = await pickRetryCandidate({
+    orgId: params.orgId,
+    campaignId: params.campaignId,
+    brandId: params.brandId,
+    runId: params.runId ?? null,
+    parentRunId: params.parentRunId ?? null,
+    context: ctx,
+  });
+
+  if (retry) {
+    const retryLead = await buildFullLead(retry.leadId);
+    console.log(
+      `[lead-service] pullNext found=true source=retry-pool campaign=${params.campaignId} email=${retry.email} leadId=${retry.leadId} attempt=${retry.retryCount + 1}`,
+    );
+    return {
+      found: true,
+      lead: {
+        leadId: retry.leadId,
+        email: retry.email,
+        data: retryLead,
+        brandIds: params.brandIds,
+        orgId: params.orgId,
+        userId: params.userId ?? null,
+        apolloPersonId: retryLead.apolloPersonId ?? null,
+        goal: retry.goal ?? goal,
+        activeGoalId: params.activeGoalId ?? null,
+        brandProfileId: params.brandProfileId ?? null,
+        // The audience this person was originally served from, when the row carries it.
+        audienceId: retry.audienceId ?? audienceId,
+      },
+    };
+  }
+
+  if (signal?.aborted) return { found: false, reason: SERVE_TIMED_OUT_REASON };
+
+  // 4. Next unserved person of that audience (human-service owns filters/provider/dedup).
   const served = await serveNext(audienceId, ctx);
 
   if (served.status === "exhausted" || !served.person) {
@@ -134,7 +185,7 @@ export async function pullNext(
     );
   }
 
-  // 4. Record into silver (leads + contact + organization + lifecycle row).
+  // 5. Record into silver (leads + contact + organization + lifecycle row).
   //
   // A person is ONE identity: when this email already belongs to a lead, THAT
   // lead is the person and the serve is attributed to it. The global

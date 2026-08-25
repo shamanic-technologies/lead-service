@@ -176,6 +176,23 @@ export const leadsCampaigns = pgTable(
     // the owning lead and records the PREVIOUS lead_id here. NULL on every row
     // the repair never touched; the serve path never writes it.
     repointedFromLeadId: uuid("repointed_from_lead_id"),
+    // --- Paid-pool retry (src/lib/retry-pool.ts) ---
+    // A serve is paid for and suppressed for three months the moment it happens, so a
+    // downstream failure after it strands a prospect the brand can no longer reach. The
+    // pool re-serves those people before buying new ones; these three columns are its
+    // state, and none of them changes what `status` means (a served row stays 'served',
+    // so the delivery overlay and the read paths' winner ordering are untouched).
+    //
+    // sent_at          — terminal. An email went out; this row leaves the pool for good
+    //                    and is never re-queried against email-gateway.
+    // retry_claimed_at — the claim lease. Written by the conditional UPDATE that makes
+    //                    two concurrent pulls unable to take the same person, and read
+    //                    back as the queue position so a repeatedly-failing person moves
+    //                    to the back instead of blocking the head.
+    // retry_count      — how many times this paid serve has been handed out again.
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    retryClaimedAt: timestamp("retry_claimed_at", { withTimezone: true }),
+    retryCount: integer("retry_count").notNull().default(0),
     servedAt: timestamp("served_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -187,6 +204,8 @@ export const leadsCampaigns = pgTable(
     index("idx_lc_org").on(table.orgId),
     index("idx_lc_campaign").on(table.campaignId),
     index("idx_lc_user").on(table.userId),
+    // The retry pool's only read: this campaign's non-terminal serves, oldest first.
+    index("idx_lc_retry_pool").on(table.orgId, table.campaignId, table.retryClaimedAt),
     index("idx_lc_persona_attribution").on(
       table.orgId,
       table.featureSlug,

@@ -20,6 +20,11 @@ vi.mock("../../src/lib/leads-registry.js", () => ({
   registerServedEmail: (...args: unknown[]) => registerServedEmail(...args),
 }));
 
+const pickRetryCandidate = vi.fn();
+vi.mock("../../src/lib/retry-pool.js", () => ({
+  pickRetryCandidate: (...args: unknown[]) => pickRetryCandidate(...args),
+}));
+
 const buildFullLead = vi.fn();
 vi.mock("../../src/lib/lead-shape.js", () => ({
   buildFullLead: (...args: unknown[]) => buildFullLead(...args),
@@ -82,6 +87,9 @@ describe("pullNext (audience serve-next flow)", () => {
     vi.clearAllMocks();
     // goal is brand-owned — default the brand-service lookup to "signup".
     getCurrentGoal.mockResolvedValue("signup");
+    // Default: nobody in the already-paid pool, so the serve-next path is exercised
+    // exactly as it was before the pool existed.
+    pickRetryCandidate.mockResolvedValue(null);
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});
   });
@@ -235,5 +243,62 @@ describe("pullNext (audience serve-next flow)", () => {
 
     await expect(pullNext(baseParams)).rejects.toThrow(/served without an email/);
     expect(upsertLeadFromPerson).not.toHaveBeenCalled();
+  });
+
+  it("drains the already-paid pool BEFORE buying anyone new", async () => {
+    // This person was served for this campaign, billed, and never handed to the vendor.
+    // human-service will never offer them again (they are suppressed for the brand for
+    // three months), so if this pull buys someone new instead, the brand has paid for a
+    // prospect it can no longer reach.
+    pickRetryCandidate.mockResolvedValueOnce({
+      id: "lc-1",
+      leadId: "lead-paid",
+      email: "stranded@cascobay.com",
+      servedAt: "2026-08-25T09:00:00.000Z",
+      audienceId: "aud-original",
+      goal: "meetingBooked",
+      retryCount: 0,
+    });
+    buildFullLead.mockResolvedValueOnce({ leadId: "lead-paid", apolloPersonId: "apollo-9" });
+
+    const result = await pullNext(baseParams);
+
+    expect(result.found).toBe(true);
+    expect(result.lead?.leadId).toBe("lead-paid");
+    expect(result.lead?.email).toBe("stranded@cascobay.com");
+    // The audience and goal the paid serve was recorded against, not a fresh guess.
+    expect(result.lead?.audienceId).toBe("aud-original");
+    expect(result.lead?.goal).toBe("meetingBooked");
+    expect(result.lead?.apolloPersonId).toBe("apollo-9");
+
+    // Nothing was bought and no new lifecycle row was written: this person already has one.
+    expect(serveNext).not.toHaveBeenCalled();
+    expect(upsertLeadFromPerson).not.toHaveBeenCalled();
+    expect(insertValues).not.toHaveBeenCalled();
+  });
+
+  it("passes the claiming run to the pool so the retry is attributed to it", async () => {
+    pickRetryCandidate.mockResolvedValueOnce(null);
+    serveNext.mockResolvedValueOnce({ status: "exhausted", person: null });
+
+    await pullNext(baseParams);
+
+    expect(pickRetryCandidate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org-1",
+        campaignId: "campaign-1",
+        brandId: "brand-1",
+        runId: "run-1",
+      }),
+    );
+  });
+
+  it("never consults the pool when the caller named no audience", async () => {
+    // Same early return as before: this service does not pick audiences, so an absent
+    // x-audience-id is a run that was told to serve nobody.
+    const result = await pullNext({ ...baseParams, audienceId: undefined });
+
+    expect(result).toEqual({ found: false, reason: "no_audience" });
+    expect(pickRetryCandidate).not.toHaveBeenCalled();
   });
 });
