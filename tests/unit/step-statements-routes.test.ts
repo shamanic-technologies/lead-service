@@ -13,7 +13,32 @@ vi.mock("../../src/db/index.js", () => ({
 vi.mock("../../src/config.js", () => ({
   LEAD_SERVICE_API_KEY: "test-api-key",
   CONVERSION_INGEST_URL: "https://api.distribute.you/public/conversions",
+  CAMPAIGN_SERVICE_URL: "https://campaign.test",
+  CAMPAIGN_SERVICE_API_KEY: "campaign-key",
 }));
+
+/**
+ * WHICH chain the lead is on is campaign-service's answer, so it is stubbed here rather than
+ * hardcoded in the route. The default is the reply funnel — meeting_booked -> meeting_attended ->
+ * sale — which is the chain the nonsense this feature removes was reported on.
+ */
+const resolveCampaignChain = vi.fn();
+const fetchOrgCampaignFunnelKeys = vi.fn();
+
+vi.mock("../../src/lib/campaign-funnel-client.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../src/lib/campaign-funnel-client.js")>();
+  return {
+    ...actual,
+    resolveCampaignChain: (...args: unknown[]) => resolveCampaignChain(...args),
+    fetchOrgCampaignFunnelKeys: (...args: unknown[]) => fetchOrgCampaignFunnelKeys(...args),
+  };
+});
+
+const REPLY_MEETING_CHAIN = {
+  funnelKey: "sales_meetings_from_conversation",
+  chain: ["meeting_booked", "meeting_attended", "sale"],
+};
 
 const dialect = new PgDialect();
 function compile(call: unknown): { sql: string; params: unknown[] } {
@@ -87,6 +112,8 @@ describe("POST /orgs/leads/:id/step-statements", () => {
   }, 30_000);
   beforeEach(() => {
     execute.mockReset().mockResolvedValue([]);
+    resolveCampaignChain.mockReset().mockResolvedValue(REPLY_MEETING_CHAIN);
+    fetchOrgCampaignFunnelKeys.mockReset().mockResolvedValue(new Map());
   });
 
   it("401 without the service api key", async () => {
@@ -240,12 +267,15 @@ describe("POST /orgs/leads/:id/step-statements", () => {
   it("an outcome retracts an earlier \"never\" for the same step, and says so", async () => {
     execute
       .mockResolvedValueOnce(leadRow())
-      .mockResolvedValueOnce([{ id: "d-1" }]) // a "never" existed
+      .mockResolvedValueOnce([{ step: "sale" }]) // a "never" existed
       .mockResolvedValueOnce([{ id: "ce-1", received_at: "2026-08-19 14:30:00+00" }]);
     const res = await post(app, { step: "sale", kind: "outcome", valueCents: 1000 });
     expect(res.status).toBe(201);
     expect(res.body.retractedNever).toBe(true);
-    expect(sqlAt(1)).toContain("delete from lead_step_disqualifications");
+    expect(res.body.retractedNeverSteps).toEqual(["sale"]);
+    // Marked retracted, never deleted: what somebody stated has to survive being superseded.
+    expect(sqlAt(1)).toContain("update lead_step_disqualifications");
+    expect(sqlAt(1)).toContain("retracted_at = now()");
   });
 
   it("a \"never\" NEVER lands in the conversion ledger", async () => {
@@ -298,6 +328,8 @@ describe("GET /orgs/leads/:id/step-statements", () => {
   }, 30_000);
   beforeEach(() => {
     execute.mockReset().mockResolvedValue([]);
+    resolveCampaignChain.mockReset().mockResolvedValue(REPLY_MEETING_CHAIN);
+    fetchOrgCampaignFunnelKeys.mockReset().mockResolvedValue(new Map());
   });
 
   function get() {
@@ -376,6 +408,156 @@ describe("GET /orgs/leads/:id/step-statements", () => {
   });
 });
 
+describe("the funnel chain constrains a statement's neighbours", () => {
+  let app: express.Express;
+  beforeAll(async () => {
+    app = await buildApp();
+  }, 30_000);
+  beforeEach(() => {
+    execute.mockReset().mockResolvedValue([]);
+    resolveCampaignChain.mockReset().mockResolvedValue(REPLY_MEETING_CHAIN);
+    fetchOrgCampaignFunnelKeys.mockReset().mockResolvedValue(new Map());
+  });
+
+  it("refuses a \"never\" on a step a LATER step of the chain says already happened", async () => {
+    execute
+      .mockResolvedValueOnce(leadRow())
+      .mockResolvedValueOnce([{ event: "sale" }]); // the lead paid
+    const res = await post(app, { step: "meeting_booked", kind: "never" });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("step_already_happened");
+    expect(res.body.error).toMatch(/sale already happened/);
+    expect(allSql()).not.toContain("insert into lead_step_disqualifications");
+    // the refusal asks about the whole forward slice, not only the step itself
+    expect(paramsAt(1)).toContainEqual(["meeting_booked", "meeting_attended", "sale"]);
+  });
+
+  it("an outcome retracts the nevers standing EARLIER on the chain, and names them", async () => {
+    execute
+      .mockResolvedValueOnce(leadRow())
+      .mockResolvedValueOnce([{ step: "meeting_booked" }, { step: "meeting_attended" }])
+      .mockResolvedValueOnce([{ id: "ce-1", received_at: "2026-08-19 14:30:00+00" }]);
+    const res = await post(app, { step: "sale", kind: "outcome", valueCents: 1000 });
+    expect(res.status).toBe(201);
+    expect(res.body.retractedNever).toBe(true);
+    expect(res.body.retractedNeverSteps).toEqual(["meeting_booked", "meeting_attended"]);
+    expect(paramsAt(1)).toContainEqual(["meeting_booked", "meeting_attended", "sale"]);
+    expect(sqlAt(1)).toContain("retracted_at is null");
+  });
+
+  it("a step off the chain constrains only itself", async () => {
+    execute
+      .mockResolvedValueOnce(leadRow())
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "ce-1", received_at: "2026-08-19 14:30:00+00" }]);
+    const res = await post(app, { step: "signup", kind: "outcome" });
+    expect(res.status).toBe(201);
+    expect(paramsAt(1)).toContainEqual(["signup"]);
+  });
+
+  it("restating a \"never\" clears an earlier retraction", async () => {
+    execute
+      .mockResolvedValueOnce(leadRow())
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { id: "d-1", created_at: "2026-08-19 14:30:00+00", updated_at: "2026-08-19 14:30:00+00" },
+      ]);
+    const res = await post(app, { step: "meeting_booked", kind: "never" });
+    expect(res.status).toBe(201);
+    expect(sqlAt(2)).toContain("retracted_at = null");
+  });
+
+  it("502 when campaign-service cannot say which funnel the campaign sells through", async () => {
+    const { FunnelChainError } = await import("../../src/lib/campaign-funnel-client.js");
+    execute.mockResolvedValueOnce(leadRow());
+    resolveCampaignChain.mockRejectedValueOnce(new FunnelChainError("unavailable", "down"));
+    const res = await post(app, { step: "sale", kind: "outcome", valueCents: 1000 });
+    expect(res.status).toBe(502);
+    expect(res.body.code).toBe("campaign_service_unavailable");
+    expect(allSql()).not.toContain("insert into conversion_events");
+  });
+
+  it("409, never a guessed order, when the campaign states no funnel", async () => {
+    const { FunnelChainError } = await import("../../src/lib/campaign-funnel-client.js");
+    execute.mockResolvedValueOnce(leadRow());
+    resolveCampaignChain.mockRejectedValueOnce(new FunnelChainError("unstated", "no funnel"));
+    const res = await post(app, { step: "sale", kind: "outcome", valueCents: 1000 });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("funnel_unstated");
+  });
+
+  it("reads a stated never forward and a stated outcome backward, distinguishing the two", async () => {
+    execute
+      .mockResolvedValueOnce(leadRow())
+      .mockResolvedValueOnce([]) // no outcomes
+      .mockResolvedValueOnce([
+        {
+          step: "meeting_booked",
+          note: "left the company",
+          stated_by_user_id: "user-1",
+          updated_at: "2026-08-06 09:00:00+00",
+        },
+      ]);
+    const res = await request(app)
+      .get(`/orgs/leads/${LEAD_ROW_ID}/step-statements`)
+      .set("x-api-key", "test-api-key")
+      .set("x-org-id", "org-1");
+    expect(res.status).toBe(200);
+    expect(res.body.funnelKey).toBe("sales_meetings_from_conversation");
+    expect(res.body.chain).toEqual(["meeting_booked", "meeting_attended", "sale"]);
+    const byStep = Object.fromEntries(
+      res.body.steps.map((s: { step: string }) => [s.step, s]),
+    ) as Record<string, { state: string; origin: string | null; impliedBy: string | null }>;
+    expect(byStep.meeting_booked).toMatchObject({ state: "never", origin: "stated" });
+    expect(byStep.meeting_attended).toMatchObject({
+      state: "never",
+      origin: "implied",
+      impliedBy: "meeting_booked",
+    });
+    expect(byStep.sale).toMatchObject({ state: "never", origin: "implied" });
+    // the live read excludes retracted statements
+    expect(sqlAt(2)).toContain("retracted_at is null");
+  });
+
+  it("the nonsense this feature removes is unreachable: booked never + attended outcome", async () => {
+    execute
+      .mockResolvedValueOnce(leadRow())
+      .mockResolvedValueOnce([
+        {
+          event: "meeting_attended",
+          source: "manual",
+          value_cents: null,
+          note: "showed up",
+          stated_by_user_id: "user-1",
+          received_at: "2026-08-05 09:00:00+00",
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          step: "meeting_booked",
+          note: "never booked",
+          stated_by_user_id: "user-1",
+          updated_at: "2026-08-04 09:00:00+00",
+        },
+      ]);
+    const res = await request(app)
+      .get(`/orgs/leads/${LEAD_ROW_ID}/step-statements`)
+      .set("x-api-key", "test-api-key")
+      .set("x-org-id", "org-1");
+    expect(res.status).toBe(200);
+    const byStep = Object.fromEntries(
+      res.body.steps.map((s: { step: string }) => [s.step, s]),
+    ) as Record<string, { state: string; origin: string | null; statedState: string | null }>;
+    // a fact beats a prediction, and the prediction is still readable
+    expect(byStep.meeting_booked).toMatchObject({
+      state: "outcome",
+      origin: "implied",
+      statedState: "never",
+    });
+    expect(byStep.meeting_attended.state).toBe("outcome");
+  });
+});
+
 describe("GET /internal/brands/:brandId/step-disqualifications", () => {
   let app: express.Express;
   beforeAll(async () => {
@@ -383,6 +565,8 @@ describe("GET /internal/brands/:brandId/step-disqualifications", () => {
   }, 30_000);
   beforeEach(() => {
     execute.mockReset().mockResolvedValue([]);
+    resolveCampaignChain.mockReset().mockResolvedValue(REPLY_MEETING_CHAIN);
+    fetchOrgCampaignFunnelKeys.mockReset().mockResolvedValue(new Map());
   });
 
   it("answers all-zero for a brand nobody disqualified anyone for", async () => {
@@ -414,6 +598,119 @@ describe("GET /internal/brands/:brandId/step-disqualifications", () => {
     expect(res.status).toBe(200);
     expect(res.body.counts.sale).toBe(2);
     expect(res.body.byStep.sale).toEqual(["a@x.com", "b@x.com"]);
+  });
+
+  it("?implied=true applies each campaign's own chain, and keeps stated apart from implied", async () => {
+    fetchOrgCampaignFunnelKeys.mockResolvedValue(
+      new Map([
+        ["campaign-reply", "sales_meetings_from_conversation"],
+        ["campaign-web", "website_purchases"],
+      ]),
+    );
+    execute
+      .mockResolvedValueOnce([{ step: "meeting_booked", n: 1 }, { step: "signup", n: 1 }]) // counts
+      .mockResolvedValueOnce([
+        { step: "meeting_booked", email: "a@x.com" },
+        { step: "signup", email: "b@x.com" },
+      ]) // stated emails
+      .mockResolvedValueOnce([
+        {
+          lead_id: "aaaaaaaa-0000-0000-0000-000000000001",
+          campaign_id: "campaign-reply",
+          org_id: "org-1",
+          step: "meeting_booked",
+          email: "a@x.com",
+        },
+        {
+          lead_id: "bbbbbbbb-0000-0000-0000-000000000002",
+          campaign_id: "campaign-web",
+          org_id: "org-1",
+          step: "signup",
+          email: "b@x.com",
+        },
+      ]) // live statements
+      .mockResolvedValueOnce([]); // no outcomes
+
+    const res = await request(app)
+      .get("/internal/brands/brand-1/step-disqualifications?implied=true")
+      .set("x-api-key", "test-api-key");
+
+    expect(res.status).toBe(200);
+    // what somebody stated — unchanged
+    expect(res.body.counts.meeting_booked).toBe(1);
+    expect(res.body.counts.sale).toBe(0);
+    // what the chains conclude — two funnels, two different orders
+    expect(res.body.impliedByStep.meeting_attended).toEqual(["a@x.com"]);
+    expect(res.body.impliedByStep.sale.sort()).toEqual(["a@x.com", "b@x.com"]);
+    expect(res.body.impliedByStep.signup).toEqual([]);
+    expect(res.body.effectiveCounts.sale).toBe(2);
+    expect(res.body.effectiveByStep.meeting_booked).toEqual(["a@x.com"]);
+  });
+
+  it("a never contradicted by an outcome further down the chain leaves the effective set", async () => {
+    fetchOrgCampaignFunnelKeys.mockResolvedValue(
+      new Map([["campaign-reply", "sales_meetings_from_conversation"]]),
+    );
+    execute
+      .mockResolvedValueOnce([{ step: "meeting_booked", n: 1 }])
+      .mockResolvedValueOnce([{ step: "meeting_booked", email: "a@x.com" }])
+      .mockResolvedValueOnce([
+        {
+          lead_id: "aaaaaaaa-0000-0000-0000-000000000001",
+          campaign_id: "campaign-reply",
+          org_id: "org-1",
+          step: "meeting_booked",
+          email: "a@x.com",
+        },
+      ])
+      .mockResolvedValueOnce([
+        { matched_lead_id: "aaaaaaaa-0000-0000-0000-000000000001", event: "sale" },
+      ]);
+
+    const res = await request(app)
+      .get("/internal/brands/brand-1/step-disqualifications?implied=true")
+      .set("x-api-key", "test-api-key");
+
+    expect(res.status).toBe(200);
+    // the statement is still on the record ...
+    expect(res.body.counts.meeting_booked).toBe(1);
+    // ... and it is not read as dead anywhere, because the lead demonstrably paid
+    expect(res.body.effectiveCounts.meeting_booked).toBe(0);
+    expect(res.body.effectiveCounts.sale).toBe(0);
+  });
+
+  it("409 rather than a guessed order when a campaign states no funnel", async () => {
+    fetchOrgCampaignFunnelKeys.mockResolvedValue(new Map([["campaign-x", null]]));
+    execute
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          lead_id: "aaaaaaaa-0000-0000-0000-000000000001",
+          campaign_id: "campaign-x",
+          org_id: "org-1",
+          step: "sale",
+          email: null,
+        },
+      ]);
+    const res = await request(app)
+      .get("/internal/brands/brand-1/step-disqualifications?implied=true")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("funnel_unstated");
+    expect(res.body.campaignIds).toEqual(["campaign-x"]);
+  });
+
+  it("without ?implied it asks campaign-service nothing and answers exactly as before", async () => {
+    execute
+      .mockResolvedValueOnce([{ step: "sale", n: 1 }])
+      .mockResolvedValueOnce([{ step: "sale", email: "a@x.com" }]);
+    const res = await request(app)
+      .get("/internal/brands/brand-1/step-disqualifications")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(200);
+    expect(Object.keys(res.body).sort()).toEqual(["byStep", "counts"]);
+    expect(fetchOrgCampaignFunnelKeys).not.toHaveBeenCalled();
   });
 
   it("401 without the service api key", async () => {
