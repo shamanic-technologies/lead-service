@@ -25,7 +25,15 @@ const PERSON_FIELDS = [
   "country",
   "seniority",
   "timezone",
+  "businessLanguages",
 ] as const;
+
+/**
+ * The write path, exposed so a test can assert a field is actually carried onto
+ * the lead. Presence in this list IS the mapping — `pickPersonFields` copies
+ * every listed key straight off the neutral Person.
+ */
+export const PERSON_FIELDS_FOR_TEST = PERSON_FIELDS;
 
 function pickPersonFields(person: Person): Partial<NewLead> {
   const out: Partial<NewLead> = {};

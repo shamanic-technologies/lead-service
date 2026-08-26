@@ -739,6 +739,19 @@ export const FullLeadSchema = z
           "(email-gateway-service → instantly-service). null when upstream provides none — the send path falls back to a safe default.",
         example: "America/New_York",
       }),
+    businessLanguages: z
+      .array(z.string())
+      .nullable()
+      .openapi({
+        description:
+          "Language(s) this lead plausibly conducts business in, as ISO 639-1 codes (e.g. 'de', 'fr', 'it'). " +
+          "ORDERED, most plausible first — the ordering is a guarantee, so a consumer may select by position " +
+          "(index 0 = the single most plausible business language). Produced and owned by human-service; " +
+          "lead-service carries it through unchanged and never derives it. An EMPTY array means UNKNOWN — the " +
+          "producer had no usable signal and deliberately does not fabricate one, which is distinct from ['en'] " +
+          "(= known to be English). null means the lead predates this field being carried, and is equally not a guess.",
+        example: ["de", "en"],
+      }),
     seniority: z
       .string()
       .nullable()

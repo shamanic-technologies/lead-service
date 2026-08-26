@@ -93,6 +93,13 @@ export interface FullLead {
    * cold email in the recipient's local business hours. null when unknown.
    */
   timezone: string | null;
+  /**
+   * Language(s) this lead plausibly does business in, ISO 639-1, ORDERED
+   * most-plausible-first (index 0 = most plausible). Produced by human-service.
+   * Empty array = the producer had no signal; null = the lead predates this being
+   * carried. Neither is a guess, and neither is the same as ["en"].
+   */
+  businessLanguages: string[] | null;
   seniority: string | null;
   departments: string[] | null;
   subdepartments: string[] | null;
@@ -272,6 +279,7 @@ export async function buildFullLead(leadId: string): Promise<FullLead> {
     state: lead.state ?? null,
     country: lead.country ?? null,
     timezone: lead.timezone ?? null,
+    businessLanguages: lead.businessLanguages ?? null,
     seniority: lead.seniority ?? null,
     departments: lead.departments ?? null,
     subdepartments: lead.subdepartments ?? null,
@@ -372,6 +380,7 @@ export async function buildFullLeadsBatch(
       state: lead.state ?? null,
       country: lead.country ?? null,
       timezone: lead.timezone ?? null,
+      businessLanguages: lead.businessLanguages ?? null,
       seniority: lead.seniority ?? null,
       departments: lead.departments ?? null,
       subdepartments: lead.subdepartments ?? null,

@@ -35,6 +35,14 @@ export const leads = pgTable(
     // can schedule cold email in the recipient's local business hours. Null when
     // upstream provides none — downstream falls back to a safe default.
     timezone: text("timezone"),
+    // Language(s) this person plausibly conducts business in, ISO 639-1 lowercase
+    // codes, ORDERED most-plausible-first. Derived and owned by human-service (see
+    // its `businessLanguages`); lead-service only carries it. A Postgres array is
+    // used precisely because it preserves order — the consumer selects by position,
+    // so a set or a re-sorted list would silently break it. Empty array means the
+    // producer had no usable signal; that is distinct from ["en"] (= known English),
+    // and NULL means the lead predates this being carried. Never derived here.
+    businessLanguages: text("business_languages").array(),
     departments: text("departments").array(),
     subdepartments: text("subdepartments").array(),
     functions: text("functions").array(),
