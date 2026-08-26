@@ -2786,6 +2786,29 @@ const STEP_ENUM = [
   "purchase",
 ] as const;
 
+const FUNNEL_KEY_ENUM = [
+  "sales_meetings_from_conversation",
+  "sales_meetings_from_website",
+  "website_purchases",
+  "form_magnet",
+  "sales_from_conversation",
+  "sales_meetings_from_ads",
+  "lead_forms_from_ads",
+] as const;
+
+const ChainFieldsSchema = {
+  funnelKey: z.enum(FUNNEL_KEY_ENUM).openapi({
+    description:
+      "The sales funnel this lead's CAMPAIGN states it sells through, read from campaign-service and never inferred. It is what gives the steps an order: \"before\" and \"after\" mean nothing without knowing which chain the lead is on.",
+    example: "sales_meetings_from_conversation",
+  }),
+  chain: z.array(z.enum(STEP_ENUM)).openapi({
+    description:
+      "That funnel's steps, IN ORDER, expressed in this service's step vocabulary. A step of the vocabulary that is not on this chain is constrained by nothing: no chain rule reaches it.",
+    example: ["meeting_booked", "meeting_attended", "sale"],
+  }),
+};
+
 const StepStatementRequestSchema = z
   .object({
     step: z.enum(STEP_ENUM).openapi({
@@ -2838,9 +2861,15 @@ const StepStatementSchema = z.object({
 const StepStatementResponseSchema = z
   .object({
     statement: StepStatementSchema,
+    ...ChainFieldsSchema,
     retractedNever: z.boolean().optional().openapi({
       description:
-        "True when this outcome superseded an earlier \"never\" for the same step (the person did the thing after all). The two cannot both stand, and this is the only direction that can be true — stating \"never\" for a step that already happened is a 409.",
+        "True when this outcome superseded at least one earlier \"never\" — for the same step (the person did the thing after all) or for a step BEFORE it on the chain (a lead that paid necessarily got through the steps that lead to paying). The two cannot both stand, and this is the only direction that can be true — stating \"never\" for a step that already happened, or that a later step on the chain says already happened, is a 409.",
+    }),
+    retractedNeverSteps: z.array(z.enum(STEP_ENUM)).optional().openapi({
+      description:
+        "WHICH \"never\" statements this outcome superseded. They are marked retracted and kept, never deleted: what a person actually stated has to survive being superseded, and every read filters retracted statements out.",
+      example: ["meeting_booked", "meeting_attended"],
     }),
   })
   .openapi("LeadStepStatementResponse", { description: "The statement as recorded." });
@@ -2874,8 +2903,15 @@ registry.registerPath({
     400: { description: "Invalid id, step, kind, occurredAt; valueCents on a \"never\"; or a \"sale\" outcome with no valueCents" },
     401: { description: "Unauthorized" },
     404: { description: "No such lead row for this org (or for the requested brand scope)" },
-    409: { description: "Cannot state \"never\" for a step that already has an outcome" },
+    409: {
+      description:
+        "Cannot state \"never\" for a step that already has an outcome, or that a LATER step of the campaign's funnel says already happened (code step_already_happened); or the campaign states no sales funnel, so its steps have no order (code funnel_unstated / campaign_unknown)",
+    },
     500: { description: "Internal server error" },
+    502: {
+      description:
+        "campaign-service could not say which funnel the campaign sells through (code campaign_service_unavailable) — no answer is returned rather than one built on a chain nobody stated",
+    },
   },
 });
 
@@ -2884,10 +2920,30 @@ const StepStateSchema = z
     step: z.enum(STEP_ENUM),
     state: z.enum(["outcome", "never", "pending"]).openapi({
       description:
-        "outcome — it happened; never — a human stated it never will (counted by nothing); pending — neither has been stated. Pending is named explicitly rather than inferred from an empty count, which is the whole point: an absent outcome and a dead lead used to be indistinguishable.",
+        "outcome — it happened, either because somebody stated it or because a LATER step of this campaign's chain did; never — it will not happen, either stated or implied by an EARLIER step of the chain being never; pending — neither has been stated and no chain rule reaches it. Nothing counts a \"never\", however it arose.",
+    }),
+    origin: z.enum(["stated", "implied"]).nullable().openapi({
+      description:
+        "Whether a PERSON stated this step or the CHAIN implies it. Null exactly when the step is pending. An implied step is not a statement somebody made: it carries no author, no note and no date, and it moves automatically when the statement that implied it is retracted or superseded.",
+    }),
+    impliedBy: z.enum(STEP_ENUM).nullable().openapi({
+      description:
+        "The STATED step this one follows from — a later outcome for an implied outcome, an earlier \"never\" for an implied never. Null when nothing implies it.",
+    }),
+    statedState: z.enum(["outcome", "never"]).nullable().openapi({
+      description:
+        "What a person actually stated about THIS step, whatever the chain concluded — so a real statement is never lost to satisfy the chain. A \"never\" contradicted by a later outcome reads state=outcome, origin=implied, statedState=never.",
+    }),
+    inChain: z.boolean().openapi({
+      description:
+        "Whether this step is part of the lead's funnel chain. A step outside it reads from statements alone: no chain rule reaches it.",
+    }),
+    chainIndex: z.number().int().nullable().openapi({
+      description: "Where the step sits on the chain, or null when the chain does not contain it.",
     }),
     source: z.enum(["tracker", "manual"]).nullable().openapi({
-      description: "Who said so. Null on a pending step (nobody has said anything).",
+      description:
+        "Who said so. Null on a pending step (nobody has said anything) and on an implied one (nobody stated it).",
     }),
     valueCents: z.number().int().nullable(),
     note: z.string().nullable(),
@@ -2902,9 +2958,10 @@ const StepStatementsListSchema = z
     leadId: z.string(),
     campaignId: z.string(),
     brandId: z.string(),
+    ...ChainFieldsSchema,
     steps: z.array(StepStateSchema).openapi({
       description:
-        "One entry per step of the outcome vocabulary, ALWAYS all of them, in a fixed order: signup, meeting_booked, form_submission, sale, meeting_attended, website_visit. The website visit additionally reads as an outcome with source=tracker when the delivery layer already measured a click for this lead, so the panel never invites somebody to state a fact the system already holds.",
+        "One entry per step of the outcome vocabulary, ALWAYS all of them, in a fixed order: signup, meeting_booked, form_submission, sale, meeting_attended, website_visit. Each carries the chain's two rules already applied — a \"never\" makes every LATER step of `chain` never, an outcome makes every EARLIER one reached — with `origin` telling a stated step from an implied one. The website visit additionally reads as an outcome with source=tracker when the delivery layer already measured a click for this lead, so the panel never invites somebody to state a fact the system already holds.",
     }),
   })
   .openapi("LeadStepStatementsResponse", {
@@ -2919,7 +2976,12 @@ registry.registerPath({
     "The read behind the panel a statement is made from: one entry per step, always all of them, each " +
     "either an outcome (with the source that reported or stated it), a \"never\", or pending. A " +
     "tracker-reported outcome is attributed to the person at brand grain, a hand-stated one to the exact " +
-    "row it was stated on; both are returned here.",
+    "row it was stated on; both are returned here. A funnel is a CHAIN, so the answer respects it: a " +
+    "\"never\" makes every LATER step of that campaign's chain read as never, and an outcome makes every " +
+    "EARLIER one read as reached — `origin` tells a step a person STATED from one the chain IMPLIES, and " +
+    "`statedState` keeps what somebody really said readable even where the chain concluded otherwise. The " +
+    "chain order is per FUNNEL (`funnelKey` + `chain`), read from campaign-service and never guessed: a " +
+    "campaign that states no funnel is a 409, not a made-up order.",
   request: { params: LeadRowIdPathParam },
   parameters: StepStatementOrgHeaders,
   responses: {
@@ -2930,8 +2992,34 @@ registry.registerPath({
     400: { description: "id is not a uuid" },
     401: { description: "Unauthorized" },
     404: { description: "No such lead row for this org (or for the requested brand scope)" },
+    409: {
+      description:
+        "The campaign states no sales funnel this service has a chain for, so its steps have no order (code funnel_unstated / campaign_unknown)",
+    },
     500: { description: "Internal server error" },
+    502: {
+      description:
+        "campaign-service could not say which funnel the campaign sells through (code campaign_service_unavailable)",
+    },
   },
+});
+
+const StepCountsShape = z.object({
+  signup: z.number().int(),
+  meeting_booked: z.number().int(),
+  meeting_attended: z.number().int(),
+  form_submission: z.number().int(),
+  sale: z.number().int(),
+  website_visit: z.number().int(),
+});
+
+const StepEmailsShape = z.object({
+  signup: z.array(z.string()),
+  meeting_booked: z.array(z.string()),
+  meeting_attended: z.array(z.string()),
+  form_submission: z.array(z.string()),
+  sale: z.array(z.string()),
+  website_visit: z.array(z.string()),
 });
 
 const StepDisqualificationsResponseSchema = z
@@ -2971,6 +3059,22 @@ const StepDisqualificationsResponseSchema = z
           "Per step, the canonical (primary) emails of those people — the SAME join key /converted-lead-emails returns, lowercased and DISTINCT, so a consumer intersects it with audience membership exactly as it already does for conversions. A lead with no email contact method has no join key and is absent here while still counted in `counts`.",
       }),
   })
+  .extend({
+    impliedCounts: StepCountsShape.optional().openapi({
+      description:
+        "Only with ?implied=true. Per step, how many DISTINCT people NOBODY stated that step for, whom a \"never\" EARLIER on their campaign's funnel makes never anyway: once a step is false, everything after it is false. Kept apart from `counts` so a reader can always tell what somebody stated from what the chain concluded.",
+    }),
+    impliedByStep: StepEmailsShape.optional().openapi({
+      description: "Only with ?implied=true. The same canonical-email join key, for the implied set.",
+    }),
+    effectiveCounts: StepCountsShape.optional().openapi({
+      description:
+        "Only with ?implied=true. Stated and implied together — the answer to \"is this lead dead at this step?\". A \"never\" contradicted by an outcome further down the chain is absent here (the lead demonstrably got there) while remaining in `counts`, which is the record of what was said.",
+    }),
+    effectiveByStep: StepEmailsShape.optional().openapi({
+      description: "Only with ?implied=true. The same canonical-email join key, for the effective set.",
+    }),
+  })
   .openapi("LeadStepDisqualificationsResponse", {
     description: "Per-brand, who is dead at which funnel step.",
   });
@@ -2985,7 +3089,16 @@ registry.registerPath({
     "DEAD at a step from one still PENDING, so a cost-per-acquisition denominator stops waiting forever on " +
     "somebody who is never coming. Never 404 — a brand nobody has disqualified anyone for returns empty " +
     "sets and zero counts.",
-  request: { params: BrandIdPathParam },
+  request: {
+    params: BrandIdPathParam,
+    query: z.object({
+      implied: z.literal("true").optional().openapi({
+        param: { name: "implied", in: "query" },
+        description:
+          "Apply each lead's campaign funnel CHAIN as well: a lead that will never book has, by the same statement, never attended and never paid. Opt-in because it needs a campaign-service read per org; without it the response is byte-identical to what this endpoint has always answered.",
+      }),
+    }),
+  },
   parameters: FeatureMembershipApiKeyHeader,
   responses: {
     200: {
@@ -2993,5 +3106,13 @@ registry.registerPath({
       content: { "application/json": { schema: StepDisqualificationsResponseSchema } },
     },
     401: { description: "Unauthorized" },
+    409: {
+      description:
+        "Only with ?implied=true: some of these leads belong to campaigns that state no sales funnel, so no chain can be applied (code funnel_unstated, with the offending campaignIds)",
+    },
+    502: {
+      description:
+        "Only with ?implied=true: campaign-service could not answer (code campaign_service_unavailable)",
+    },
   },
 });

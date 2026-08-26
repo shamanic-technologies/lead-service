@@ -23,7 +23,23 @@ vi.mock("../../src/db/index.js", () => ({
 vi.mock("../../src/config.js", () => ({
   LEAD_SERVICE_API_KEY: "test-api-key",
   CONVERSION_INGEST_URL: "https://api.distribute.you/public/conversions",
+  CAMPAIGN_SERVICE_URL: "https://campaign.test",
+  CAMPAIGN_SERVICE_API_KEY: "campaign-key",
 }));
+
+// WHICH chain the lead is on is campaign-service's answer. These leads sell meetings off the
+// website — website_visit -> meeting_booked -> meeting_attended -> sale — one of the two funnels
+// that START at the visit this file is about.
+const resolveCampaignChain = vi.fn(async () => ({
+  funnelKey: "sales_meetings_from_website",
+  chain: ["website_visit", "meeting_booked", "meeting_attended", "sale"],
+}));
+
+vi.mock("../../src/lib/campaign-funnel-client.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../src/lib/campaign-funnel-client.js")>();
+  return { ...actual, resolveCampaignChain: (...args: unknown[]) => resolveCampaignChain(...args) };
+});
 
 vi.mock("../../src/lib/email-gateway-client.js", () => ({
   checkDeliveryStatus: (...args: unknown[]) => checkDeliveryStatus(...args),
