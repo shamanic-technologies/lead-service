@@ -11,9 +11,13 @@ import {
   generateConversionToken,
   computeDedupeSignature,
   matchConversion,
-  CONVERSION_EVENTS,
-  type ConversionEventName,
 } from "../lib/conversions.js";
+import {
+  LEAD_STEP_OUTCOMES,
+  canonicalizeStepOutcome,
+  type LeadStepOutcomeName,
+  type StatementSource,
+} from "../lib/step-statements.js";
 import { toIsoTimestamp } from "../lib/basic-leads.js";
 
 const router = Router();
@@ -33,7 +37,7 @@ function wrap<Req extends Request = Request>(
 // reading `purchase` (features-service conversion-counts clients) stay green while they migrate
 // to `sale`. Drop the mirror once every consumer reads `sale`.
 function withLegacyPurchaseAlias<T>(
-  byEvent: Record<ConversionEventName, T>,
+  byEvent: Record<LeadStepOutcomeName, T>,
 ): Record<string, T> {
   return { ...byEvent, purchase: byEvent.sale };
 }
@@ -294,10 +298,21 @@ router.post(
  *    This is the "counts toward the brand's real outcomes" set.
  *  - "ping" is a liveness heartbeat that never lands in conversion_events → excluded for free.
  *
- * All four canonical event-type keys (signup | meeting_booked | form_submission | sale) are
- * ALWAYS present (0 when none received). The terminal "customer paid" event was renamed
+ * All FIVE canonical step keys (signup | meeting_booked | meeting_attended | form_submission |
+ * sale) are ALWAYS present (0 when none). "meeting_attended" is statable by hand only — a
+ * page-load tag cannot observe somebody showing up to a meeting — but it counts exactly like the
+ * four the tracker reports, which is what finally lets the booked-to-attended rate brand-service
+ * prices with be measured against reality. The terminal "customer paid" event was renamed
  * "purchase" → "sale"; for the migration window the response ALSO carries a legacy "purchase"
  * key mirroring "sale" so consumers still reading `purchase` stay green until they migrate.
+ *
+ * `counts` totals BOTH sources and is what every existing consumer keeps reading unchanged.
+ * `bySource.tracker` / `bySource.manual` split the same rows by who said so — a hand-stated
+ * outcome is distinguishable from a tracker-reported one after the fact without changing what
+ * either counts toward. For every key, tracker + manual === counts.
+ *
+ * A "never" statement ("this lead will not book / attend / buy") is NOT an outcome: it lives in
+ * lead_step_disqualifications, which this read does not touch, so nothing here can count it.
  * Never 404 — a brand with zero conversions returns all-zero counts.
  */
 router.get(
@@ -307,24 +322,41 @@ router.get(
     const brandId = req.params.brandId;
 
     const rows = (await db.execute(sql`
-      SELECT event, count(*)::int AS n
+      SELECT event, source, count(*)::int AS n
       FROM conversion_events
       WHERE brand_id = ${brandId}
         AND attribution_status = 'attributed'
-      GROUP BY event
-    `)) as unknown as Array<{ event: string; n: number }>;
+      GROUP BY event, source
+    `)) as unknown as Array<{ event: string; source: string; n: number }>;
 
-    const counts = Object.fromEntries(
-      CONVERSION_EVENTS.map((e) => [e, 0]),
-    ) as Record<ConversionEventName, number>;
+    const zeroed = () =>
+      Object.fromEntries(LEAD_STEP_OUTCOMES.map((e) => [e, 0])) as Record<
+        LeadStepOutcomeName,
+        number
+      >;
+    const counts = zeroed();
+    const bySource: Record<StatementSource, Record<LeadStepOutcomeName, number>> = {
+      tracker: zeroed(),
+      manual: zeroed(),
+    };
 
     for (const row of rows) {
       // Fold canonical + any legacy-spelled historical row into its canonical bucket.
-      const canonical = canonicalizeConversionEvent(row.event);
-      if (canonical) counts[canonical] += row.n;
+      const canonical = canonicalizeStepOutcome(row.event);
+      if (!canonical) continue;
+      counts[canonical] += row.n;
+      // Anything not explicitly stated by a human came off the website tracker — which is what
+      // every row written before the column existed is.
+      bySource[row.source === "manual" ? "manual" : "tracker"][canonical] += row.n;
     }
 
-    res.json({ counts: withLegacyPurchaseAlias(counts) });
+    res.json({
+      counts: withLegacyPurchaseAlias(counts),
+      bySource: {
+        tracker: withLegacyPurchaseAlias(bySource.tracker),
+        manual: withLegacyPurchaseAlias(bySource.manual),
+      },
+    });
   }),
 );
 
@@ -343,8 +375,8 @@ router.get(
  *  - `byDay[event]` maps a UTC calendar day (YYYY-MM-DD) → count. Days are bucketed by
  *    `received_at AT TIME ZONE 'UTC'`, matching the UTC-day convention the ingest dedupe
  *    signature already uses (`now.toISOString().slice(0,10)`). A day key appears only when
- *    its count > 0. All four canonical event keys (…, sale) are ALWAYS present (empty object
- *    when none), plus a legacy "purchase" key mirroring "sale" for the rename migration window.
+ *    its count > 0. All five canonical step keys (…, meeting_attended, sale) are ALWAYS present
+ *    (empty object when none), plus a legacy "purchase" key mirroring "sale" for the rename window.
  *  - `undated[event]` counts attributed conversions whose day genuinely cannot be
  *    determined (received_at IS NULL). received_at is NOT NULL DEFAULT now() today, so this
  *    is 0 in practice — but it is surfaced EXPLICITLY, never dropped and never assigned a
@@ -380,15 +412,15 @@ router.get(
     `)) as unknown as Array<{ event: string; day: string | null; n: number }>;
 
     const byDay = Object.fromEntries(
-      CONVERSION_EVENTS.map((e) => [e, {} as Record<string, number>]),
-    ) as Record<ConversionEventName, Record<string, number>>;
+      LEAD_STEP_OUTCOMES.map((e) => [e, {} as Record<string, number>]),
+    ) as Record<LeadStepOutcomeName, Record<string, number>>;
     const undated = Object.fromEntries(
-      CONVERSION_EVENTS.map((e) => [e, 0]),
-    ) as Record<ConversionEventName, number>;
+      LEAD_STEP_OUTCOMES.map((e) => [e, 0]),
+    ) as Record<LeadStepOutcomeName, number>;
 
     for (const row of rows) {
       // Fold canonical + any legacy-spelled historical row into its canonical bucket.
-      const canonical = canonicalizeConversionEvent(row.event);
+      const canonical = canonicalizeStepOutcome(row.event);
       if (!canonical) continue;
       if (row.day === null) {
         undated[canonical] += row.n;
@@ -413,8 +445,8 @@ router.get(
  * features-service can intersect it with each audience's email membership and count
  * conversions per audience.
  *
- *  - `event` is REQUIRED and must be one of the four conversion event types
- *    (signup | meeting_booked | form_submission | sale). The legacy spelling "purchase"
+ *  - `event` is REQUIRED and must be one of the five step outcomes
+ *    (signup | meeting_booked | meeting_attended | form_submission | sale). The legacy spelling "purchase"
  *    is still accepted and normalized to "sale". Missing/invalid → 400. "ping" is a
  *    liveness heartbeat, never a conversion → not accepted here.
  *  - Only `attribution_status = 'attributed'` rows count (credited to a lead we emailed
@@ -438,7 +470,7 @@ router.get(
 
     // Accept canonical "sale" AND legacy "purchase" (both resolve to the canonical "sale"
     // that stored rows carry); anything else (incl. "ping", garbage, missing) → 400.
-    const event = canonicalizeConversionEvent(req.query.event);
+    const event = canonicalizeStepOutcome(req.query.event);
     if (!event) {
       res.status(400).json({ error: "Invalid or missing event" });
       return;
