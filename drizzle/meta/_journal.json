@@ -225,6 +225,13 @@
       "when": 1782518400000,
       "tag": "0031_lead_step_statements",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1782604800000,
+      "tag": "0032_leads_business_languages",
+      "breakpoints": true
     }
   ]
 }

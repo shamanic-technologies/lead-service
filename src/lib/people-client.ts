@@ -98,6 +98,14 @@ export interface Person {
    * recipient's local business hours. null when upstream provides none.
    */
   timezone: string | null;
+  /**
+   * Language(s) this person plausibly conducts business in, as ISO 639-1 codes
+   * ("de", "fr", "it"), ORDERED most-plausible-first. Produced by human-service,
+   * which owns the derivation; we carry it and never re-derive it. An EMPTY array
+   * means the producer had no usable signal — deliberately NOT a guess, and
+   * distinct from ["en"] (= known to be English).
+   */
+  businessLanguages: string[];
   provider: PeopleProvider;
   /** apollo person id (usable for a later enrich). null for apify. */
   providerPersonId: string | null;

@@ -1,0 +1,16 @@
+-- 0032: Carry the person's business languages onto the canonical lead.
+--
+-- human-service derives, per person, the language(s) they plausibly conduct
+-- business in (its `businessLanguages`, ISO 639-1, ordered most-plausible-first).
+-- lead-service sits between that producer and content-generation-service, which
+-- writes each cold email in the recipient's language instead of always English.
+-- Without this column the producer's value cannot reach the consumer.
+--
+-- A Postgres text[] is used precisely because it PRESERVES ORDER: the consumer
+-- selects by position, so a set or a re-sorted list would silently break it.
+--
+-- NULL = the lead predates this being carried. An empty array = the producer had
+-- no usable signal. Neither is a guess, and neither is the same as '{en}'
+-- (= known to be English). Nothing is backfilled: this column is only ever
+-- written from real producer data.
+ALTER TABLE "leads" ADD COLUMN IF NOT EXISTS "business_languages" text[];
