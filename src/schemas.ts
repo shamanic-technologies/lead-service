@@ -2377,6 +2377,14 @@ const StepCountsSchema = z.object({
   meeting_attended: z.number().int().openapi({ example: 2 }),
   form_submission: z.number().int().openapi({ example: 7 }),
   sale: z.number().int().openapi({ example: 2 }),
+  website_visit: z.number().int().openapi({
+    description:
+      "Website visits known ONLY by hand: a visit stated for a lead whose click the delivery " +
+      "layer already measured is NOT counted here, so this number can be ADDED to the measured " +
+      "click count without counting anybody twice. Nothing about what the delivery layer " +
+      "measures changes.",
+    example: 1,
+  }),
   purchase: z.number().int().openapi({ example: 2 }),
 });
 
@@ -2420,8 +2428,11 @@ registry.registerPath({
     "deduped at write via the (brand_id, dedupe_signature) partial unique index) and filtered to " +
     "attribution_status = 'attributed' (credited to a lead we emailed for the brand; excludes needs_review " +
     "and unmatched). The \"ping\" liveness heartbeat never lands in conversion_events, so it is excluded. " +
-    "All five step keys are ALWAYS present (0 when none received), including \"meeting_attended\", which is " +
-    "statable by hand only and counts exactly like the four the tracker reports. `bySource` splits the same " +
+    "All six step keys are ALWAYS present (0 when none received), including \"meeting_attended\" and " +
+    "\"website_visit\", which are statable by hand only. \"website_visit\" counts the visits known ONLY " +
+    "by hand: a visit stated for a lead whose click the delivery layer already measured is left out, so " +
+    "this number can be added to the measured click count without counting anybody twice (email-gateway " +
+    "unreachable → 502, never a guessed count). `bySource` splits the same " +
     "rows into tracker-reported and hand-stated (tracker + manual === counts, per key). A \"never\" " +
     "statement is not an outcome and is counted by nothing here. A brand with zero conversions returns " +
     "all-zero counts (200, never 404).",
@@ -2445,6 +2456,7 @@ const ConversionCountsByDaySchema = z
         meeting_attended: z.record(z.string(), z.number().int()),
         form_submission: z.record(z.string(), z.number().int()),
         sale: z.record(z.string(), z.number().int()),
+        website_visit: z.record(z.string(), z.number().int()),
         purchase: z.record(z.string(), z.number().int()),
       })
       .openapi({
@@ -2581,6 +2593,7 @@ registry.registerPath({
           "meeting_attended",
           "form_submission",
           "sale",
+          "website_visit",
           "purchase",
         ],
       },
@@ -2641,7 +2654,14 @@ const ConvertedLeadOutcomeSchema = z
 const ConvertedLeadsResponseSchema = z
   .object({
     event: z
-      .enum(["signup", "meeting_booked", "meeting_attended", "form_submission", "sale"])
+      .enum([
+        "signup",
+        "meeting_booked",
+        "meeting_attended",
+        "form_submission",
+        "sale",
+        "website_visit",
+      ])
       .openapi({
       description:
         "The CANONICAL step the outcomes were filtered to. A legacy \"purchase\" query is normalized " +
@@ -2693,6 +2713,7 @@ registry.registerPath({
           "meeting_attended",
           "form_submission",
           "sale",
+          "website_visit",
           "purchase",
         ],
       },
@@ -2761,6 +2782,7 @@ const STEP_ENUM = [
   "meeting_attended",
   "form_submission",
   "sale",
+  "website_visit",
   "purchase",
 ] as const;
 
@@ -2768,7 +2790,7 @@ const StepStatementRequestSchema = z
   .object({
     step: z.enum(STEP_ENUM).openapi({
       description:
-        "The funnel step being stated. \"meeting_attended\" exists here and nowhere in the tracker: attendance happens off the client's website, so only a human can state it. The legacy spelling \"purchase\" is accepted and normalized to \"sale\".",
+        "The funnel step being stated. \"meeting_attended\" and \"website_visit\" exist here and nowhere in the tracker: attendance happens off the client's website, and a visit is measured by the delivery layer as a click, so for both only a human can state what those signals missed. A hand-stated visit ADDS to the measured one and never suppresses it: a lead carrying both is counted once, because the hand-stated row is left out of the counts. The legacy spelling \"purchase\" is accepted and normalized to \"sale\".",
       example: "meeting_booked",
     }),
     kind: z.enum(["outcome", "never"]).openapi({
@@ -2882,7 +2904,7 @@ const StepStatementsListSchema = z
     brandId: z.string(),
     steps: z.array(StepStateSchema).openapi({
       description:
-        "One entry per step of the outcome vocabulary, ALWAYS all of them, in a fixed order: signup, meeting_booked, form_submission, sale, meeting_attended.",
+        "One entry per step of the outcome vocabulary, ALWAYS all of them, in a fixed order: signup, meeting_booked, form_submission, sale, meeting_attended, website_visit. The website visit additionally reads as an outcome with source=tracker when the delivery layer already measured a click for this lead, so the panel never invites somebody to state a fact the system already holds.",
     }),
   })
   .openapi("LeadStepStatementsResponse", {
@@ -2921,6 +2943,7 @@ const StepDisqualificationsResponseSchema = z
         meeting_attended: z.number().int(),
         form_submission: z.number().int(),
         sale: z.number().int(),
+        website_visit: z.number().int(),
       })
       .openapi({
         description:
@@ -2931,6 +2954,7 @@ const StepDisqualificationsResponseSchema = z
           meeting_attended: 1,
           form_submission: 0,
           sale: 12,
+          website_visit: 0,
         },
       }),
     byStep: z
@@ -2940,6 +2964,7 @@ const StepDisqualificationsResponseSchema = z
         meeting_attended: z.array(z.string()),
         form_submission: z.array(z.string()),
         sale: z.array(z.string()),
+        website_visit: z.array(z.string()),
       })
       .openapi({
         description:

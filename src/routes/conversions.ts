@@ -14,10 +14,15 @@ import {
 } from "../lib/conversions.js";
 import {
   LEAD_STEP_OUTCOMES,
+  WEBSITE_VISIT,
   canonicalizeStepOutcome,
   type LeadStepOutcomeName,
   type StatementSource,
 } from "../lib/step-statements.js";
+import {
+  MeasuredVisitLookupError,
+  fetchMeasuredVisitEmails,
+} from "../lib/measured-visits.js";
 import { toIsoTimestamp } from "../lib/basic-leads.js";
 
 const router = Router();
@@ -282,6 +287,77 @@ router.post(
   }),
 );
 
+
+/**
+ * The hand-stated `website_visit` rows this brand must NOT count, because the delivery layer
+ * already measured the same person's visit as a click.
+ *
+ * A visit is the one step of the funnel that is BOTH measured automatically (a click, owned by
+ * email-gateway, untouched here) and statable by hand. Both describe the same thing, so a lead
+ * carrying both is counted once: the hand-stated row is suppressed from every outcome read, and
+ * what a consumer reads for `website_visit` is the visits known ONLY by hand — the number it can
+ * add to the measured click count without double-counting anybody.
+ *
+ * A brand with no hand-stated visit costs one extra indexed SELECT and makes NO network call, so
+ * every existing brand's reads are byte-identical. A lead with no registered email is never
+ * suppressed: the measured signal keys on that email, so such a lead cannot be in the measured set.
+ * email-gateway unreachable throws (the route answers 502) — never a guessed count.
+ */
+async function measuredVisitEventIds(brandId: string): Promise<string[]> {
+  const rows = (await db.execute(sql`
+    SELECT ce.id, ce.org_id, lower(canonical.value) AS email
+    FROM conversion_events ce
+    LEFT JOIN LATERAL (
+      SELECT cm.value
+      FROM lead_contact_methods cm
+      WHERE cm.lead_id = ce.matched_lead_id AND cm.channel = 'email'
+      ORDER BY cm.created_at ASC NULLS LAST, cm.value ASC
+      LIMIT 1
+    ) canonical ON true
+    WHERE ce.brand_id = ${brandId}
+      AND ce.attribution_status = 'attributed'
+      AND ce.event = ${WEBSITE_VISIT}
+  `)) as unknown as Array<{ id: string; org_id: string | null; email: string | null }>;
+  if (rows.length === 0) return [];
+
+  // The brand can legitimately be claimed by more than one org, and delivery evidence is
+  // org-scoped, so each org is asked for its own rows.
+  const byOrg = new Map<string, string[]>();
+  for (const row of rows) {
+    if (!row.org_id || !row.email) continue;
+    const bucket = byOrg.get(row.org_id) ?? [];
+    bucket.push(row.email);
+    byOrg.set(row.org_id, bucket);
+  }
+  if (byOrg.size === 0) return [];
+
+  const measured = new Map<string, Set<string>>();
+  for (const [orgId, emails] of byOrg) {
+    measured.set(orgId, await fetchMeasuredVisitEmails(brandId, orgId, emails));
+  }
+
+  return rows
+    .filter((row) => row.org_id && row.email && measured.get(row.org_id)?.has(row.email))
+    .map((row) => row.id);
+}
+
+/** `AND ce.id <> ALL(...)`, or nothing at all when there is nothing to suppress. */
+function excludeIds(ids: string[]) {
+  return ids.length > 0 ? sql`AND ce.id <> ALL(${ids}::uuid[])` : sql.empty();
+}
+
+/** A measured-visit lookup that could not be answered is a 502, never a guessed number. */
+function respondMeasuredVisitFailure(error: unknown, res: Response): boolean {
+  if (!(error instanceof MeasuredVisitLookupError)) return false;
+  console.error(error.message);
+  res.status(502).json({
+    error:
+      "email-gateway could not say which website visits it already measured, so the count " +
+      "would risk double-counting a lead. No number is returned rather than a wrong one.",
+  });
+  return true;
+}
+
 /**
  * GET /internal/brands/:brandId/conversion-counts
  *
@@ -321,12 +397,21 @@ router.get(
   wrap(async (req: Request, res: Response) => {
     const brandId = req.params.brandId;
 
+    let suppressed: string[];
+    try {
+      suppressed = await measuredVisitEventIds(brandId);
+    } catch (error) {
+      if (respondMeasuredVisitFailure(error, res)) return;
+      throw error;
+    }
+
     const rows = (await db.execute(sql`
-      SELECT event, source, count(*)::int AS n
-      FROM conversion_events
-      WHERE brand_id = ${brandId}
-        AND attribution_status = 'attributed'
-      GROUP BY event, source
+      SELECT ce.event, ce.source, count(*)::int AS n
+      FROM conversion_events ce
+      WHERE ce.brand_id = ${brandId}
+        AND ce.attribution_status = 'attributed'
+        ${excludeIds(suppressed)}
+      GROUP BY ce.event, ce.source
     `)) as unknown as Array<{ event: string; source: string; n: number }>;
 
     const zeroed = () =>
@@ -397,18 +482,27 @@ router.get(
     // day is NULL only when received_at IS NULL (an undated conversion). Otherwise the UTC
     // calendar day as a YYYY-MM-DD text (cast date->text is ISO + deterministic regardless
     // of the session timezone). Same attributed-only, deduped-at-write set as /conversion-counts.
+    let suppressed: string[];
+    try {
+      suppressed = await measuredVisitEventIds(brandId);
+    } catch (error) {
+      if (respondMeasuredVisitFailure(error, res)) return;
+      throw error;
+    }
+
     const rows = (await db.execute(sql`
       SELECT
-        event,
+        ce.event,
         CASE
-          WHEN received_at IS NULL THEN NULL
-          ELSE (received_at AT TIME ZONE 'UTC')::date::text
+          WHEN ce.received_at IS NULL THEN NULL
+          ELSE (ce.received_at AT TIME ZONE 'UTC')::date::text
         END AS day,
         count(*)::int AS n
-      FROM conversion_events
-      WHERE brand_id = ${brandId}
-        AND attribution_status = 'attributed'
-      GROUP BY event, day
+      FROM conversion_events ce
+      WHERE ce.brand_id = ${brandId}
+        AND ce.attribution_status = 'attributed'
+        ${excludeIds(suppressed)}
+      GROUP BY ce.event, day
     `)) as unknown as Array<{ event: string; day: string | null; n: number }>;
 
     const byDay = Object.fromEntries(
@@ -476,6 +570,16 @@ router.get(
       return;
     }
 
+    let suppressed: string[] = [];
+    if (event === WEBSITE_VISIT) {
+      try {
+        suppressed = await measuredVisitEventIds(brandId);
+      } catch (error) {
+        if (respondMeasuredVisitFailure(error, res)) return;
+        throw error;
+      }
+    }
+
     const rows = (await db.execute(sql`
       SELECT DISTINCT lower(canonical.value) AS email
       FROM conversion_events ce
@@ -490,6 +594,7 @@ router.get(
         AND ce.attribution_status = 'attributed'
         AND ce.event = ${event}
         AND canonical.value IS NOT NULL
+        ${excludeIds(suppressed)}
     `)) as unknown as Array<{ email: string | null }>;
 
     const emails = rows
@@ -556,6 +661,16 @@ router.get(
       return;
     }
 
+    let suppressed: string[] = [];
+    if (event === WEBSITE_VISIT) {
+      try {
+        suppressed = await measuredVisitEventIds(brandId);
+      } catch (error) {
+        if (respondMeasuredVisitFailure(error, res)) return;
+        throw error;
+      }
+    }
+
     const rows = (await db.execute(sql`
       SELECT
         ce.matched_lead_id AS lead_id,
@@ -575,6 +690,7 @@ router.get(
       WHERE ce.brand_id = ${brandId}
         AND ce.attribution_status = 'attributed'
         AND ce.event = ${event}
+        ${excludeIds(suppressed)}
       ORDER BY ce.received_at DESC NULLS LAST
     `)) as unknown as Array<{
       lead_id: string | null;
