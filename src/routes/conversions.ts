@@ -500,4 +500,104 @@ router.get(
   }),
 );
 
+/**
+ * GET /internal/brands/:brandId/converted-leads?event=<type>
+ *
+ * INTERNAL (service-auth: x-api-key — same tier as conversion-counts, NO Clerk).
+ * Every attributed outcome of `event` for the brand, ONE ROW PER OUTCOME, carrying WHEN it
+ * happened and HOW MUCH it was worth — not only WHO reached the step.
+ *
+ * `/converted-lead-emails` answers "who", and that is all a consumer could ever learn from it:
+ * an outcome read through it has no date (so it can only land in an undated bucket, uncharted and
+ * unattributable to a period), no campaign (so only the brand total can move — the per-campaign,
+ * per-workflow and per-offer grains cannot attribute it at all) and no value (so a won deal gets
+ * priced at the brand's AVERAGE lifetime revenue instead of what it was actually worth). This read
+ * carries all three, so a consumer can value a lead by what somebody OBSERVED rather than by
+ * projecting a chain of declared rates through it.
+ *
+ * The set is EXACTLY the one /conversion-counts and /conversion-counts-by-day count: stored
+ * conversion_events rows (deduped at write via the (brand_id, dedupe_signature) partial unique
+ * index), `attribution_status = 'attributed'`, folded to the canonical step. So for any brand and
+ * step, `outcomes.length` === the /conversion-counts total, and bucketing `occurredAt` by UTC
+ * calendar day reproduces /conversion-counts-by-day exactly, `null` included (an outcome with no
+ * determinable date is the `undated` bucket). No row is visible in one read and absent from the
+ * other — which is why the email join is a LEFT lateral here and an INNER one on
+ * /converted-lead-emails: that read is a SET of join keys and a lead with no email has none,
+ * while dropping the row HERE would silently make the two reads disagree on the count.
+ *
+ * Per row:
+ *  - `email` — the matched lead's canonical (primary) email, lowercased: the SAME join key
+ *    /converted-lead-emails returns and the one features-service already holds from audience
+ *    membership. Null when the lead has no email contact method (rare, and never a dropped row).
+ *  - `leadId` — the matched lead, so a consumer that keys on identity rather than email can.
+ *  - `campaignId` — the campaign the outcome is attributable to. A HAND-STATED outcome always has
+ *    one (the statement is made on a lead row, which belongs to a campaign). A TRACKER-reported
+ *    one has none: a page-load tag knows the brand and nothing else, so it is null rather than
+ *    guessed at.
+ *  - `occurredAt` — when the outcome actually happened (a hand-stated fact carries the date the
+ *    person gave), ISO-8601. Null only when genuinely undated — never fabricated.
+ *  - `valueCents` — the revenue stated for the outcome, when one was. Null means nobody said, NOT
+ *    zero: a consumer falls back to its own average for those and only those.
+ *  - `source` — `manual` (a human stated it) or `tracker` (the website tag reported it).
+ *
+ * `event` is REQUIRED, one of the five step outcomes (legacy "purchase" normalized to "sale");
+ * missing/invalid → 400. Rows come back newest-first. Never 404 — a brand with no attributed
+ * outcome of `event` returns an empty array (200).
+ */
+router.get(
+  "/internal/brands/:brandId/converted-leads",
+  apiKeyAuth,
+  wrap(async (req: Request, res: Response) => {
+    const brandId = req.params.brandId;
+
+    const event = canonicalizeStepOutcome(req.query.event);
+    if (!event) {
+      res.status(400).json({ error: "Invalid or missing event" });
+      return;
+    }
+
+    const rows = (await db.execute(sql`
+      SELECT
+        ce.matched_lead_id AS lead_id,
+        ce.campaign_id,
+        ce.value_cents,
+        ce.source,
+        ce.received_at,
+        lower(canonical.value) AS email
+      FROM conversion_events ce
+      LEFT JOIN LATERAL (
+        SELECT cm.value
+        FROM lead_contact_methods cm
+        WHERE cm.lead_id = ce.matched_lead_id AND cm.channel = 'email'
+        ORDER BY cm.created_at ASC NULLS LAST, cm.value ASC
+        LIMIT 1
+      ) canonical ON true
+      WHERE ce.brand_id = ${brandId}
+        AND ce.attribution_status = 'attributed'
+        AND ce.event = ${event}
+      ORDER BY ce.received_at DESC NULLS LAST
+    `)) as unknown as Array<{
+      lead_id: string | null;
+      campaign_id: string | null;
+      value_cents: number | null;
+      source: string | null;
+      received_at: Date | string | null;
+      email: string | null;
+    }>;
+
+    const outcomes = rows.map((r) => ({
+      leadId: r.lead_id,
+      email: r.email && r.email.length > 0 ? r.email : null,
+      campaignId: r.campaign_id,
+      // Raw `sql` hands a timestamptz back as a Date on some paths and a string on others —
+      // normalize, never `.toISOString()` on the raw value.
+      occurredAt: toIsoTimestamp(r.received_at),
+      valueCents: typeof r.value_cents === "number" ? r.value_cents : null,
+      source: (r.source === "manual" ? "manual" : "tracker") as StatementSource,
+    }));
+
+    res.json({ event, outcomes });
+  }),
+);
+
 export default router;

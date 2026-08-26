@@ -2586,6 +2586,118 @@ registry.registerPath({
   },
 });
 
+const ConvertedLeadOutcomeSchema = z
+  .object({
+    leadId: z.string().nullable().openapi({
+      description: "The matched lead this outcome is credited to.",
+    }),
+    email: z.string().nullable().openapi({
+      description:
+        "The matched lead's canonical (primary) email, lowercased — the SAME join key " +
+        "/converted-lead-emails returns. Null when the lead has no email contact method; the row " +
+        "is still returned, so this read never disagrees with the counts about how many outcomes exist.",
+      example: "jane@acme.com",
+    }),
+    campaignId: z.string().nullable().openapi({
+      description:
+        "The campaign the outcome is attributable to, so the per-campaign / per-workflow / per-offer " +
+        "grains can move and not only the brand total. Always present on a hand-stated outcome (the " +
+        "statement is made on a lead row, which belongs to a campaign). Null on a tracker-reported one: " +
+        "a page-load tag knows the brand and nothing else, and a guess would be worse than a null.",
+    }),
+    occurredAt: z.string().nullable().openapi({
+      description:
+        "When the outcome actually happened, ISO-8601 — a hand-stated fact carries the date the person " +
+        "gave, not the date they typed it. Null only when genuinely undated (the same rows " +
+        "/conversion-counts-by-day reports as `undated`); never fabricated.",
+      example: "2026-08-19T14:30:00.000Z",
+    }),
+    valueCents: z.number().int().nullable().openapi({
+      description:
+        "What the outcome was worth, in cents, when somebody stated it. Null means nobody said — NOT " +
+        "zero — so a consumer falls back to its own average for those rows and only those. A \"sale\" " +
+        "stated from now on always carries one: the write refuses a sale with no value.",
+      example: 490000,
+    }),
+    source: z.enum(["tracker", "manual"]).openapi({
+      description: "manual — a human stated it; tracker — the website tag reported it.",
+    }),
+  })
+  .openapi("ConvertedLeadOutcome");
+
+const ConvertedLeadsResponseSchema = z
+  .object({
+    event: z
+      .enum(["signup", "meeting_booked", "meeting_attended", "form_submission", "sale"])
+      .openapi({
+      description:
+        "The CANONICAL step the outcomes were filtered to. A legacy \"purchase\" query is normalized " +
+        "to and echoed as \"sale\".",
+      example: "sale",
+    }),
+    outcomes: z.array(ConvertedLeadOutcomeSchema).openapi({
+      description:
+        "One row per attributed outcome of `event` for the brand, newest first. Exactly the set " +
+        "/conversion-counts counts: `outcomes.length` equals that total, and bucketing `occurredAt` by " +
+        "UTC calendar day reproduces /conversion-counts-by-day row for row, `null` landing in `undated`. " +
+        "Empty when the brand has no attributed outcome of `event`.",
+    }),
+  })
+  .openapi("ConvertedLeadsResponse", {
+    description:
+      "Per-brand, per-step outcomes carrying WHEN each happened, WHICH campaign it is attributable to " +
+      "and HOW MUCH it was worth — so a consumer values a lead by what somebody observed instead of " +
+      "projecting declared rates through it.",
+  });
+
+registry.registerPath({
+  method: "get",
+  path: "/internal/brands/{brandId}/converted-leads",
+  summary: "Attributed outcomes of a step for a brand, with date, campaign and value (internal, service-auth)",
+  description:
+    "INTERNAL (service-auth: x-api-key — same tier as conversion-counts, NO Clerk). Every attributed " +
+    "outcome of `event` for the brand, ONE ROW PER OUTCOME, carrying when it happened, which campaign it " +
+    "is attributable to and what it was worth — the three things /converted-lead-emails cannot say, and " +
+    "without which an observed outcome cannot be charted over time, cannot move any grain below the brand, " +
+    "and gets priced at the brand's average lifetime revenue. Exactly the same set /conversion-counts and " +
+    "/conversion-counts-by-day count (deduped at write, attribution_status = 'attributed'), so the reads " +
+    "reconcile row for row — a lead with no email is returned with a null email rather than dropped. " +
+    "`event` is required, one of signup | meeting_booked | meeting_attended | form_submission | sale " +
+    "(legacy \"purchase\" accepted, normalized to \"sale\"); missing/invalid → 400. A brand with no " +
+    "attributed outcome of `event` returns an empty array (200, never 404).",
+  request: { params: BrandIdPathParam },
+  parameters: [
+    ...FeatureMembershipApiKeyHeader,
+    {
+      in: "query" as const,
+      name: "event",
+      required: true,
+      schema: {
+        type: "string" as const,
+        enum: [
+          "signup",
+          "meeting_booked",
+          "meeting_attended",
+          "form_submission",
+          "sale",
+          "purchase",
+        ],
+      },
+      description:
+        "Step to filter to. Required. Canonical: signup | meeting_booked | meeting_attended | " +
+        "form_submission | sale. The legacy \"purchase\" spelling is accepted (normalized to \"sale\").",
+    },
+  ],
+  responses: {
+    200: {
+      description: "The attributed outcomes of `event` for the brand, newest first",
+      content: { "application/json": { schema: ConvertedLeadsResponseSchema } },
+    },
+    400: { description: "Invalid or missing event" },
+    401: { description: "Unauthorized" },
+  },
+});
+
 // --- Hand-stated step outcomes ---
 
 const StepStatementOrgHeaders = [
@@ -2653,7 +2765,7 @@ const StepStatementRequestSchema = z
     }),
     valueCents: z.number().int().optional().openapi({
       description:
-        "Revenue attached to the outcome, in cents (primarily on \"sale\"). Rejected with 400 on a \"never\" statement rather than silently dropped.",
+        "What the outcome was worth, in cents. REQUIRED on a \"sale\" outcome and optional on every other step: a won deal is the one place estimating has no excuse, because with no value every downstream money figure prices it at the brand's average lifetime revenue, which describes no real customer. Stating it early on an unusually large lead, long before it closes, is exactly why the other steps keep it optional. Rejected with 400 on a \"never\" statement rather than silently dropped.",
       example: 490000,
     }),
     note: z.string().optional().openapi({
@@ -2712,7 +2824,8 @@ registry.registerPath({
     "on the next read with no consumer change, and restating the same step corrects the first statement " +
     "instead of counting twice. kind=never writes to a separate store that NO count reads, so a \"never\" " +
     "can never move an outcome count; it is what lets a consumer separate a lead that is dead at a step " +
-    "from one still pending.",
+    "from one still pending. A \"sale\" outcome MUST carry valueCents (400 otherwise) — a won deal states " +
+    "what it was worth instead of being priced at the brand average; every other step keeps it optional.",
   request: {
     params: LeadRowIdPathParam,
     body: { content: { "application/json": { schema: StepStatementRequestSchema } } },
@@ -2723,7 +2836,7 @@ registry.registerPath({
       description: "The statement as recorded",
       content: { "application/json": { schema: StepStatementResponseSchema } },
     },
-    400: { description: "Invalid id, step, kind, occurredAt, or valueCents on a \"never\"" },
+    400: { description: "Invalid id, step, kind, occurredAt; valueCents on a \"never\"; or a \"sale\" outcome with no valueCents" },
     401: { description: "Unauthorized" },
     404: { description: "No such lead row for this org (or for the requested brand scope)" },
     409: { description: "Cannot state \"never\" for a step that already has an outcome" },

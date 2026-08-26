@@ -123,15 +123,56 @@ describe("POST /orgs/leads/:id/step-statements", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("400 on a \"sale\" outcome with no value — a won deal is never priced at the brand average", async () => {
+    const res = await post(app, { step: "sale", kind: "outcome" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/valueCents is required/);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("the legacy \"purchase\" spelling is the same step, so it needs a value too", async () => {
+    const res = await post(app, { step: "purchase", kind: "outcome" });
+    expect(res.status).toBe(400);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("every OTHER step still records with no value — a large lead is worth stating before it closes", async () => {
+    for (const step of ["signup", "meeting_booked", "meeting_attended", "form_submission"]) {
+      execute
+        .mockReset()
+        .mockResolvedValueOnce(leadRow())
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: "ce-1", received_at: "2026-08-19 14:30:00+00" }]);
+      const res = await post(app, { step, kind: "outcome" });
+      expect(res.status).toBe(201);
+      expect(res.body.statement.valueCents).toBeNull();
+    }
+  });
+
+  it("a \"sale\" that is stated as never still needs no value", async () => {
+    execute
+      .mockResolvedValueOnce(leadRow())
+      .mockResolvedValueOnce([]) // no existing outcome
+      .mockResolvedValueOnce([{ id: "d-1", created_at: "2026-08-19 14:30:00+00", updated_at: "2026-08-19 14:30:00+00" }]);
+    const res = await post(app, { step: "sale", kind: "never" });
+    expect(res.status).toBe(201);
+    expect(res.body.statement).toMatchObject({ step: "sale", kind: "never", valueCents: null });
+  });
+
   it("400 on an unparseable occurredAt rather than falling back to now()", async () => {
-    const res = await post(app, { step: "sale", kind: "outcome", occurredAt: "last tuesday" });
+    const res = await post(app, {
+      step: "sale",
+      kind: "outcome",
+      valueCents: 1000,
+      occurredAt: "last tuesday",
+    });
     expect(res.status).toBe(400);
     expect(execute).not.toHaveBeenCalled();
   });
 
   it("404 when the row belongs to another org", async () => {
     execute.mockResolvedValueOnce([]); // lookup scoped by org_id finds nothing
-    const res = await post(app, { step: "sale", kind: "outcome" });
+    const res = await post(app, { step: "sale", kind: "outcome", valueCents: 1000 });
     expect(res.status).toBe(404);
     expect(sqlAt(0)).toContain("org_id =");
   });
@@ -180,7 +221,7 @@ describe("POST /orgs/leads/:id/step-statements", () => {
       .mockResolvedValueOnce(leadRow())
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: "ce-1", received_at: "2026-08-19 14:30:00+00" }]);
-    const res = await post(app, { step: "purchase", kind: "outcome" });
+    const res = await post(app, { step: "purchase", kind: "outcome", valueCents: 1000 });
     expect(res.status).toBe(201);
     expect(res.body.statement.step).toBe("sale");
   });
@@ -201,7 +242,7 @@ describe("POST /orgs/leads/:id/step-statements", () => {
       .mockResolvedValueOnce(leadRow())
       .mockResolvedValueOnce([{ id: "d-1" }]) // a "never" existed
       .mockResolvedValueOnce([{ id: "ce-1", received_at: "2026-08-19 14:30:00+00" }]);
-    const res = await post(app, { step: "sale", kind: "outcome" });
+    const res = await post(app, { step: "sale", kind: "outcome", valueCents: 1000 });
     expect(res.status).toBe(201);
     expect(res.body.retractedNever).toBe(true);
     expect(sqlAt(1)).toContain("delete from lead_step_disqualifications");
@@ -238,14 +279,14 @@ describe("POST /orgs/leads/:id/step-statements", () => {
       .set("x-api-key", "test-api-key")
       .set("x-org-id", "org-1")
       .set("x-brand-id", "brand-other")
-      .send({ step: "sale", kind: "outcome" });
+      .send({ step: "sale", kind: "outcome", valueCents: 1000 });
     expect(res.status).toBe(404);
     expect(allSql()).not.toContain("insert into conversion_events");
   });
 
   it("500 (not a hung socket) when the database throws", async () => {
     execute.mockRejectedValueOnce(new Error("boom"));
-    const res = await post(app, { step: "sale", kind: "outcome" });
+    const res = await post(app, { step: "sale", kind: "outcome", valueCents: 1000 });
     expect(res.status).toBe(500);
   });
 });
