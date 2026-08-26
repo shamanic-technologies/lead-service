@@ -2383,6 +2383,84 @@
         ],
         "description": "Per-brand set of matched-lead canonical emails with an attributed conversion of a given event type, so features-service can attribute conversions to audiences by email-membership intersection."
       },
+      "ConvertedLeadsResponse": {
+        "type": "object",
+        "properties": {
+          "event": {
+            "type": "string",
+            "enum": [
+              "signup",
+              "meeting_booked",
+              "meeting_attended",
+              "form_submission",
+              "sale"
+            ],
+            "description": "The CANONICAL step the outcomes were filtered to. A legacy \"purchase\" query is normalized to and echoed as \"sale\".",
+            "example": "sale"
+          },
+          "outcomes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConvertedLeadOutcome"
+            },
+            "description": "One row per attributed outcome of `event` for the brand, newest first. Exactly the set /conversion-counts counts: `outcomes.length` equals that total, and bucketing `occurredAt` by UTC calendar day reproduces /conversion-counts-by-day row for row, `null` landing in `undated`. Empty when the brand has no attributed outcome of `event`."
+          }
+        },
+        "required": [
+          "event",
+          "outcomes"
+        ],
+        "description": "Per-brand, per-step outcomes carrying WHEN each happened, WHICH campaign it is attributable to and HOW MUCH it was worth — so a consumer values a lead by what somebody observed instead of projecting declared rates through it."
+      },
+      "ConvertedLeadOutcome": {
+        "type": "object",
+        "properties": {
+          "leadId": {
+            "type": "string",
+            "nullable": true,
+            "description": "The matched lead this outcome is credited to."
+          },
+          "email": {
+            "type": "string",
+            "nullable": true,
+            "description": "The matched lead's canonical (primary) email, lowercased — the SAME join key /converted-lead-emails returns. Null when the lead has no email contact method; the row is still returned, so this read never disagrees with the counts about how many outcomes exist.",
+            "example": "jane@acme.com"
+          },
+          "campaignId": {
+            "type": "string",
+            "nullable": true,
+            "description": "The campaign the outcome is attributable to, so the per-campaign / per-workflow / per-offer grains can move and not only the brand total. Always present on a hand-stated outcome (the statement is made on a lead row, which belongs to a campaign). Null on a tracker-reported one: a page-load tag knows the brand and nothing else, and a guess would be worse than a null."
+          },
+          "occurredAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "When the outcome actually happened, ISO-8601 — a hand-stated fact carries the date the person gave, not the date they typed it. Null only when genuinely undated (the same rows /conversion-counts-by-day reports as `undated`); never fabricated.",
+            "example": "2026-08-19T14:30:00.000Z"
+          },
+          "valueCents": {
+            "type": "integer",
+            "nullable": true,
+            "description": "What the outcome was worth, in cents, when somebody stated it. Null means nobody said — NOT zero — so a consumer falls back to its own average for those rows and only those. A \"sale\" stated from now on always carries one: the write refuses a sale with no value.",
+            "example": 490000
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "tracker",
+              "manual"
+            ],
+            "description": "manual — a human stated it; tracker — the website tag reported it."
+          }
+        },
+        "required": [
+          "leadId",
+          "email",
+          "campaignId",
+          "occurredAt",
+          "valueCents",
+          "source"
+        ]
+      },
       "LeadStepStatementResponse": {
         "type": "object",
         "properties": {
@@ -2499,7 +2577,7 @@
           },
           "valueCents": {
             "type": "integer",
-            "description": "Revenue attached to the outcome, in cents (primarily on \"sale\"). Rejected with 400 on a \"never\" statement rather than silently dropped.",
+            "description": "What the outcome was worth, in cents. REQUIRED on a \"sale\" outcome and optional on every other step: a won deal is the one place estimating has no excuse, because with no value every downstream money figure prices it at the brand's average lifetime revenue, which describes no real customer. Stating it early on an unusually large lead, long before it closes, is exactly why the other steps keep it optional. Rejected with 400 on a \"never\" statement rather than silently dropped.",
             "example": 490000
           },
           "note": {
@@ -4203,10 +4281,71 @@
         }
       }
     },
+    "/internal/brands/{brandId}/converted-leads": {
+      "get": {
+        "summary": "Attributed outcomes of a step for a brand, with date, campaign and value (internal, service-auth)",
+        "description": "INTERNAL (service-auth: x-api-key — same tier as conversion-counts, NO Clerk). Every attributed outcome of `event` for the brand, ONE ROW PER OUTCOME, carrying when it happened, which campaign it is attributable to and what it was worth — the three things /converted-lead-emails cannot say, and without which an observed outcome cannot be charted over time, cannot move any grain below the brand, and gets priced at the brand's average lifetime revenue. Exactly the same set /conversion-counts and /conversion-counts-by-day count (deduped at write, attribution_status = 'attributed'), so the reads reconcile row for row — a lead with no email is returned with a null email rather than dropped. `event` is required, one of signup | meeting_booked | meeting_attended | form_submission | sale (legacy \"purchase\" accepted, normalized to \"sale\"); missing/invalid → 400. A brand with no attributed outcome of `event` returns an empty array (200, never 404).",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "API key for authenticating requests"
+          },
+          {
+            "in": "query",
+            "name": "event",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "signup",
+                "meeting_booked",
+                "meeting_attended",
+                "form_submission",
+                "sale",
+                "purchase"
+              ]
+            },
+            "description": "Step to filter to. Required. Canonical: signup | meeting_booked | meeting_attended | form_submission | sale. The legacy \"purchase\" spelling is accepted (normalized to \"sale\")."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "example": "20000000-0000-0000-0000-000000000001"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The attributed outcomes of `event` for the brand, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConvertedLeadsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or missing event"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
     "/orgs/leads/{id}/step-statements": {
       "post": {
         "summary": "State by hand what happened to one lead at one funnel step (or that it never will)",
-        "description": "Organisation-authenticated (the customer dashboard and the staff console are both org-authenticated; the publishable website-tracker token is deliberately NOT a door to this — it is write-only, brand-scoped and meant for a third party's page). The lead is named by the `id` a list row already carries, so nothing about the person is re-supplied and nothing is matched or guessed — which is what repairs, for hand-stated facts, the ~90% unmatched rate the tracker's identity waterfall carries. kind=outcome writes to the conversion ledger tagged source=manual, so the brand's outcome counts move on the next read with no consumer change, and restating the same step corrects the first statement instead of counting twice. kind=never writes to a separate store that NO count reads, so a \"never\" can never move an outcome count; it is what lets a consumer separate a lead that is dead at a step from one still pending.",
+        "description": "Organisation-authenticated (the customer dashboard and the staff console are both org-authenticated; the publishable website-tracker token is deliberately NOT a door to this — it is write-only, brand-scoped and meant for a third party's page). The lead is named by the `id` a list row already carries, so nothing about the person is re-supplied and nothing is matched or guessed — which is what repairs, for hand-stated facts, the ~90% unmatched rate the tracker's identity waterfall carries. kind=outcome writes to the conversion ledger tagged source=manual, so the brand's outcome counts move on the next read with no consumer change, and restating the same step corrects the first statement instead of counting twice. kind=never writes to a separate store that NO count reads, so a \"never\" can never move an outcome count; it is what lets a consumer separate a lead that is dead at a step from one still pending. A \"sale\" outcome MUST carry valueCents (400 otherwise) — a won deal states what it was worth instead of being priced at the brand average; every other step keeps it optional.",
         "parameters": [
           {
             "in": "header",
@@ -4277,7 +4416,7 @@
             }
           },
           "400": {
-            "description": "Invalid id, step, kind, occurredAt, or valueCents on a \"never\""
+            "description": "Invalid id, step, kind, occurredAt; valueCents on a \"never\"; or a \"sale\" outcome with no valueCents"
           },
           "401": {
             "description": "Unauthorized"

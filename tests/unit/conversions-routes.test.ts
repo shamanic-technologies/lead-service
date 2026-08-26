@@ -826,3 +826,136 @@ describe("POST /orgs/brands/:brandId/conversion-token/rotate", () => {
     expect(sqlAt(0)).toContain("rotated_at");
   });
 });
+
+describe("GET /internal/brands/:brandId/converted-leads", () => {
+  let app: express.Express;
+  beforeAll(async () => {
+    app = await buildApp();
+  }, 30_000);
+  beforeEach(() => execute.mockReset().mockResolvedValue([]));
+
+  it("401 without x-api-key", async () => {
+    const res = await request(app).get("/internal/brands/brand-1/converted-leads?event=sale");
+    expect(res.status).toBe(401);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("400 when event is missing or not a real step (ping/garbage rejected)", async () => {
+    for (const q of ["", "?event=ping", "?event=garbage"]) {
+      execute.mockClear();
+      const res = await request(app)
+        .get(`/internal/brands/brand-1/converted-leads${q}`)
+        .set("x-api-key", "test-api-key");
+      expect(res.status).toBe(400);
+      expect(execute).not.toHaveBeenCalled();
+    }
+  });
+
+  it("zero attributed outcomes → 200 empty array (never 404)", async () => {
+    execute.mockResolvedValueOnce([]);
+    const res = await request(app)
+      .get("/internal/brands/brand-1/converted-leads?event=sale")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ event: "sale", outcomes: [] });
+  });
+
+  it("legacy \"purchase\" is normalized to the canonical \"sale\" it queries and echoes", async () => {
+    execute.mockResolvedValueOnce([]);
+    const res = await request(app)
+      .get("/internal/brands/brand-1/converted-leads?event=purchase")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(200);
+    expect(res.body.event).toBe("sale");
+    expect(compile(execute.mock.calls[0][0]).params).toContain("sale");
+  });
+
+  it("each row carries when it happened, the campaign it is attributable to, and what it was worth", async () => {
+    execute.mockResolvedValueOnce([
+      {
+        lead_id: "lead-1",
+        campaign_id: "camp-1",
+        value_cents: 490000,
+        source: "manual",
+        // A raw `sql` row hands a timestamptz back as a STRING on some paths — the fixture
+        // must be one, or a handler that calls .toISOString() on it ships green and throws in prod.
+        received_at: "2026-08-19 14:30:00+00",
+        email: "jane@acme.com",
+      },
+      {
+        lead_id: "lead-2",
+        campaign_id: null,
+        value_cents: null,
+        source: "tracker",
+        received_at: "2026-08-18 09:00:00+00",
+        email: "bob@globex.com",
+      },
+    ]);
+    const res = await request(app)
+      .get("/internal/brands/brand-1/converted-leads?event=sale")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(200);
+    expect(res.body.outcomes).toEqual([
+      {
+        leadId: "lead-1",
+        email: "jane@acme.com",
+        campaignId: "camp-1",
+        occurredAt: "2026-08-19T14:30:00.000Z",
+        valueCents: 490000,
+        source: "manual",
+      },
+      {
+        leadId: "lead-2",
+        email: "bob@globex.com",
+        campaignId: null,
+        occurredAt: "2026-08-18T09:00:00.000Z",
+        valueCents: null,
+        source: "tracker",
+      },
+    ]);
+  });
+
+  it("a lead with no email keeps its row (null email) so the read cannot disagree with the counts", async () => {
+    execute.mockResolvedValueOnce([
+      {
+        lead_id: "lead-3",
+        campaign_id: "camp-9",
+        value_cents: 1000,
+        source: "manual",
+        received_at: null,
+        email: null,
+      },
+    ]);
+    const res = await request(app)
+      .get("/internal/brands/brand-1/converted-leads?event=meeting_attended")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(200);
+    expect(res.body.outcomes).toHaveLength(1);
+    expect(res.body.outcomes[0].email).toBeNull();
+    // An outcome with no determinable date is the `undated` bucket of counts-by-day, never a
+    // fabricated one.
+    expect(res.body.outcomes[0].occurredAt).toBeNull();
+  });
+
+  it("queries the SAME set the counts count: attributed-only, brand + step, LEFT-joined email", async () => {
+    execute.mockResolvedValueOnce([]);
+    await request(app)
+      .get("/internal/brands/brand-1/converted-leads?event=signup")
+      .set("x-api-key", "test-api-key");
+    const q = lastSql();
+    expect(q).toContain("attribution_status");
+    expect(q).toContain("attributed");
+    expect(q).toContain("left join lateral");
+    expect(q).toContain("lead_contact_methods");
+    expect(q).not.toContain("needs_review");
+    expect(compile(execute.mock.calls[0][0]).params).toEqual(["brand-1", "signup"]);
+  });
+
+  it("500 when the DB errors (fail loud)", async () => {
+    execute.mockRejectedValueOnce(new Error("db down"));
+    const res = await request(app)
+      .get("/internal/brands/brand-1/converted-leads?event=sale")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(500);
+  });
+});
