@@ -370,6 +370,15 @@ export const leadStepDisqualifications = pgTable(
     step: text("step").notNull(),
     note: text("note"),
     statedByUserId: text("stated_by_user_id"),
+    /**
+     * A "never" contradicted by an outcome is RETRACTED, never deleted: the record of what a
+     * person stated is what makes this auditable, so every read filters `retracted_at IS NULL`
+     * and the row survives. `retracted_by_step` is the outcome that retracted it — the same step
+     * for the same-step rule, a LATER step of the funnel chain for the chain rule.
+     */
+    retractedAt: timestamp("retracted_at", { withTimezone: true }),
+    retractedByStep: text("retracted_by_step"),
+    retractedByUserId: text("retracted_by_user_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
