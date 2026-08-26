@@ -2358,23 +2358,37 @@ registry.registerPath({
   },
 });
 
+const StepCountsSchema = z.object({
+  signup: z.number().int().openapi({ example: 12 }),
+  meeting_booked: z.number().int().openapi({ example: 3 }),
+  meeting_attended: z.number().int().openapi({ example: 2 }),
+  form_submission: z.number().int().openapi({ example: 7 }),
+  sale: z.number().int().openapi({ example: 2 }),
+  purchase: z.number().int().openapi({ example: 2 }),
+});
+
 const ConversionCountsResponseSchema = z
   .object({
-    counts: z
-      .object({
-        signup: z.number().int().openapi({ example: 12 }),
-        meeting_booked: z.number().int().openapi({ example: 3 }),
-        form_submission: z.number().int().openapi({ example: 7 }),
-        sale: z.number().int().openapi({ example: 2 }),
-        purchase: z.number().int().openapi({ example: 2 }),
-      })
+    counts: StepCountsSchema.openapi({
+      description:
+        "Count of REAL, deduped, attributed outcomes per step, BOTH sources together — what every " +
+        "existing consumer reads, unchanged. All five canonical keys (signup, meeting_booked, " +
+        "meeting_attended, form_submission, sale) are ALWAYS present (0 when none). " +
+        "\"meeting_attended\" is statable by hand only (a page-load tag cannot observe somebody " +
+        "showing up) and counts exactly like the four the tracker reports. The terminal event was " +
+        "renamed \"purchase\" → \"sale\"; a legacy \"purchase\" key mirroring \"sale\" is also " +
+        "returned for the migration window (drop once consumers read \"sale\"). Excludes the " +
+        "\"ping\" liveness heartbeat, needs_review, and unmatched events. A \"never\" statement is " +
+        "NOT an outcome and is counted by nothing here.",
+    }),
+    bySource: z
+      .object({ tracker: StepCountsSchema, manual: StepCountsSchema })
       .openapi({
         description:
-          "Count of REAL, deduped, attributed conversion events per event type. All four canonical " +
-          "keys (signup, meeting_booked, form_submission, sale) are ALWAYS present (0 when none " +
-          "received). The terminal event was renamed \"purchase\" → \"sale\"; a legacy \"purchase\" " +
-          "key mirroring \"sale\" is also returned for the migration window (drop once consumers " +
-          "read \"sale\"). Excludes the \"ping\" liveness heartbeat, needs_review, and unmatched events.",
+          "The SAME rows, split by who said so: tracker — reported by the client's website; " +
+          "manual — stated by a human about a lead named by id. For every key, " +
+          "tracker + manual === counts. This is how a hand-stated outcome stays distinguishable " +
+          "from a tracker-reported one after the fact without changing what either counts toward.",
       }),
   })
   .openapi("ConversionCountsResponse", {
@@ -2393,8 +2407,11 @@ registry.registerPath({
     "deduped at write via the (brand_id, dedupe_signature) partial unique index) and filtered to " +
     "attribution_status = 'attributed' (credited to a lead we emailed for the brand; excludes needs_review " +
     "and unmatched). The \"ping\" liveness heartbeat never lands in conversion_events, so it is excluded. " +
-    "All four keys are ALWAYS present (0 when none received); a brand with zero conversions returns all-zero " +
-    "counts (200, never 404).",
+    "All five step keys are ALWAYS present (0 when none received), including \"meeting_attended\", which is " +
+    "statable by hand only and counts exactly like the four the tracker reports. `bySource` splits the same " +
+    "rows into tracker-reported and hand-stated (tracker + manual === counts, per key). A \"never\" " +
+    "statement is not an outcome and is counted by nothing here. A brand with zero conversions returns " +
+    "all-zero counts (200, never 404).",
   request: { params: BrandIdPathParam },
   parameters: FeatureMembershipApiKeyHeader,
   responses: {
@@ -2412,6 +2429,7 @@ const ConversionCountsByDaySchema = z
       .object({
         signup: z.record(z.string(), z.number().int()),
         meeting_booked: z.record(z.string(), z.number().int()),
+        meeting_attended: z.record(z.string(), z.number().int()),
         form_submission: z.record(z.string(), z.number().int()),
         sale: z.record(z.string(), z.number().int()),
         purchase: z.record(z.string(), z.number().int()),
@@ -2428,6 +2446,7 @@ const ConversionCountsByDaySchema = z
         example: {
           signup: { "2026-07-08": 2, "2026-07-09": 1 },
           meeting_booked: {},
+          meeting_attended: {},
           form_submission: { "2026-07-09": 3 },
           sale: {},
           purchase: {},
@@ -2437,6 +2456,7 @@ const ConversionCountsByDaySchema = z
       .object({
         signup: z.number().int(),
         meeting_booked: z.number().int(),
+        meeting_attended: z.number().int(),
         form_submission: z.number().int(),
         sale: z.number().int(),
         purchase: z.number().int(),
@@ -2449,7 +2469,14 @@ const ConversionCountsByDaySchema = z
           "the field is always present so the contract stays honest. The legacy \"purchase\" key " +
           "mirrors \"sale\" for the rename migration window. Reconciliation: for every event, " +
           "sum(byDay[event] values) + undated[event] === the /conversion-counts total for that event.",
-        example: { signup: 0, meeting_booked: 0, form_submission: 0, sale: 0, purchase: 0 },
+        example: {
+          signup: 0,
+          meeting_booked: 0,
+          meeting_attended: 0,
+          form_submission: 0,
+          sale: 0,
+          purchase: 0,
+        },
       }),
   })
   .openapi("ConversionCountsByDayResponse", {
@@ -2535,7 +2562,14 @@ registry.registerPath({
       required: true,
       schema: {
         type: "string" as const,
-        enum: ["signup", "meeting_booked", "form_submission", "sale", "purchase"],
+        enum: [
+          "signup",
+          "meeting_booked",
+          "meeting_attended",
+          "form_submission",
+          "sale",
+          "purchase",
+        ],
       },
       description:
         "Conversion event type to filter to. Required. Canonical: signup | meeting_booked | " +
@@ -2548,6 +2582,265 @@ registry.registerPath({
       content: { "application/json": { schema: ConvertedLeadEmailsResponseSchema } },
     },
     400: { description: "Invalid or missing event" },
+    401: { description: "Unauthorized" },
+  },
+});
+
+// --- Hand-stated step outcomes ---
+
+const StepStatementOrgHeaders = [
+  {
+    in: "header" as const,
+    name: "x-api-key",
+    required: true,
+    schema: { type: "string" as const },
+    description: "API key for authenticating requests",
+  },
+  {
+    in: "header" as const,
+    name: "x-org-id",
+    required: true,
+    schema: { type: "string" as const },
+    description: "Internal organization UUID from client-service",
+  },
+  {
+    in: "header" as const,
+    name: "x-user-id",
+    required: false,
+    schema: { type: "string" as const },
+    description:
+      "Internal user UUID of the person making the statement. Stored verbatim as statedByUserId so a statement can be traced back to whoever made it.",
+  },
+  {
+    in: "header" as const,
+    name: "x-brand-id",
+    required: false,
+    schema: { type: "string" as const },
+    description:
+      "Brand scope. Same meaning as ?brandId=: which of the row's brands the statement is about. A brand the row is not part of answers 404, exactly as an absent row does.",
+  },
+];
+
+const LeadRowIdPathParam = z.object({
+  id: z.string().openapi({
+    param: { name: "id", in: "path" },
+    description:
+      "The `id` a list row already carries (the leads_campaigns membership row) — so a caller states an outcome for a lead it has already resolved without re-supplying any identity field.",
+    example: "40000000-0000-0000-0000-000000000001",
+  }),
+});
+
+const STEP_ENUM = [
+  "signup",
+  "meeting_booked",
+  "meeting_attended",
+  "form_submission",
+  "sale",
+  "purchase",
+] as const;
+
+const StepStatementRequestSchema = z
+  .object({
+    step: z.enum(STEP_ENUM).openapi({
+      description:
+        "The funnel step being stated. \"meeting_attended\" exists here and nowhere in the tracker: attendance happens off the client's website, so only a human can state it. The legacy spelling \"purchase\" is accepted and normalized to \"sale\".",
+      example: "meeting_booked",
+    }),
+    kind: z.enum(["outcome", "never"]).openapi({
+      description:
+        "outcome — this happened; it is written to the conversion ledger every consumer already counts, so the brand's counts move on the next read. never — this will NOT happen; it is NOT an outcome, nothing counts it anywhere, and it exists so a consumer can tell a lead that is DEAD at a step from one still PENDING.",
+      example: "outcome",
+    }),
+    valueCents: z.number().int().optional().openapi({
+      description:
+        "Revenue attached to the outcome, in cents (primarily on \"sale\"). Rejected with 400 on a \"never\" statement rather than silently dropped.",
+      example: 490000,
+    }),
+    note: z.string().optional().openapi({
+      description: "Free text the person stating the fact wrote, stored verbatim.",
+      example: "Closed on the call, contract signed 2026-08-19.",
+    }),
+    occurredAt: z.string().optional().openapi({
+      description:
+        "ISO-8601 timestamp of WHEN the outcome happened, for a fact stated after the fact — it is what the by-day series buckets on. Unparseable values are a 400, never silently replaced by now().",
+      example: "2026-08-19T14:30:00.000Z",
+    }),
+  })
+  .openapi("LeadStepStatementRequest", {
+    description: "A statement a human makes about one step of one lead's campaign funnel.",
+  });
+
+const StepStatementSchema = z.object({
+  id: z.string(),
+  leadCampaignId: z.string(),
+  leadId: z.string(),
+  campaignId: z.string().openapi({
+    description:
+      "The campaign the statement was made on — the row's own campaign, so an outcome stated from a campaign screen is attributable to that campaign and not only to the brand.",
+  }),
+  brandId: z.string(),
+  step: z.enum(STEP_ENUM),
+  kind: z.enum(["outcome", "never"]),
+  source: z.enum(["tracker", "manual"]),
+  valueCents: z.number().int().nullable(),
+  note: z.string().nullable(),
+  statedByUserId: z.string().nullable(),
+  statedAt: z.string().nullable(),
+});
+
+const StepStatementResponseSchema = z
+  .object({
+    statement: StepStatementSchema,
+    retractedNever: z.boolean().optional().openapi({
+      description:
+        "True when this outcome superseded an earlier \"never\" for the same step (the person did the thing after all). The two cannot both stand, and this is the only direction that can be true — stating \"never\" for a step that already happened is a 409.",
+    }),
+  })
+  .openapi("LeadStepStatementResponse", { description: "The statement as recorded." });
+
+registry.registerPath({
+  method: "post",
+  path: "/orgs/leads/{id}/step-statements",
+  summary: "State by hand what happened to one lead at one funnel step (or that it never will)",
+  description:
+    "Organisation-authenticated (the customer dashboard and the staff console are both org-authenticated; " +
+    "the publishable website-tracker token is deliberately NOT a door to this — it is write-only, " +
+    "brand-scoped and meant for a third party's page). The lead is named by the `id` a list row already " +
+    "carries, so nothing about the person is re-supplied and nothing is matched or guessed — which is what " +
+    "repairs, for hand-stated facts, the ~90% unmatched rate the tracker's identity waterfall carries. " +
+    "kind=outcome writes to the conversion ledger tagged source=manual, so the brand's outcome counts move " +
+    "on the next read with no consumer change, and restating the same step corrects the first statement " +
+    "instead of counting twice. kind=never writes to a separate store that NO count reads, so a \"never\" " +
+    "can never move an outcome count; it is what lets a consumer separate a lead that is dead at a step " +
+    "from one still pending.",
+  request: {
+    params: LeadRowIdPathParam,
+    body: { content: { "application/json": { schema: StepStatementRequestSchema } } },
+  },
+  parameters: StepStatementOrgHeaders,
+  responses: {
+    201: {
+      description: "The statement as recorded",
+      content: { "application/json": { schema: StepStatementResponseSchema } },
+    },
+    400: { description: "Invalid id, step, kind, occurredAt, or valueCents on a \"never\"" },
+    401: { description: "Unauthorized" },
+    404: { description: "No such lead row for this org (or for the requested brand scope)" },
+    409: { description: "Cannot state \"never\" for a step that already has an outcome" },
+    500: { description: "Internal server error" },
+  },
+});
+
+const StepStateSchema = z
+  .object({
+    step: z.enum(STEP_ENUM),
+    state: z.enum(["outcome", "never", "pending"]).openapi({
+      description:
+        "outcome — it happened; never — a human stated it never will (counted by nothing); pending — neither has been stated. Pending is named explicitly rather than inferred from an empty count, which is the whole point: an absent outcome and a dead lead used to be indistinguishable.",
+    }),
+    source: z.enum(["tracker", "manual"]).nullable().openapi({
+      description: "Who said so. Null on a pending step (nobody has said anything).",
+    }),
+    valueCents: z.number().int().nullable(),
+    note: z.string().nullable(),
+    statedByUserId: z.string().nullable(),
+    at: z.string().nullable(),
+  })
+  .openapi("LeadStepState");
+
+const StepStatementsListSchema = z
+  .object({
+    leadCampaignId: z.string(),
+    leadId: z.string(),
+    campaignId: z.string(),
+    brandId: z.string(),
+    steps: z.array(StepStateSchema).openapi({
+      description:
+        "One entry per step of the outcome vocabulary, ALWAYS all of them, in a fixed order: signup, meeting_booked, form_submission, sale, meeting_attended.",
+    }),
+  })
+  .openapi("LeadStepStatementsResponse", {
+    description: "What is known about every step of this lead's funnel.",
+  });
+
+registry.registerPath({
+  method: "get",
+  path: "/orgs/leads/{id}/step-statements",
+  summary: "Everything known about every funnel step of one lead",
+  description:
+    "The read behind the panel a statement is made from: one entry per step, always all of them, each " +
+    "either an outcome (with the source that reported or stated it), a \"never\", or pending. A " +
+    "tracker-reported outcome is attributed to the person at brand grain, a hand-stated one to the exact " +
+    "row it was stated on; both are returned here.",
+  request: { params: LeadRowIdPathParam },
+  parameters: StepStatementOrgHeaders,
+  responses: {
+    200: {
+      description: "Per-step state for this lead",
+      content: { "application/json": { schema: StepStatementsListSchema } },
+    },
+    400: { description: "id is not a uuid" },
+    401: { description: "Unauthorized" },
+    404: { description: "No such lead row for this org (or for the requested brand scope)" },
+    500: { description: "Internal server error" },
+  },
+});
+
+const StepDisqualificationsResponseSchema = z
+  .object({
+    counts: z
+      .object({
+        signup: z.number().int(),
+        meeting_booked: z.number().int(),
+        meeting_attended: z.number().int(),
+        form_submission: z.number().int(),
+        sale: z.number().int(),
+      })
+      .openapi({
+        description:
+          "Per step, how many DISTINCT people a human has stated will never reach it. These are not outcomes and are counted as outcomes by nothing — the number exists so a consumer can shrink a still-pending population to the one that can still convert.",
+        example: {
+          signup: 0,
+          meeting_booked: 4,
+          meeting_attended: 1,
+          form_submission: 0,
+          sale: 12,
+        },
+      }),
+    byStep: z
+      .object({
+        signup: z.array(z.string()),
+        meeting_booked: z.array(z.string()),
+        meeting_attended: z.array(z.string()),
+        form_submission: z.array(z.string()),
+        sale: z.array(z.string()),
+      })
+      .openapi({
+        description:
+          "Per step, the canonical (primary) emails of those people — the SAME join key /converted-lead-emails returns, lowercased and DISTINCT, so a consumer intersects it with audience membership exactly as it already does for conversions. A lead with no email contact method has no join key and is absent here while still counted in `counts`.",
+      }),
+  })
+  .openapi("LeadStepDisqualificationsResponse", {
+    description: "Per-brand, who is dead at which funnel step.",
+  });
+
+registry.registerPath({
+  method: "get",
+  path: "/internal/brands/{brandId}/step-disqualifications",
+  summary: "People stated to never reach a funnel step, per step, for a brand (internal, service-auth)",
+  description:
+    "INTERNAL (service-auth: x-api-key — the same tier as the conversion-count reads, NO Clerk). Nothing " +
+    "here is an outcome and nothing counts it as one: this is what lets a consumer separate a lead that is " +
+    "DEAD at a step from one still PENDING, so a cost-per-acquisition denominator stops waiting forever on " +
+    "somebody who is never coming. Never 404 — a brand nobody has disqualified anyone for returns empty " +
+    "sets and zero counts.",
+  request: { params: BrandIdPathParam },
+  parameters: FeatureMembershipApiKeyHeader,
+  responses: {
+    200: {
+      description: "Per-step counts and canonical emails of disqualified leads",
+      content: { "application/json": { schema: StepDisqualificationsResponseSchema } },
+    },
     401: { description: "Unauthorized" },
   },
 });
