@@ -133,6 +133,20 @@ router.post(
       return;
     }
 
+    // A stated SALE must say what it was worth. It is the one place in the whole system where
+    // estimating has no excuse: with no value, every downstream money figure — pipeline, ROI,
+    // cost per acquisition — prices the deal at the brand's AVERAGE lifetime revenue, a number
+    // that describes no real customer, and does it silently. Every OTHER step stays optional: an
+    // unusually large lead is worth stating early, long before it closes.
+    if (body.kind === "outcome" && step === "sale" && body.valueCents === undefined) {
+      res.status(400).json({
+        error:
+          "valueCents is required on a \"sale\" outcome — a won deal states what it was worth, " +
+          "it is never estimated",
+      });
+      return;
+    }
+
     // The moment the outcome happened, when the caller states a past fact. Bound as an ISO string
     // (a raw `sql` template hands params straight to postgres.js Bind, which cannot serialize a
     // Date), and rejected outright when unparseable — never silently replaced by now().
