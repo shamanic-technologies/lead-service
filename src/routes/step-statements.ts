@@ -331,12 +331,17 @@ router.post(
         }
       }
 
+      // Exactly the outcomes the READ answers with for this lead: a hand-stated one is keyed to
+      // the row it was stated on, a tracker-reported one knows only the brand. Asking a narrower
+      // question here than the read asks is how the panel and the write path come to disagree.
       const existingOutcome = (await db.execute(sql`
         SELECT event
         FROM conversion_events
-        WHERE lead_campaign_id = ${row.id}
-          AND event = ANY(${sql.param(blockedBy)}::text[])
+        WHERE brand_id = ${brandId}
+          AND matched_lead_id = ${row.lead_id}
           AND attribution_status = 'attributed'
+          AND (lead_campaign_id IS NULL OR lead_campaign_id = ${row.id})
+          AND event = ANY(${sql.param(blockedBy)}::text[])
         LIMIT 1
       `)) as unknown as Array<{ event: string }>;
       if (existingOutcome.length > 0) {
