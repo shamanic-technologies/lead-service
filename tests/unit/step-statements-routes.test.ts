@@ -320,6 +320,7 @@ describe("GET /orgs/leads/:id/step-statements", () => {
       "form_submission",
       "sale",
       "meeting_attended",
+      "website_visit",
     ]);
     expect(res.body.steps.every((s: { state: string }) => s.state === "pending")).toBe(true);
   });
@@ -395,6 +396,7 @@ describe("GET /internal/brands/:brandId/step-disqualifications", () => {
       form_submission: 0,
       sale: 0,
       meeting_attended: 0,
+      website_visit: 0,
     });
     expect(res.body.byStep.sale).toEqual([]);
   });

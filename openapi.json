@@ -2145,6 +2145,11 @@
                 "type": "integer",
                 "example": 2
               },
+              "website_visit": {
+                "type": "integer",
+                "description": "Website visits known ONLY by hand: a visit stated for a lead whose click the delivery layer already measured is NOT counted here, so this number can be ADDED to the measured click count without counting anybody twice. Nothing about what the delivery layer measures changes.",
+                "example": 1
+              },
               "purchase": {
                 "type": "integer",
                 "example": 2
@@ -2156,6 +2161,7 @@
               "meeting_attended",
               "form_submission",
               "sale",
+              "website_visit",
               "purchase"
             ],
             "description": "Count of REAL, deduped, attributed outcomes per step, BOTH sources together — what every existing consumer reads, unchanged. All five canonical keys (signup, meeting_booked, meeting_attended, form_submission, sale) are ALWAYS present (0 when none). \"meeting_attended\" is statable by hand only (a page-load tag cannot observe somebody showing up) and counts exactly like the four the tracker reports. The terminal event was renamed \"purchase\" → \"sale\"; a legacy \"purchase\" key mirroring \"sale\" is also returned for the migration window (drop once consumers read \"sale\"). Excludes the \"ping\" liveness heartbeat, needs_review, and unmatched events. A \"never\" statement is NOT an outcome and is counted by nothing here."
@@ -2186,6 +2192,11 @@
                     "type": "integer",
                     "example": 2
                   },
+                  "website_visit": {
+                    "type": "integer",
+                    "description": "Website visits known ONLY by hand: a visit stated for a lead whose click the delivery layer already measured is NOT counted here, so this number can be ADDED to the measured click count without counting anybody twice. Nothing about what the delivery layer measures changes.",
+                    "example": 1
+                  },
                   "purchase": {
                     "type": "integer",
                     "example": 2
@@ -2197,6 +2208,7 @@
                   "meeting_attended",
                   "form_submission",
                   "sale",
+                  "website_visit",
                   "purchase"
                 ]
               },
@@ -2223,6 +2235,11 @@
                     "type": "integer",
                     "example": 2
                   },
+                  "website_visit": {
+                    "type": "integer",
+                    "description": "Website visits known ONLY by hand: a visit stated for a lead whose click the delivery layer already measured is NOT counted here, so this number can be ADDED to the measured click count without counting anybody twice. Nothing about what the delivery layer measures changes.",
+                    "example": 1
+                  },
                   "purchase": {
                     "type": "integer",
                     "example": 2
@@ -2234,6 +2251,7 @@
                   "meeting_attended",
                   "form_submission",
                   "sale",
+                  "website_visit",
                   "purchase"
                 ]
               }
@@ -2287,6 +2305,12 @@
                   "type": "integer"
                 }
               },
+              "website_visit": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer"
+                }
+              },
               "purchase": {
                 "type": "object",
                 "additionalProperties": {
@@ -2300,6 +2324,7 @@
               "meeting_attended",
               "form_submission",
               "sale",
+              "website_visit",
               "purchase"
             ],
             "description": "Per event type, a map of UTC calendar day (YYYY-MM-DD) -> count of REAL, deduped, attributed conversions received that day. Days are bucketed by received_at AT TIME ZONE 'UTC' (matching the ingest dedupe UTC-day convention). A day key appears only when its count > 0. All four canonical event keys (…, sale) are ALWAYS present (empty object when none), plus a legacy \"purchase\" key mirroring \"sale\" for the rename migration window. Excludes the \"ping\" liveness heartbeat, needs_review, and unmatched events — the SAME set as /conversion-counts, just placed on the day each conversion occurred.",
@@ -2406,7 +2431,8 @@
               "meeting_booked",
               "meeting_attended",
               "form_submission",
-              "sale"
+              "sale",
+              "website_visit"
             ],
             "description": "The CANONICAL step the outcomes were filtered to. A legacy \"purchase\" query is normalized to and echoed as \"sale\".",
             "example": "sale"
@@ -2504,6 +2530,7 @@
                   "meeting_attended",
                   "form_submission",
                   "sale",
+                  "website_visit",
                   "purchase"
                 ]
               },
@@ -2574,9 +2601,10 @@
               "meeting_attended",
               "form_submission",
               "sale",
+              "website_visit",
               "purchase"
             ],
-            "description": "The funnel step being stated. \"meeting_attended\" exists here and nowhere in the tracker: attendance happens off the client's website, so only a human can state it. The legacy spelling \"purchase\" is accepted and normalized to \"sale\".",
+            "description": "The funnel step being stated. \"meeting_attended\" and \"website_visit\" exist here and nowhere in the tracker: attendance happens off the client's website, and a visit is measured by the delivery layer as a click, so for both only a human can state what those signals missed. A hand-stated visit ADDS to the measured one and never suppresses it: a lead carrying both is counted once, because the hand-stated row is left out of the counts. The legacy spelling \"purchase\" is accepted and normalized to \"sale\".",
             "example": "meeting_booked"
           },
           "kind": {
@@ -2630,7 +2658,7 @@
             "items": {
               "$ref": "#/components/schemas/LeadStepState"
             },
-            "description": "One entry per step of the outcome vocabulary, ALWAYS all of them, in a fixed order: signup, meeting_booked, form_submission, sale, meeting_attended."
+            "description": "One entry per step of the outcome vocabulary, ALWAYS all of them, in a fixed order: signup, meeting_booked, form_submission, sale, meeting_attended, website_visit. The website visit additionally reads as an outcome with source=tracker when the delivery layer already measured a click for this lead, so the panel never invites somebody to state a fact the system already holds."
           }
         },
         "required": [
@@ -2653,6 +2681,7 @@
               "meeting_attended",
               "form_submission",
               "sale",
+              "website_visit",
               "purchase"
             ]
           },
@@ -2722,6 +2751,9 @@
               },
               "sale": {
                 "type": "integer"
+              },
+              "website_visit": {
+                "type": "integer"
               }
             },
             "required": [
@@ -2729,7 +2761,8 @@
               "meeting_booked",
               "meeting_attended",
               "form_submission",
-              "sale"
+              "sale",
+              "website_visit"
             ],
             "description": "Per step, how many DISTINCT people a human has stated will never reach it. These are not outcomes and are counted as outcomes by nothing — the number exists so a consumer can shrink a still-pending population to the one that can still convert.",
             "example": {
@@ -2737,7 +2770,8 @@
               "meeting_booked": 4,
               "meeting_attended": 1,
               "form_submission": 0,
-              "sale": 12
+              "sale": 12,
+              "website_visit": 0
             }
           },
           "byStep": {
@@ -2772,6 +2806,12 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "website_visit": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               }
             },
             "required": [
@@ -2779,7 +2819,8 @@
               "meeting_booked",
               "meeting_attended",
               "form_submission",
-              "sale"
+              "sale",
+              "website_visit"
             ],
             "description": "Per step, the canonical (primary) emails of those people — the SAME join key /converted-lead-emails returns, lowercased and DISTINCT, so a consumer intersects it with audience membership exactly as it already does for conversions. A lead with no email contact method has no join key and is absent here while still counted in `counts`."
           }
@@ -4154,7 +4195,7 @@
     "/internal/brands/{brandId}/conversion-counts": {
       "get": {
         "summary": "Real conversion counts per event type for a brand (internal, service-auth)",
-        "description": "INTERNAL (service-auth: x-api-key — same tier as other /internal/* routes, NO Clerk). Returns the per-event-type COUNT of REAL, attributed conversions for the brand. Each count is deduped (rows are deduped at write via the (brand_id, dedupe_signature) partial unique index) and filtered to attribution_status = 'attributed' (credited to a lead we emailed for the brand; excludes needs_review and unmatched). The \"ping\" liveness heartbeat never lands in conversion_events, so it is excluded. All five step keys are ALWAYS present (0 when none received), including \"meeting_attended\", which is statable by hand only and counts exactly like the four the tracker reports. `bySource` splits the same rows into tracker-reported and hand-stated (tracker + manual === counts, per key). A \"never\" statement is not an outcome and is counted by nothing here. A brand with zero conversions returns all-zero counts (200, never 404).",
+        "description": "INTERNAL (service-auth: x-api-key — same tier as other /internal/* routes, NO Clerk). Returns the per-event-type COUNT of REAL, attributed conversions for the brand. Each count is deduped (rows are deduped at write via the (brand_id, dedupe_signature) partial unique index) and filtered to attribution_status = 'attributed' (credited to a lead we emailed for the brand; excludes needs_review and unmatched). The \"ping\" liveness heartbeat never lands in conversion_events, so it is excluded. All six step keys are ALWAYS present (0 when none received), including \"meeting_attended\" and \"website_visit\", which are statable by hand only. \"website_visit\" counts the visits known ONLY by hand: a visit stated for a lead whose click the delivery layer already measured is left out, so this number can be added to the measured click count without counting anybody twice (email-gateway unreachable → 502, never a guessed count). `bySource` splits the same rows into tracker-reported and hand-stated (tracker + manual === counts, per key). A \"never\" statement is not an outcome and is counted by nothing here. A brand with zero conversions returns all-zero counts (200, never 404).",
         "parameters": [
           {
             "in": "header",
@@ -4259,6 +4300,7 @@
                 "meeting_attended",
                 "form_submission",
                 "sale",
+                "website_visit",
                 "purchase"
               ]
             },
@@ -4320,6 +4362,7 @@
                 "meeting_attended",
                 "form_submission",
                 "sale",
+                "website_visit",
                 "purchase"
               ]
             },

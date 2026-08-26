@@ -42,16 +42,35 @@ import {
  */
 export const MEETING_ATTENDED = "meeting_attended" as const;
 
-export type LeadStepOutcomeName = ConversionEventName | typeof MEETING_ATTENDED;
+/**
+ * The lead LANDED ON the brand's website. Two of the four sales funnels START here, and until now
+ * it was the one step of those chains nobody could state: the panel showed a row it could only
+ * read above three it could act on, and there was no way at all to correct the first step when the
+ * automatic signal missed it.
+ *
+ * The automatic signal is a CLICK measured by the delivery layer (email-gateway), and it misses
+ * for the same family of reasons the tracker's identity waterfall misses. A hand-stated visit ADDS
+ * to that; it never replaces or suppresses it, and the delivery layer is not touched. It is
+ * deliberately NOT accepted by the website tracker's ingest either — the tracker already reports
+ * what it can see, and its vocabulary is unchanged — so, like `meeting_attended`, this name is
+ * statable by hand only.
+ */
+export const WEBSITE_VISIT = "website_visit" as const;
+
+export type LeadStepOutcomeName =
+  | ConversionEventName
+  | typeof MEETING_ATTENDED
+  | typeof WEBSITE_VISIT;
 
 /**
- * Every outcome a step of a sales funnel can carry — the four the tracker reports plus the one
- * only a human can. This is the vocabulary the COUNT contracts answer for; `CONVERSION_EVENTS`
+ * Every outcome a step of a sales funnel can carry — the four the tracker reports plus the two
+ * only a human can state. This is the vocabulary the COUNT contracts answer for; `CONVERSION_EVENTS`
  * stays the (narrower) set the public tracker ingest accepts.
  */
 export const LEAD_STEP_OUTCOMES: readonly LeadStepOutcomeName[] = [
   ...CONVERSION_EVENTS,
   MEETING_ATTENDED,
+  WEBSITE_VISIT,
 ];
 
 /**
@@ -61,6 +80,7 @@ export const LEAD_STEP_OUTCOMES: readonly LeadStepOutcomeName[] = [
  */
 export function canonicalizeStepOutcome(value: unknown): LeadStepOutcomeName | null {
   if (value === MEETING_ATTENDED) return MEETING_ATTENDED;
+  if (value === WEBSITE_VISIT) return WEBSITE_VISIT;
   return canonicalizeConversionEvent(value);
 }
 
