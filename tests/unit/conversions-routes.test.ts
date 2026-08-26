@@ -423,7 +423,12 @@ describe("GET /internal/brands/:brandId/conversion-counts", () => {
   beforeAll(async () => {
     app = await buildApp();
   }, 30_000);
-  beforeEach(() => execute.mockReset().mockResolvedValue([]));
+  beforeEach(() => {
+    execute.mockReset().mockResolvedValue([]);
+    // The route first asks which hand-stated website visits the delivery layer already measured.
+    // No such row for these brands → no email-gateway call, and the counts query follows.
+    execute.mockResolvedValueOnce([]);
+  });
 
   it("401 without x-api-key", async () => {
     const res = await request(app).get("/internal/brands/brand-1/conversion-counts");
@@ -437,7 +442,7 @@ describe("GET /internal/brands/:brandId/conversion-counts", () => {
       .get("/internal/brands/brand-1/conversion-counts")
       .set("x-api-key", "test-api-key");
     expect(res.status).toBe(200);
-    expect(res.body.counts).toEqual({ signup: 0, meeting_booked: 0, meeting_attended: 0, form_submission: 0, sale: 0, purchase: 0 });
+    expect(res.body.counts).toEqual({ signup: 0, meeting_booked: 0, meeting_attended: 0, form_submission: 0, sale: 0, website_visit: 0, purchase: 0 });
   });
 
   it("counts real attributed events per type; missing types default to 0", async () => {
@@ -450,7 +455,7 @@ describe("GET /internal/brands/:brandId/conversion-counts", () => {
       .set("x-api-key", "test-api-key");
     expect(res.status).toBe(200);
     // Canonical "sale" plus the legacy "purchase" mirror (same value) for the rename window.
-    expect(res.body.counts).toEqual({ signup: 12, meeting_booked: 0, meeting_attended: 0, form_submission: 0, sale: 2, purchase: 2 });
+    expect(res.body.counts).toEqual({ signup: 12, meeting_booked: 0, meeting_attended: 0, form_submission: 0, sale: 2, website_visit: 0, purchase: 2 });
   });
 
   it("folds a legacy 'purchase'-spelled row into the canonical 'sale' bucket", async () => {
@@ -463,7 +468,7 @@ describe("GET /internal/brands/:brandId/conversion-counts", () => {
       .get("/internal/brands/brand-1/conversion-counts")
       .set("x-api-key", "test-api-key");
     expect(res.status).toBe(200);
-    expect(res.body.counts).toEqual({ signup: 0, meeting_booked: 0, meeting_attended: 0, form_submission: 0, sale: 7, purchase: 7 });
+    expect(res.body.counts).toEqual({ signup: 0, meeting_booked: 0, meeting_attended: 0, form_submission: 0, sale: 7, website_visit: 0, purchase: 7 });
   });
 
   it("query is deduped-at-write, attributed-only, and ping-excluded", async () => {
@@ -471,17 +476,19 @@ describe("GET /internal/brands/:brandId/conversion-counts", () => {
     await request(app)
       .get("/internal/brands/brand-1/conversion-counts")
       .set("x-api-key", "test-api-key");
-    const q = sqlAt(0);
+    // The FIRST query is the measured-visit lookup (which hand-stated visits the delivery layer
+    // already measured); the counts query is the second.
+    const q = sqlAt(1);
     // Counts stored conversion_events rows (already deduped at write via the partial
     // unique index), grouped per event type.
     expect(q).toContain("from conversion_events");
-    expect(q).toContain("group by event");
+    expect(q).toContain("group by ce.event");
     // Only conversions credited to a lead we emailed for the brand.
     expect(q).toContain("attribution_status = 'attributed'");
     // "ping" never lands in conversion_events, so it cannot leak into the counts —
     // and the handler only ever emits the four real event-type keys.
     expect(q).not.toContain("ping");
-    const params = compile(execute.mock.calls[0][0]).params;
+    const params = compile(execute.mock.calls[1][0]).params;
     expect(params).toContain("brand-1");
   });
 
@@ -495,9 +502,17 @@ describe("GET /internal/brands/:brandId/conversion-counts", () => {
       .get("/internal/brands/brand-1/conversion-counts")
       .set("x-api-key", "test-api-key");
     expect(res.status).toBe(200);
-    expect(res.body.counts).toEqual({ signup: 3, meeting_booked: 0, meeting_attended: 0, form_submission: 0, sale: 0, purchase: 0 });
+    expect(res.body.counts).toEqual({ signup: 3, meeting_booked: 0, meeting_attended: 0, form_submission: 0, sale: 0, website_visit: 0, purchase: 0 });
     expect(Object.keys(res.body.counts).sort()).toEqual(
-      ["form_submission", "meeting_attended", "meeting_booked", "purchase", "sale", "signup"].sort(),
+      [
+        "form_submission",
+        "meeting_attended",
+        "meeting_booked",
+        "purchase",
+        "sale",
+        "signup",
+        "website_visit",
+      ].sort(),
     );
   });
 
@@ -559,7 +574,10 @@ describe("GET /internal/brands/:brandId/conversion-counts-by-day", () => {
   beforeAll(async () => {
     app = await buildApp();
   }, 30_000);
-  beforeEach(() => execute.mockReset().mockResolvedValue([]));
+  beforeEach(() => {
+    execute.mockReset().mockResolvedValue([]);
+    execute.mockResolvedValueOnce([]); // measured-visit lookup: nothing to suppress
+  });
 
   it("401 without x-api-key", async () => {
     const res = await request(app).get("/internal/brands/brand-1/conversion-counts-by-day");
@@ -574,8 +592,8 @@ describe("GET /internal/brands/:brandId/conversion-counts-by-day", () => {
       .set("x-api-key", "test-api-key");
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
-      byDay: { signup: {}, meeting_booked: {}, meeting_attended: {}, form_submission: {}, sale: {}, purchase: {} },
-      undated: { signup: 0, meeting_booked: 0, meeting_attended: 0, form_submission: 0, sale: 0, purchase: 0 },
+      byDay: { signup: {}, meeting_booked: {}, meeting_attended: {}, form_submission: {}, sale: {}, website_visit: {}, purchase: {} },
+      undated: { signup: 0, meeting_booked: 0, meeting_attended: 0, form_submission: 0, sale: 0, website_visit: 0, purchase: 0 },
     });
   });
 
@@ -596,9 +614,10 @@ describe("GET /internal/brands/:brandId/conversion-counts-by-day", () => {
         meeting_attended: {},
         form_submission: { "2026-07-09": 3 },
         sale: {},
+        website_visit: {},
         purchase: {},
       },
-      undated: { signup: 0, meeting_booked: 0, meeting_attended: 0, form_submission: 0, sale: 0, purchase: 0 },
+      undated: { signup: 0, meeting_booked: 0, meeting_attended: 0, form_submission: 0, sale: 0, website_visit: 0, purchase: 0 },
     });
   });
 
@@ -620,6 +639,7 @@ describe("GET /internal/brands/:brandId/conversion-counts-by-day", () => {
       meeting_attended: 0,
       form_submission: 0,
       sale: 4,
+      website_visit: 0,
       purchase: 4,
     });
   });
@@ -646,9 +666,9 @@ describe("GET /internal/brands/:brandId/conversion-counts-by-day", () => {
     await request(app)
       .get("/internal/brands/brand-1/conversion-counts-by-day")
       .set("x-api-key", "test-api-key");
-    const q = sqlAt(0);
+    const q = sqlAt(1);
     expect(q).toContain("from conversion_events");
-    expect(q).toContain("group by event, day");
+    expect(q).toContain("group by ce.event, day");
     // Same attributed-only set as /conversion-counts (reconciliation guarantee).
     expect(q).toContain("attribution_status = 'attributed'");
     // UTC calendar-day bucketing, matching the ingest dedupe UTC-day convention.
@@ -672,7 +692,15 @@ describe("GET /internal/brands/:brandId/conversion-counts-by-day", () => {
     expect(res.status).toBe(200);
     expect(res.body.byDay.signup).toEqual({ "2026-07-08": 3 });
     expect(Object.keys(res.body.byDay).sort()).toEqual(
-      ["form_submission", "meeting_attended", "meeting_booked", "purchase", "sale", "signup"].sort(),
+      [
+        "form_submission",
+        "meeting_attended",
+        "meeting_booked",
+        "purchase",
+        "sale",
+        "signup",
+        "website_visit",
+      ].sort(),
     );
     expect(res.body.undated).toEqual({
       signup: 0,
@@ -680,6 +708,7 @@ describe("GET /internal/brands/:brandId/conversion-counts-by-day", () => {
       meeting_attended: 0,
       form_submission: 0,
       sale: 0,
+      website_visit: 0,
       purchase: 0,
     });
   });

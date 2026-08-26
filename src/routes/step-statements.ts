@@ -6,12 +6,17 @@ import { apiKeyAuth, requireOrgId, AuthenticatedRequest } from "../middleware/au
 import { toIsoTimestamp } from "../lib/basic-leads.js";
 import {
   LEAD_STEP_OUTCOMES,
+  WEBSITE_VISIT,
   canonicalizeStepOutcome,
   manualOutcomeSignature,
   type LeadStepOutcomeName,
   type StatementSource,
   type StepState,
 } from "../lib/step-statements.js";
+import {
+  MeasuredVisitLookupError,
+  fetchMeasuredVisitEmails,
+} from "../lib/measured-visits.js";
 
 const router = Router();
 
@@ -41,6 +46,8 @@ interface LeadRow {
   lead_id: string;
   campaign_id: string;
   brand_ids: string[];
+  /** The lead's canonical (primary) email — the identity delivery evidence is keyed on. */
+  email: string | null;
 }
 
 /**
@@ -50,8 +57,15 @@ interface LeadRow {
  */
 async function fetchLeadRow(orgId: string, id: string): Promise<LeadRow | null> {
   const rows = (await db.execute(sql`
-    SELECT lc.id, lc.lead_id, lc.campaign_id, lc.brand_ids
+    SELECT lc.id, lc.lead_id, lc.campaign_id, lc.brand_ids, lower(canonical.value) AS email
     FROM leads_campaigns lc
+    LEFT JOIN LATERAL (
+      SELECT cm.value
+      FROM lead_contact_methods cm
+      WHERE cm.lead_id = lc.lead_id AND cm.channel = 'email'
+      ORDER BY cm.created_at ASC NULLS LAST, cm.value ASC
+      LIMIT 1
+    ) canonical ON true
     WHERE lc.id = ${id} AND lc.org_id = ${orgId}
     LIMIT 1
   `)) as unknown as LeadRow[];
@@ -72,6 +86,38 @@ function resolveBrandId(row: LeadRow, req: AuthenticatedRequest): string | null 
   const requested = fromQuery ? [fromQuery] : (req.brandIds ?? []);
   if (requested.length > 0) return requested.find((b) => row.brand_ids.includes(b)) ?? null;
   return row.brand_ids[0] ?? null;
+}
+
+
+/**
+ * Has the DELIVERY LAYER already measured this lead's visit (a click on the email we sent) for
+ * this brand? email-gateway owns that evidence and nothing here changes it; this is a read.
+ *
+ * It is what keeps the panel coherent with the counts: a visit the delivery layer measured shows
+ * as an outcome the tracker reported, so nobody is invited to state a fact the system already
+ * holds, and stating "never happened" about a visit that demonstrably happened is refused.
+ * A lead with no registered email can carry no delivery evidence — false, never a guess.
+ */
+async function visitAlreadyMeasured(
+  row: LeadRow,
+  brandId: string,
+  orgId: string,
+): Promise<boolean> {
+  if (!row.email) return false;
+  const measured = await fetchMeasuredVisitEmails(brandId, orgId, [row.email]);
+  return measured.has(row.email);
+}
+
+/** A measured-visit lookup that could not be answered is a 502, never a silent "not measured". */
+function respondMeasuredVisitFailure(error: unknown, res: Response): boolean {
+  if (!(error instanceof MeasuredVisitLookupError)) return false;
+  console.error(error.message);
+  res.status(502).json({
+    error:
+      "email-gateway could not say whether this lead's website visit was already measured. " +
+      "No answer is returned rather than one that could contradict the counts.",
+  });
+  return true;
 }
 
 /**
@@ -179,6 +225,26 @@ router.post(
     const statedBy = req.userId ?? null;
 
     if (body.kind === "never") {
+      // A visit the delivery layer already measured HAPPENED, whatever a person types about it.
+      // Same refusal as an outcome already on the ledger, for the same reason.
+      if (step === WEBSITE_VISIT) {
+        let measured: boolean;
+        try {
+          measured = await visitAlreadyMeasured(row, brandId, req.orgId!);
+        } catch (error) {
+          if (respondMeasuredVisitFailure(error, res)) return;
+          throw error;
+        }
+        if (measured) {
+          res.status(409).json({
+            error:
+              "website_visit was already measured for this lead (a click on the email we sent) " +
+              "— it cannot be stated as never",
+          });
+          return;
+        }
+      }
+
       const existingOutcome = (await db.execute(sql`
         SELECT 1
         FROM conversion_events
@@ -400,6 +466,34 @@ router.get(
         statedByUserId: o.stated_by_user_id,
         at: toIsoTimestamp(o.received_at),
       });
+    }
+
+    // The website visit is the one step that is ALSO measured automatically — a click on the
+    // email we sent, owned by the delivery layer. A hand-stated visit is written like any other
+    // outcome (and read back above); a MEASURED one is not in this ledger at all, so it is read
+    // where it lives. Without this the panel would offer to state a visit the system already
+    // knows about, and the count (which suppresses the hand-stated duplicate) would disagree with
+    // what the panel shows. A hand statement already on the row wins the display — it is the more
+    // specific fact, and it carries the note and the date the person gave.
+    if (byStep.get(WEBSITE_VISIT)!.state !== "outcome") {
+      let measured: boolean;
+      try {
+        measured = await visitAlreadyMeasured(row, brandId, req.orgId!);
+      } catch (error) {
+        if (respondMeasuredVisitFailure(error, res)) return;
+        throw error;
+      }
+      if (measured) {
+        byStep.set(WEBSITE_VISIT, {
+          step: WEBSITE_VISIT,
+          state: "outcome",
+          source: "tracker",
+          valueCents: null,
+          note: null,
+          statedByUserId: null,
+          at: null,
+        });
+      }
     }
 
     res.json({
