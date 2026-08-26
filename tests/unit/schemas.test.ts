@@ -33,6 +33,7 @@ const minimalLead = {
   state: null,
   country: null,
   timezone: null,
+  businessLanguages: null,
   seniority: null,
   departments: null,
   subdepartments: null,
@@ -140,6 +141,24 @@ describe("FullLeadSchema", () => {
     const without = { ...minimalLead };
     delete (without as Record<string, unknown>).currentTitle;
     expect(FullLeadSchema.safeParse(without).success).toBe(false);
+  });
+
+  it("accepts businessLanguages as an ordered list, as empty, and as null", () => {
+    // Ordered: same set, different order must both parse and stay distinct — the
+    // consumer selects by position, so order is the contract.
+    expect(
+      FullLeadSchema.safeParse({ ...minimalLead, businessLanguages: ["de", "en"] }).data
+        ?.businessLanguages
+    ).toEqual(["de", "en"]);
+    expect(
+      FullLeadSchema.safeParse({ ...minimalLead, businessLanguages: ["en", "de"] }).data
+        ?.businessLanguages
+    ).toEqual(["en", "de"]);
+    // Empty = the producer had no signal; null = the lead predates the field.
+    expect(FullLeadSchema.safeParse({ ...minimalLead, businessLanguages: [] }).success).toBe(true);
+    expect(
+      FullLeadSchema.safeParse({ ...minimalLead, businessLanguages: null }).success
+    ).toBe(true);
   });
 
   it("accepts timezone as an IANA string and as null", () => {
