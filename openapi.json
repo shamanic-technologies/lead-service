@@ -2120,6 +2120,10 @@
                 "type": "integer",
                 "example": 3
               },
+              "meeting_attended": {
+                "type": "integer",
+                "example": 2
+              },
               "form_submission": {
                 "type": "integer",
                 "example": 7
@@ -2136,15 +2140,101 @@
             "required": [
               "signup",
               "meeting_booked",
+              "meeting_attended",
               "form_submission",
               "sale",
               "purchase"
             ],
-            "description": "Count of REAL, deduped, attributed conversion events per event type. All four canonical keys (signup, meeting_booked, form_submission, sale) are ALWAYS present (0 when none received). The terminal event was renamed \"purchase\" → \"sale\"; a legacy \"purchase\" key mirroring \"sale\" is also returned for the migration window (drop once consumers read \"sale\"). Excludes the \"ping\" liveness heartbeat, needs_review, and unmatched events."
+            "description": "Count of REAL, deduped, attributed outcomes per step, BOTH sources together — what every existing consumer reads, unchanged. All five canonical keys (signup, meeting_booked, meeting_attended, form_submission, sale) are ALWAYS present (0 when none). \"meeting_attended\" is statable by hand only (a page-load tag cannot observe somebody showing up) and counts exactly like the four the tracker reports. The terminal event was renamed \"purchase\" → \"sale\"; a legacy \"purchase\" key mirroring \"sale\" is also returned for the migration window (drop once consumers read \"sale\"). Excludes the \"ping\" liveness heartbeat, needs_review, and unmatched events. A \"never\" statement is NOT an outcome and is counted by nothing here."
+          },
+          "bySource": {
+            "type": "object",
+            "properties": {
+              "tracker": {
+                "type": "object",
+                "properties": {
+                  "signup": {
+                    "type": "integer",
+                    "example": 12
+                  },
+                  "meeting_booked": {
+                    "type": "integer",
+                    "example": 3
+                  },
+                  "meeting_attended": {
+                    "type": "integer",
+                    "example": 2
+                  },
+                  "form_submission": {
+                    "type": "integer",
+                    "example": 7
+                  },
+                  "sale": {
+                    "type": "integer",
+                    "example": 2
+                  },
+                  "purchase": {
+                    "type": "integer",
+                    "example": 2
+                  }
+                },
+                "required": [
+                  "signup",
+                  "meeting_booked",
+                  "meeting_attended",
+                  "form_submission",
+                  "sale",
+                  "purchase"
+                ]
+              },
+              "manual": {
+                "type": "object",
+                "properties": {
+                  "signup": {
+                    "type": "integer",
+                    "example": 12
+                  },
+                  "meeting_booked": {
+                    "type": "integer",
+                    "example": 3
+                  },
+                  "meeting_attended": {
+                    "type": "integer",
+                    "example": 2
+                  },
+                  "form_submission": {
+                    "type": "integer",
+                    "example": 7
+                  },
+                  "sale": {
+                    "type": "integer",
+                    "example": 2
+                  },
+                  "purchase": {
+                    "type": "integer",
+                    "example": 2
+                  }
+                },
+                "required": [
+                  "signup",
+                  "meeting_booked",
+                  "meeting_attended",
+                  "form_submission",
+                  "sale",
+                  "purchase"
+                ]
+              }
+            },
+            "required": [
+              "tracker",
+              "manual"
+            ],
+            "description": "The SAME rows, split by who said so: tracker — reported by the client's website; manual — stated by a human about a lead named by id. For every key, tracker + manual === counts. This is how a hand-stated outcome stays distinguishable from a tracker-reported one after the fact without changing what either counts toward."
           }
         },
         "required": [
-          "counts"
+          "counts",
+          "bySource"
         ],
         "description": "Per-brand real conversion counts by event type, for features-service to compute real signups / cost-per-signup."
       },
@@ -2166,6 +2256,12 @@
                   "type": "integer"
                 }
               },
+              "meeting_attended": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "integer"
+                }
+              },
               "form_submission": {
                 "type": "object",
                 "additionalProperties": {
@@ -2188,6 +2284,7 @@
             "required": [
               "signup",
               "meeting_booked",
+              "meeting_attended",
               "form_submission",
               "sale",
               "purchase"
@@ -2199,6 +2296,7 @@
                 "2026-07-09": 1
               },
               "meeting_booked": {},
+              "meeting_attended": {},
               "form_submission": {
                 "2026-07-09": 3
               },
@@ -2215,6 +2313,9 @@
               "meeting_booked": {
                 "type": "integer"
               },
+              "meeting_attended": {
+                "type": "integer"
+              },
               "form_submission": {
                 "type": "integer"
               },
@@ -2228,6 +2329,7 @@
             "required": [
               "signup",
               "meeting_booked",
+              "meeting_attended",
               "form_submission",
               "sale",
               "purchase"
@@ -2236,6 +2338,7 @@
             "example": {
               "signup": 0,
               "meeting_booked": 0,
+              "meeting_attended": 0,
               "form_submission": 0,
               "sale": 0,
               "purchase": 0
@@ -2279,6 +2382,322 @@
           "emails"
         ],
         "description": "Per-brand set of matched-lead canonical emails with an attributed conversion of a given event type, so features-service can attribute conversions to audiences by email-membership intersection."
+      },
+      "LeadStepStatementResponse": {
+        "type": "object",
+        "properties": {
+          "statement": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "leadCampaignId": {
+                "type": "string"
+              },
+              "leadId": {
+                "type": "string"
+              },
+              "campaignId": {
+                "type": "string",
+                "description": "The campaign the statement was made on — the row's own campaign, so an outcome stated from a campaign screen is attributable to that campaign and not only to the brand."
+              },
+              "brandId": {
+                "type": "string"
+              },
+              "step": {
+                "type": "string",
+                "enum": [
+                  "signup",
+                  "meeting_booked",
+                  "meeting_attended",
+                  "form_submission",
+                  "sale",
+                  "purchase"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "outcome",
+                  "never"
+                ]
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "tracker",
+                  "manual"
+                ]
+              },
+              "valueCents": {
+                "type": "integer",
+                "nullable": true
+              },
+              "note": {
+                "type": "string",
+                "nullable": true
+              },
+              "statedByUserId": {
+                "type": "string",
+                "nullable": true
+              },
+              "statedAt": {
+                "type": "string",
+                "nullable": true
+              }
+            },
+            "required": [
+              "id",
+              "leadCampaignId",
+              "leadId",
+              "campaignId",
+              "brandId",
+              "step",
+              "kind",
+              "source",
+              "valueCents",
+              "note",
+              "statedByUserId",
+              "statedAt"
+            ]
+          },
+          "retractedNever": {
+            "type": "boolean",
+            "description": "True when this outcome superseded an earlier \"never\" for the same step (the person did the thing after all). The two cannot both stand, and this is the only direction that can be true — stating \"never\" for a step that already happened is a 409."
+          }
+        },
+        "required": [
+          "statement"
+        ],
+        "description": "The statement as recorded."
+      },
+      "LeadStepStatementRequest": {
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "string",
+            "enum": [
+              "signup",
+              "meeting_booked",
+              "meeting_attended",
+              "form_submission",
+              "sale",
+              "purchase"
+            ],
+            "description": "The funnel step being stated. \"meeting_attended\" exists here and nowhere in the tracker: attendance happens off the client's website, so only a human can state it. The legacy spelling \"purchase\" is accepted and normalized to \"sale\".",
+            "example": "meeting_booked"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "outcome",
+              "never"
+            ],
+            "description": "outcome — this happened; it is written to the conversion ledger every consumer already counts, so the brand's counts move on the next read. never — this will NOT happen; it is NOT an outcome, nothing counts it anywhere, and it exists so a consumer can tell a lead that is DEAD at a step from one still PENDING.",
+            "example": "outcome"
+          },
+          "valueCents": {
+            "type": "integer",
+            "description": "Revenue attached to the outcome, in cents (primarily on \"sale\"). Rejected with 400 on a \"never\" statement rather than silently dropped.",
+            "example": 490000
+          },
+          "note": {
+            "type": "string",
+            "description": "Free text the person stating the fact wrote, stored verbatim.",
+            "example": "Closed on the call, contract signed 2026-08-19."
+          },
+          "occurredAt": {
+            "type": "string",
+            "description": "ISO-8601 timestamp of WHEN the outcome happened, for a fact stated after the fact — it is what the by-day series buckets on. Unparseable values are a 400, never silently replaced by now().",
+            "example": "2026-08-19T14:30:00.000Z"
+          }
+        },
+        "required": [
+          "step",
+          "kind"
+        ],
+        "description": "A statement a human makes about one step of one lead's campaign funnel."
+      },
+      "LeadStepStatementsResponse": {
+        "type": "object",
+        "properties": {
+          "leadCampaignId": {
+            "type": "string"
+          },
+          "leadId": {
+            "type": "string"
+          },
+          "campaignId": {
+            "type": "string"
+          },
+          "brandId": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LeadStepState"
+            },
+            "description": "One entry per step of the outcome vocabulary, ALWAYS all of them, in a fixed order: signup, meeting_booked, form_submission, sale, meeting_attended."
+          }
+        },
+        "required": [
+          "leadCampaignId",
+          "leadId",
+          "campaignId",
+          "brandId",
+          "steps"
+        ],
+        "description": "What is known about every step of this lead's funnel."
+      },
+      "LeadStepState": {
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "string",
+            "enum": [
+              "signup",
+              "meeting_booked",
+              "meeting_attended",
+              "form_submission",
+              "sale",
+              "purchase"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "outcome",
+              "never",
+              "pending"
+            ],
+            "description": "outcome — it happened; never — a human stated it never will (counted by nothing); pending — neither has been stated. Pending is named explicitly rather than inferred from an empty count, which is the whole point: an absent outcome and a dead lead used to be indistinguishable."
+          },
+          "source": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "tracker",
+              "manual",
+              null
+            ],
+            "description": "Who said so. Null on a pending step (nobody has said anything)."
+          },
+          "valueCents": {
+            "type": "integer",
+            "nullable": true
+          },
+          "note": {
+            "type": "string",
+            "nullable": true
+          },
+          "statedByUserId": {
+            "type": "string",
+            "nullable": true
+          },
+          "at": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "step",
+          "state",
+          "source",
+          "valueCents",
+          "note",
+          "statedByUserId",
+          "at"
+        ]
+      },
+      "LeadStepDisqualificationsResponse": {
+        "type": "object",
+        "properties": {
+          "counts": {
+            "type": "object",
+            "properties": {
+              "signup": {
+                "type": "integer"
+              },
+              "meeting_booked": {
+                "type": "integer"
+              },
+              "meeting_attended": {
+                "type": "integer"
+              },
+              "form_submission": {
+                "type": "integer"
+              },
+              "sale": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "signup",
+              "meeting_booked",
+              "meeting_attended",
+              "form_submission",
+              "sale"
+            ],
+            "description": "Per step, how many DISTINCT people a human has stated will never reach it. These are not outcomes and are counted as outcomes by nothing — the number exists so a consumer can shrink a still-pending population to the one that can still convert.",
+            "example": {
+              "signup": 0,
+              "meeting_booked": 4,
+              "meeting_attended": 1,
+              "form_submission": 0,
+              "sale": 12
+            }
+          },
+          "byStep": {
+            "type": "object",
+            "properties": {
+              "signup": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "meeting_booked": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "meeting_attended": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "form_submission": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "sale": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "signup",
+              "meeting_booked",
+              "meeting_attended",
+              "form_submission",
+              "sale"
+            ],
+            "description": "Per step, the canonical (primary) emails of those people — the SAME join key /converted-lead-emails returns, lowercased and DISTINCT, so a consumer intersects it with audience membership exactly as it already does for conversions. A lead with no email contact method has no join key and is absent here while still counted in `counts`."
+          }
+        },
+        "required": [
+          "counts",
+          "byStep"
+        ],
+        "description": "Per-brand, who is dead at which funnel step."
       }
     },
     "parameters": {},
@@ -3644,7 +4063,7 @@
     "/internal/brands/{brandId}/conversion-counts": {
       "get": {
         "summary": "Real conversion counts per event type for a brand (internal, service-auth)",
-        "description": "INTERNAL (service-auth: x-api-key — same tier as other /internal/* routes, NO Clerk). Returns the per-event-type COUNT of REAL, attributed conversions for the brand. Each count is deduped (rows are deduped at write via the (brand_id, dedupe_signature) partial unique index) and filtered to attribution_status = 'attributed' (credited to a lead we emailed for the brand; excludes needs_review and unmatched). The \"ping\" liveness heartbeat never lands in conversion_events, so it is excluded. All four keys are ALWAYS present (0 when none received); a brand with zero conversions returns all-zero counts (200, never 404).",
+        "description": "INTERNAL (service-auth: x-api-key — same tier as other /internal/* routes, NO Clerk). Returns the per-event-type COUNT of REAL, attributed conversions for the brand. Each count is deduped (rows are deduped at write via the (brand_id, dedupe_signature) partial unique index) and filtered to attribution_status = 'attributed' (credited to a lead we emailed for the brand; excludes needs_review and unmatched). The \"ping\" liveness heartbeat never lands in conversion_events, so it is excluded. All five step keys are ALWAYS present (0 when none received), including \"meeting_attended\", which is statable by hand only and counts exactly like the four the tracker reports. `bySource` splits the same rows into tracker-reported and hand-stated (tracker + manual === counts, per key). A \"never\" statement is not an outcome and is counted by nothing here. A brand with zero conversions returns all-zero counts (200, never 404).",
         "parameters": [
           {
             "in": "header",
@@ -3746,6 +4165,7 @@
               "enum": [
                 "signup",
                 "meeting_booked",
+                "meeting_attended",
                 "form_submission",
                 "sale",
                 "purchase"
@@ -3776,6 +4196,215 @@
           },
           "400": {
             "description": "Invalid or missing event"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/orgs/leads/{id}/step-statements": {
+      "post": {
+        "summary": "State by hand what happened to one lead at one funnel step (or that it never will)",
+        "description": "Organisation-authenticated (the customer dashboard and the staff console are both org-authenticated; the publishable website-tracker token is deliberately NOT a door to this — it is write-only, brand-scoped and meant for a third party's page). The lead is named by the `id` a list row already carries, so nothing about the person is re-supplied and nothing is matched or guessed — which is what repairs, for hand-stated facts, the ~90% unmatched rate the tracker's identity waterfall carries. kind=outcome writes to the conversion ledger tagged source=manual, so the brand's outcome counts move on the next read with no consumer change, and restating the same step corrects the first statement instead of counting twice. kind=never writes to a separate store that NO count reads, so a \"never\" can never move an outcome count; it is what lets a consumer separate a lead that is dead at a step from one still pending.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "API key for authenticating requests"
+          },
+          {
+            "in": "header",
+            "name": "x-org-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Internal organization UUID from client-service"
+          },
+          {
+            "in": "header",
+            "name": "x-user-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Internal user UUID of the person making the statement. Stored verbatim as statedByUserId so a statement can be traced back to whoever made it."
+          },
+          {
+            "in": "header",
+            "name": "x-brand-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Brand scope. Same meaning as ?brandId=: which of the row's brands the statement is about. A brand the row is not part of answers 404, exactly as an absent row does."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The `id` a list row already carries (the leads_campaigns membership row) — so a caller states an outcome for a lead it has already resolved without re-supplying any identity field.",
+              "example": "40000000-0000-0000-0000-000000000001"
+            },
+            "required": true,
+            "description": "The `id` a list row already carries (the leads_campaigns membership row) — so a caller states an outcome for a lead it has already resolved without re-supplying any identity field.",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeadStepStatementRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The statement as recorded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadStepStatementResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid id, step, kind, occurredAt, or valueCents on a \"never\""
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "No such lead row for this org (or for the requested brand scope)"
+          },
+          "409": {
+            "description": "Cannot state \"never\" for a step that already has an outcome"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      },
+      "get": {
+        "summary": "Everything known about every funnel step of one lead",
+        "description": "The read behind the panel a statement is made from: one entry per step, always all of them, each either an outcome (with the source that reported or stated it), a \"never\", or pending. A tracker-reported outcome is attributed to the person at brand grain, a hand-stated one to the exact row it was stated on; both are returned here.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "API key for authenticating requests"
+          },
+          {
+            "in": "header",
+            "name": "x-org-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Internal organization UUID from client-service"
+          },
+          {
+            "in": "header",
+            "name": "x-user-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Internal user UUID of the person making the statement. Stored verbatim as statedByUserId so a statement can be traced back to whoever made it."
+          },
+          {
+            "in": "header",
+            "name": "x-brand-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Brand scope. Same meaning as ?brandId=: which of the row's brands the statement is about. A brand the row is not part of answers 404, exactly as an absent row does."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The `id` a list row already carries (the leads_campaigns membership row) — so a caller states an outcome for a lead it has already resolved without re-supplying any identity field.",
+              "example": "40000000-0000-0000-0000-000000000001"
+            },
+            "required": true,
+            "description": "The `id` a list row already carries (the leads_campaigns membership row) — so a caller states an outcome for a lead it has already resolved without re-supplying any identity field.",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Per-step state for this lead",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadStepStatementsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "id is not a uuid"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "No such lead row for this org (or for the requested brand scope)"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/internal/brands/{brandId}/step-disqualifications": {
+      "get": {
+        "summary": "People stated to never reach a funnel step, per step, for a brand (internal, service-auth)",
+        "description": "INTERNAL (service-auth: x-api-key — the same tier as the conversion-count reads, NO Clerk). Nothing here is an outcome and nothing counts it as one: this is what lets a consumer separate a lead that is DEAD at a step from one still PENDING, so a cost-per-acquisition denominator stops waiting forever on somebody who is never coming. Never 404 — a brand nobody has disqualified anyone for returns empty sets and zero counts.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "API key for authenticating requests"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "example": "20000000-0000-0000-0000-000000000001"
+            },
+            "required": true,
+            "name": "brandId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Per-step counts and canonical emails of disqualified leads",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadStepDisqualificationsResponse"
+                }
+              }
+            }
           },
           "401": {
             "description": "Unauthorized"

@@ -437,9 +437,7 @@ describe("GET /internal/brands/:brandId/conversion-counts", () => {
       .get("/internal/brands/brand-1/conversion-counts")
       .set("x-api-key", "test-api-key");
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({
-      counts: { signup: 0, meeting_booked: 0, form_submission: 0, sale: 0, purchase: 0 },
-    });
+    expect(res.body.counts).toEqual({ signup: 0, meeting_booked: 0, meeting_attended: 0, form_submission: 0, sale: 0, purchase: 0 });
   });
 
   it("counts real attributed events per type; missing types default to 0", async () => {
@@ -452,9 +450,7 @@ describe("GET /internal/brands/:brandId/conversion-counts", () => {
       .set("x-api-key", "test-api-key");
     expect(res.status).toBe(200);
     // Canonical "sale" plus the legacy "purchase" mirror (same value) for the rename window.
-    expect(res.body).toEqual({
-      counts: { signup: 12, meeting_booked: 0, form_submission: 0, sale: 2, purchase: 2 },
-    });
+    expect(res.body.counts).toEqual({ signup: 12, meeting_booked: 0, meeting_attended: 0, form_submission: 0, sale: 2, purchase: 2 });
   });
 
   it("folds a legacy 'purchase'-spelled row into the canonical 'sale' bucket", async () => {
@@ -467,9 +463,7 @@ describe("GET /internal/brands/:brandId/conversion-counts", () => {
       .get("/internal/brands/brand-1/conversion-counts")
       .set("x-api-key", "test-api-key");
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({
-      counts: { signup: 0, meeting_booked: 0, form_submission: 0, sale: 7, purchase: 7 },
-    });
+    expect(res.body.counts).toEqual({ signup: 0, meeting_booked: 0, meeting_attended: 0, form_submission: 0, sale: 7, purchase: 7 });
   });
 
   it("query is deduped-at-write, attributed-only, and ping-excluded", async () => {
@@ -501,11 +495,9 @@ describe("GET /internal/brands/:brandId/conversion-counts", () => {
       .get("/internal/brands/brand-1/conversion-counts")
       .set("x-api-key", "test-api-key");
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({
-      counts: { signup: 3, meeting_booked: 0, form_submission: 0, sale: 0, purchase: 0 },
-    });
+    expect(res.body.counts).toEqual({ signup: 3, meeting_booked: 0, meeting_attended: 0, form_submission: 0, sale: 0, purchase: 0 });
     expect(Object.keys(res.body.counts).sort()).toEqual(
-      ["form_submission", "meeting_booked", "purchase", "sale", "signup"].sort(),
+      ["form_submission", "meeting_attended", "meeting_booked", "purchase", "sale", "signup"].sort(),
     );
   });
 
@@ -515,6 +507,50 @@ describe("GET /internal/brands/:brandId/conversion-counts", () => {
       .get("/internal/brands/brand-1/conversion-counts")
       .set("x-api-key", "test-api-key");
     expect(res.status).toBe(500);
+  });
+
+  it("splits the same rows by who said so — tracker + manual === counts (AC: hand-stated is distinguishable)", async () => {
+    execute.mockResolvedValueOnce([
+      { event: "signup", source: "tracker", n: 12 },
+      { event: "sale", source: "manual", n: 1 },
+      { event: "meeting_booked", source: "manual", n: 4 },
+    ]);
+    const res = await request(app)
+      .get("/internal/brands/brand-1/conversion-counts")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(200);
+    // What every existing consumer reads keeps totalling BOTH sources.
+    expect(res.body.counts.signup).toBe(12);
+    expect(res.body.counts.sale).toBe(1);
+    expect(res.body.counts.meeting_booked).toBe(4);
+    expect(res.body.bySource.tracker.signup).toBe(12);
+    expect(res.body.bySource.manual.signup).toBe(0);
+    // The 4 booked meetings and 1 closed deal that lived as notes elsewhere, representable.
+    expect(res.body.bySource.manual.meeting_booked).toBe(4);
+    expect(res.body.bySource.manual.sale).toBe(1);
+    for (const key of Object.keys(res.body.counts)) {
+      expect(res.body.bySource.tracker[key] + res.body.bySource.manual[key]).toBe(
+        res.body.counts[key],
+      );
+    }
+  });
+
+  it("counts a hand-stated meeting_attended exactly like the four the tracker reports", async () => {
+    execute.mockResolvedValueOnce([{ event: "meeting_attended", source: "manual", n: 3 }]);
+    const res = await request(app)
+      .get("/internal/brands/brand-1/conversion-counts")
+      .set("x-api-key", "test-api-key");
+    expect(res.status).toBe(200);
+    expect(res.body.counts.meeting_attended).toBe(3);
+    expect(res.body.bySource.manual.meeting_attended).toBe(3);
+  });
+
+  it("a row written before the source column existed counts as tracker-reported", async () => {
+    execute.mockResolvedValueOnce([{ event: "signup", source: "tracker", n: 2 }]);
+    const res = await request(app)
+      .get("/internal/brands/brand-1/conversion-counts")
+      .set("x-api-key", "test-api-key");
+    expect(res.body.bySource.tracker.signup).toBe(2);
   });
 });
 
@@ -538,8 +574,8 @@ describe("GET /internal/brands/:brandId/conversion-counts-by-day", () => {
       .set("x-api-key", "test-api-key");
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
-      byDay: { signup: {}, meeting_booked: {}, form_submission: {}, sale: {}, purchase: {} },
-      undated: { signup: 0, meeting_booked: 0, form_submission: 0, sale: 0, purchase: 0 },
+      byDay: { signup: {}, meeting_booked: {}, meeting_attended: {}, form_submission: {}, sale: {}, purchase: {} },
+      undated: { signup: 0, meeting_booked: 0, meeting_attended: 0, form_submission: 0, sale: 0, purchase: 0 },
     });
   });
 
@@ -557,11 +593,12 @@ describe("GET /internal/brands/:brandId/conversion-counts-by-day", () => {
       byDay: {
         signup: { "2026-07-08": 2, "2026-07-09": 1 },
         meeting_booked: {},
+        meeting_attended: {},
         form_submission: { "2026-07-09": 3 },
         sale: {},
         purchase: {},
       },
-      undated: { signup: 0, meeting_booked: 0, form_submission: 0, sale: 0, purchase: 0 },
+      undated: { signup: 0, meeting_booked: 0, meeting_attended: 0, form_submission: 0, sale: 0, purchase: 0 },
     });
   });
 
@@ -580,6 +617,7 @@ describe("GET /internal/brands/:brandId/conversion-counts-by-day", () => {
     expect(res.body.undated).toEqual({
       signup: 1,
       meeting_booked: 0,
+      meeting_attended: 0,
       form_submission: 0,
       sale: 4,
       purchase: 4,
@@ -634,11 +672,12 @@ describe("GET /internal/brands/:brandId/conversion-counts-by-day", () => {
     expect(res.status).toBe(200);
     expect(res.body.byDay.signup).toEqual({ "2026-07-08": 3 });
     expect(Object.keys(res.body.byDay).sort()).toEqual(
-      ["form_submission", "meeting_booked", "purchase", "sale", "signup"].sort(),
+      ["form_submission", "meeting_attended", "meeting_booked", "purchase", "sale", "signup"].sort(),
     );
     expect(res.body.undated).toEqual({
       signup: 0,
       meeting_booked: 0,
+      meeting_attended: 0,
       form_submission: 0,
       sale: 0,
       purchase: 0,

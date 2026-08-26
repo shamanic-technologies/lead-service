@@ -312,8 +312,20 @@ export const conversionEvents = pgTable(
     // "attributed" | "needs_review" | "unmatched"
     attributionStatus: text("attribution_status").notNull(),
     candidateCount: integer("candidate_count").notNull().default(0),
+    // WHEN the outcome happened. The tracker stamps the moment it received the event; a human
+    // stating a past fact supplies the date, so the by-day series places it on the right day.
     receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // "tracker" (reported by the client's website) | "manual" (stated by a human about a lead we
+    // already know by id). Frozen at write; what makes the two distinguishable after the fact
+    // WITHOUT changing what either counts toward — every count reads both.
+    source: text("source").notNull().default("tracker"),
+    // The campaign a hand-stated outcome was stated on. NULL for a tracker event: a website pixel
+    // knows the brand and nothing about which campaign reached the person.
+    campaignId: text("campaign_id"),
+    // The leads_campaigns row a human named (the id a list row already carries).
+    leadCampaignId: uuid("lead_campaign_id"),
+    statedByUserId: text("stated_by_user_id"),
+    note: text("note"),
   },
   (table) => [
     uniqueIndex("idx_ce_brand_dedupe_signature")
@@ -321,6 +333,41 @@ export const conversionEvents = pgTable(
       .where(sql`dedupe_signature IS NOT NULL`),
     index("idx_ce_brand_event").on(table.brandId, table.event),
     index("idx_ce_matched_lead").on(table.matchedLeadId),
+    index("idx_ce_brand_source").on(table.brandId, table.source),
+    index("idx_ce_lead_campaign").on(table.leadCampaignId),
+  ],
+);
+
+// --- "This will never happen": a step a lead is DEAD at ---
+//
+// The negative twin of a conversion event, and deliberately NOT one: a "won't book" / "won't
+// attend" / "won't buy" is not an outcome and nothing counts it, which is enforced by it living
+// outside conversion_events entirely rather than by a filter every consumer must remember. Its
+// only job is to let a reader tell a lead that is dead at a step from one still pending — the
+// difference between a cost-per-acquisition denominator that is still waiting and one that never
+// will be. One row per (person, campaign, step): restating corrects, never accumulates.
+export const leadStepDisqualifications = pgTable(
+  "lead_step_disqualifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    leadId: uuid("lead_id")
+      .notNull()
+      .references(() => leads.id, { onDelete: "cascade" }),
+    /** id of the leads_campaigns row the statement was made on */
+    leadCampaignId: uuid("lead_campaign_id").notNull(),
+    campaignId: text("campaign_id").notNull(),
+    brandId: text("brand_id").notNull(),
+    orgId: text("org_id").notNull(),
+    /** one of LEAD_STEP_OUTCOMES — the step this person will never reach */
+    step: text("step").notNull(),
+    note: text("note"),
+    statedByUserId: text("stated_by_user_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_lsd_lead_campaign_step").on(table.leadId, table.campaignId, table.step),
+    index("idx_lsd_brand_step").on(table.brandId, table.step),
   ],
 );
 
@@ -384,3 +431,5 @@ export type ConversionEvent = typeof conversionEvents.$inferSelect;
 export type NewConversionEvent = typeof conversionEvents.$inferInsert;
 export type RequeuedServe = typeof requeuedServes.$inferSelect;
 export type NewRequeuedServe = typeof requeuedServes.$inferInsert;
+export type LeadStepDisqualification = typeof leadStepDisqualifications.$inferSelect;
+export type NewLeadStepDisqualification = typeof leadStepDisqualifications.$inferInsert;
