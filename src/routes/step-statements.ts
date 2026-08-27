@@ -18,22 +18,22 @@ import {
   fetchMeasuredVisitEmails,
 } from "../lib/measured-visits.js";
 import {
-  FunnelChainError,
-  resolveCampaignChain,
+  FunnelStepsError,
+  resolveCampaignFunnelSteps,
   fetchOrgCampaignFunnelKeys,
-  type ResolvedFunnelChain,
+  type ResolvedFunnelSteps,
 } from "../lib/campaign-funnel-client.js";
 import {
   stepAndEarlier,
   stepAndLater,
-  FUNNEL_STEP_CHAINS,
+  FUNNEL_STEPS,
   type FunnelKey,
-} from "../lib/funnel-chains.js";
+} from "../lib/funnel-steps.js";
 import {
   resolveStepStates,
   type StatedNever,
   type StatedOutcome,
-} from "../lib/step-chain-state.js";
+} from "../lib/step-funnel-state.js";
 
 const router = Router();
 
@@ -54,6 +54,7 @@ const StepStatementBodySchema = z.object({
   step: z.string(),
   kind: z.enum(["outcome", "never"]),
   valueCents: z.number().int().optional(),
+  costCents: z.number().int().optional(),
   note: z.string().optional(),
   occurredAt: z.string().optional(),
 });
@@ -138,39 +139,39 @@ function respondMeasuredVisitFailure(error: unknown, res: Response): boolean {
 }
 
 /**
- * WHICH chain this lead is on. A funnel is a chain, and "before" / "after" mean nothing without
+ * WHICH funnel this lead is on. A funnel is a funnel, and "before" / "after" mean nothing without
  * knowing which one: a campaign selling meetings off replies runs reply -> booked -> attended ->
  * paid, one selling off the website runs visit -> signup -> paid. The campaign is on the row and
  * campaign-service states its funnel, so it is read from there and never inferred.
  *
  * NO SILENT FALLBACK, and the failures are kept apart because they are different facts:
  *   502 — campaign-service could not answer. Transient.
- *   409 — the campaign states no funnel this service has a chain for (or campaign-service does not
+ *   409 — the campaign states no funnel this service has a funnel for (or campaign-service does not
  *         know the campaign). Nothing is broken; there is simply no order to read the steps in, and
- *         a made-up order would print a chain nobody stated.
+ *         a made-up order would print a funnel nobody stated.
  * Returns null having already answered.
  */
-async function resolveChainOrRespond(
+async function resolveFunnelOrRespond(
   row: LeadRow,
   req: AuthenticatedRequest,
   res: Response,
-): Promise<ResolvedFunnelChain | null> {
+): Promise<ResolvedFunnelSteps | null> {
   try {
-    return await resolveCampaignChain(row.campaign_id, {
+    return await resolveCampaignFunnelSteps(row.campaign_id, {
       orgId: req.orgId!,
       userId: req.userId ?? null,
       runId: req.runId ?? null,
       brandId: req.brandIds?.[0] ?? null,
     });
   } catch (error) {
-    if (!(error instanceof FunnelChainError)) throw error;
+    if (!(error instanceof FunnelStepsError)) throw error;
     console.error(error.message);
     if (error.reason === "unavailable") {
       res.status(502).json({
         error:
           "campaign-service could not say which sales funnel this lead's campaign sells through, " +
           "so the order of its steps is unknown. No answer is returned rather than one built on a " +
-          "chain nobody stated.",
+          "funnel nobody stated.",
         code: "campaign_service_unavailable",
       });
       return null;
@@ -181,7 +182,7 @@ async function resolveChainOrRespond(
           ? "The campaign this lead belongs to is unknown to campaign-service, so its sales funnel " +
             "— and therefore the order of its steps — cannot be resolved."
           : "This lead's campaign states no sales funnel, so its steps have no order. Declare the " +
-            "campaign's funnel and the chain resolves.",
+            "campaign's funnel and the funnel resolves.",
       code: error.reason === "unknown" ? "campaign_unknown" : "funnel_unstated",
     });
     return null;
@@ -261,6 +262,39 @@ router.post(
       return;
     }
 
+    // WHAT THIS LEG COST THE CUSTOMER, and stating it is mandatory.
+    //
+    // The platform automates the first link of a sales funnel; the customer performs the rest —
+    // they run the meeting, they close the deal — so they are the only one who knows what that
+    // leg cost. Without it a funnel's cost of acquisition counts only the link we billed for, and
+    // every return displayed for that funnel is too good.
+    //
+    // ABSENT IS A REFUSAL, NEVER A ZERO. Defaulting it would silently answer a question nobody
+    // was asked, and the answer would be indistinguishable from a real "it cost me nothing" — so
+    // the author has to choose, and zero is a legitimate choice that reads back as a stated zero.
+    // A "never" carries one too: a dead leg still cost something (the meeting was run, the call
+    // was taken), and a cost of acquisition that ignores it is too good for the same reason.
+    //
+    // This money is the CUSTOMER'S. It is recorded because they told us; it is never charged to
+    // them, no runs-service cost is declared for it and nothing about it reaches the platform's
+    // own spend ledger.
+    if (body.costCents === undefined) {
+      res.status(400).json({
+        error:
+          "costCents is required — state what this step cost you, in cents. Zero is a legitimate " +
+          "answer and is recorded as a stated zero; leaving it out is not, because an absent cost " +
+          "would be indistinguishable from a stated zero and would make this funnel's cost of " +
+          "acquisition read better than it is. This is your money, never charged to you.",
+        code: "cost_required",
+      });
+      return;
+    }
+    if (body.costCents < 0) {
+      res.status(400).json({ error: "costCents must be zero or more" });
+      return;
+    }
+    const costCents = body.costCents;
+
     // The moment the outcome happened, when the caller states a past fact. Bound as an ISO string
     // (a raw `sql` template hands params straight to postgres.js Bind, which cannot serialize a
     // Date), and rejected outright when unparseable — never silently replaced by now().
@@ -289,23 +323,23 @@ router.post(
       return;
     }
 
-    // A statement is only coherent against the chain it is made on, so the chain is resolved
+    // A statement is only coherent against the funnel it is made on, so the funnel is resolved
     // BEFORE anything is written: a "never" constrains every LATER step, an outcome constrains
     // every EARLIER one, and neither rule can be enforced without knowing the order.
-    const resolved = await resolveChainOrRespond(row, req, res);
+    const resolved = await resolveFunnelOrRespond(row, req, res);
     if (!resolved) return;
-    const chain = resolved.chain;
+    const funnel = resolved.funnelSteps;
 
     const nowIso = new Date().toISOString();
     const statedBy = req.userId ?? null;
 
     if (body.kind === "never") {
       // Everything this "never" would also make never: the step itself and every step AFTER it on
-      // the chain. An outcome standing on ANY of them contradicts the statement — a lead that paid
+      // the funnel. An outcome standing on ANY of them contradicts the statement — a lead that paid
       // cannot never have booked — so the refusal that already guarded the step itself guards the
       // whole forward slice, which is what stops the two directions disagreeing when statements
       // arrive in the other order.
-      const blockedBy = stepAndLater(chain, step);
+      const blockedBy = stepAndLater(funnel, step);
 
       // A visit the delivery layer already measured HAPPENED, whatever a person types about it.
       // Same refusal as an outcome already on the ledger, for the same reason.
@@ -359,12 +393,14 @@ router.post(
 
       const inserted = (await db.execute(sql`
         INSERT INTO lead_step_disqualifications (
-          lead_id, lead_campaign_id, campaign_id, brand_id, org_id, step, note, stated_by_user_id
+          lead_id, lead_campaign_id, campaign_id, brand_id, org_id, step, cost_cents, note,
+          stated_by_user_id
         ) VALUES (
           ${row.lead_id}, ${row.id}, ${row.campaign_id}, ${brandId}, ${req.orgId!}, ${step},
-          ${body.note ?? null}, ${statedBy}
+          ${costCents}, ${body.note ?? null}, ${statedBy}
         )
         ON CONFLICT (lead_id, campaign_id, step) DO UPDATE SET
+          cost_cents = EXCLUDED.cost_cents,
           note = EXCLUDED.note,
           stated_by_user_id = EXCLUDED.stated_by_user_id,
           lead_campaign_id = EXCLUDED.lead_campaign_id,
@@ -375,7 +411,7 @@ router.post(
           retracted_by_step = NULL,
           retracted_by_user_id = NULL,
           updated_at = now()
-        RETURNING id, created_at, updated_at
+        RETURNING id, cost_cents, created_at, updated_at
       `)) as unknown as Array<{ id: string; created_at: Date | string; updated_at: Date | string }>;
 
       res.status(201).json({
@@ -390,24 +426,25 @@ router.post(
           // A "never" has no source: nothing observes it, a person states it. Counted by nothing.
           source: "manual" as StatementSource,
           valueCents: null,
+          costCents,
           note: body.note ?? null,
           statedByUserId: statedBy,
           statedAt: toIsoTimestamp(inserted[0].updated_at),
         },
         funnelKey: resolved.funnelKey,
-        chain: resolved.chain,
+        funnelSteps: resolved.funnelSteps,
       });
       return;
     }
 
     // An outcome supersedes a "never" for the same step — the person did the thing after all — and,
-    // along the chain, for every step BEFORE it too: a lead that paid necessarily got through the
+    // along the funnel, for every step BEFORE it too: a lead that paid necessarily got through the
     // steps that lead to paying, so a "never" standing on any of them is contradicted by the fact.
     //
     // The row is MARKED retracted, never deleted: what somebody actually stated is the thing that
     // makes this auditable, and it must survive being superseded. Every read filters it out, so
     // nothing counts it and nothing shows it as live.
-    const supersedes = stepAndEarlier(chain, step);
+    const supersedes = stepAndEarlier(funnel, step);
     const retracted = (await db.execute(sql`
       UPDATE lead_step_disqualifications
       SET retracted_at = now(),
@@ -426,17 +463,18 @@ router.post(
     // was established: the caller NAMED the lead, which is as deterministic as identity gets.
     const inserted = (await db.execute(sql`
       INSERT INTO conversion_events (
-        brand_id, org_id, event, dedupe_signature, value_cents, matched_lead_id, match_method,
-        match_confidence, attribution_status, candidate_count, received_at, source, campaign_id,
-        lead_campaign_id, stated_by_user_id, note
+        brand_id, org_id, event, dedupe_signature, value_cents, cost_cents, matched_lead_id,
+        match_method, match_confidence, attribution_status, candidate_count, received_at, source,
+        campaign_id, lead_campaign_id, stated_by_user_id, note
       ) VALUES (
         ${brandId}, ${req.orgId!}, ${step}, ${manualOutcomeSignature(row.id, step)},
-        ${body.valueCents ?? null}, ${row.lead_id}, 'manual', 'deterministic', 'attributed', 1,
-        ${occurredAtIso ?? nowIso}, 'manual', ${row.campaign_id}, ${row.id}, ${statedBy},
-        ${body.note ?? null}
+        ${body.valueCents ?? null}, ${costCents}, ${row.lead_id}, 'manual', 'deterministic',
+        'attributed', 1, ${occurredAtIso ?? nowIso}, 'manual', ${row.campaign_id}, ${row.id},
+        ${statedBy}, ${body.note ?? null}
       )
       ON CONFLICT (brand_id, dedupe_signature) WHERE dedupe_signature IS NOT NULL DO UPDATE SET
         value_cents = EXCLUDED.value_cents,
+        cost_cents = EXCLUDED.cost_cents,
         note = EXCLUDED.note,
         received_at = EXCLUDED.received_at,
         stated_by_user_id = EXCLUDED.stated_by_user_id,
@@ -455,14 +493,15 @@ router.post(
         kind: "outcome",
         source: "manual" as StatementSource,
         valueCents: body.valueCents ?? null,
+        costCents,
         note: body.note ?? null,
         statedByUserId: statedBy,
         statedAt: toIsoTimestamp(inserted[0].received_at),
       },
       funnelKey: resolved.funnelKey,
-      chain: resolved.chain,
+      funnelSteps: resolved.funnelSteps,
       // Kept as a boolean for the callers that already read it; the steps say WHICH statements the
-      // outcome superseded, including the earlier ones the chain reached.
+      // outcome superseded, including the earlier ones the funnel reached.
       retractedNever: retracted.length > 0,
       retractedNeverSteps: retracted.map((r) => r.step),
     });
@@ -473,26 +512,26 @@ router.post(
  * GET /orgs/leads/:id/step-statements
  *
  * What is known about EVERY step of this lead's funnel, so a panel can state each one by hand and
- * read back what it stated — with the chain's two rules already applied, because a funnel is a
- * chain and no two surfaces may show a lead as dead at one step and alive at a later one.
+ * read back what it stated — with the funnel's two rules already applied, because a funnel is a
+ * funnel and no two surfaces may show a lead as dead at one step and alive at a later one.
  *
  * One entry per step of the outcome vocabulary, always all of them:
  *
  *   outcome — it happened. Either because somebody stated it (or the tracker reported it), or
- *             because a LATER step of this campaign's chain did: a lead that paid necessarily got
+ *             because a LATER step of this campaign's funnel did: a lead that paid necessarily got
  *             through the steps that lead to paying.
- *   never   — it will not happen. Either stated, or implied by an EARLIER step of the chain being
+ *   never   — it will not happen. Either stated, or implied by an EARLIER step of the funnel being
  *             never: once a step is false, everything after it is false. Nothing counts either.
  *   pending — nobody spoke and neither rule reaches it. The honest "still on its way".
  *
- * `origin` is what tells a reader a step somebody STATED from one the chain IMPLIES, and an implied
+ * `origin` is what tells a reader a step somebody STATED from one the funnel IMPLIES, and an implied
  * step carries no author, no note and no date because nobody made that statement. `statedState`
- * keeps what a person really said readable even where the chain concluded otherwise, so a real
+ * keeps what a person really said readable even where the funnel concluded otherwise, so a real
  * statement is never lost. Because implication is computed on READ from the live statements,
  * retracting or superseding one moves everything it implied with it, automatically.
  *
- * `chain` is this campaign's funnel, in order — per FUNNEL, never a universal step order. Steps
- * outside it (`inChain: false`) read from statements alone: no chain rule reaches them.
+ * `steps` is this campaign's funnel, in order — per FUNNEL, never a universal step order. Steps
+ * outside it (`inFunnel: false`) read from statements alone: no funnel rule reaches them.
  */
 router.get(
   "/orgs/leads/:id/step-statements",
@@ -516,13 +555,13 @@ router.get(
       return;
     }
 
-    const resolved = await resolveChainOrRespond(row, req, res);
+    const resolved = await resolveFunnelOrRespond(row, req, res);
     if (!resolved) return;
 
     // Outcomes credited to this person for this brand. A hand-stated one is keyed to the row it
     // was stated on; a tracker-reported one knows only the brand, so it is matched on the lead.
     const outcomeRows = (await db.execute(sql`
-      SELECT event, source, value_cents, note, stated_by_user_id, received_at
+      SELECT event, source, value_cents, cost_cents, note, stated_by_user_id, received_at
       FROM conversion_events
       WHERE brand_id = ${brandId}
         AND matched_lead_id = ${row.lead_id}
@@ -533,6 +572,7 @@ router.get(
       event: string;
       source: string;
       value_cents: number | null;
+      cost_cents: number | null;
       note: string | null;
       stated_by_user_id: string | null;
       received_at: Date | string | null;
@@ -540,13 +580,14 @@ router.get(
 
     // Retracted statements are excluded: they are kept for the record, not to be read as live.
     const neverRows = (await db.execute(sql`
-      SELECT step, note, stated_by_user_id, updated_at
+      SELECT step, cost_cents, note, stated_by_user_id, updated_at
       FROM lead_step_disqualifications
       WHERE lead_id = ${row.lead_id}
         AND campaign_id = ${row.campaign_id}
         AND retracted_at IS NULL
     `)) as unknown as Array<{
       step: string;
+      cost_cents: number | null;
       note: string | null;
       stated_by_user_id: string | null;
       updated_at: Date | string | null;
@@ -560,6 +601,10 @@ router.get(
       outcomes.set(step, {
         source: o.source === "manual" ? "manual" : "tracker",
         valueCents: o.value_cents,
+        // Null is "nobody was ever asked" — a tracker event observes a page load and knows nothing
+        // about the customer's spend, and a statement predating the mandatory cost carries none.
+        // 0 is a stated zero. Never conflated.
+        costCents: o.cost_cents,
         note: o.note,
         statedByUserId: o.stated_by_user_id,
         at: toIsoTimestamp(o.received_at),
@@ -571,6 +616,7 @@ router.get(
       const step = canonicalizeStepOutcome(n.step);
       if (!step) continue;
       nevers.set(step, {
+        costCents: n.cost_cents,
         note: n.note,
         statedByUserId: n.stated_by_user_id,
         at: toIsoTimestamp(n.updated_at),
@@ -596,6 +642,9 @@ router.get(
         outcomes.set(WEBSITE_VISIT, {
           source: "tracker",
           valueCents: null,
+          // The delivery layer measured a click. It knows nothing about what the customer spent,
+          // so nobody was asked: null, never a fabricated zero.
+          costCents: null,
           note: null,
           statedByUserId: null,
           at: null,
@@ -609,10 +658,10 @@ router.get(
       campaignId: row.campaign_id,
       brandId,
       funnelKey: resolved.funnelKey,
-      chain: resolved.chain,
+      funnelSteps: resolved.funnelSteps,
       steps: resolveStepStates({
         allSteps: LEAD_STEP_OUTCOMES,
-        chain: resolved.chain,
+        funnelSteps: resolved.funnelSteps,
         outcomes,
         nevers,
       }),
@@ -634,18 +683,18 @@ router.get(
  * byte-identical to what this read has always answered (retracted statements excluded, since a
  * superseded "never" was never a live one).
  *
- * `?implied=true` additionally applies the chain: a lead that will never book has, by the same
+ * `?implied=true` additionally applies the funnel: a lead that will never book has, by the same
  * statement, never attended and never paid. That needs each lead's campaign funnel, so it is opt-in
  * — a consumer that does not ask pays for no campaign-service read and sees exactly what it saw
  * before. It answers three more fields, kept apart so a reader can always tell what somebody stated
- * from what the chain concluded:
+ * from what the funnel concluded:
  *
  *   impliedCounts / impliedByStep   — steps NOBODY stated, which a stated "never" earlier on the
- *                                     chain makes never.
+ *                                     funnel makes never.
  *   effectiveCounts / effectiveByStep — stated and implied together: the answer to "is this lead
  *                                     dead at this step?".
  *
- * A never contradicted by an outcome further down the chain is dropped from the implied and
+ * A never contradicted by an outcome further down the funnel is dropped from the implied and
  * effective sets (the lead demonstrably got there), never from the stated ones.
  *
  * The identity returned is the lead's canonical (primary) email — the join key features-service
@@ -708,7 +757,7 @@ router.get(
       return;
     }
 
-    // --- the chain view, opt-in ---
+    // --- the funnel view, opt-in ---
 
     const statementRows = (await db.execute(sql`
       SELECT d.lead_id, d.campaign_id, d.org_id, d.step, lower(canonical.value) AS email
@@ -750,7 +799,7 @@ router.get(
       return;
     }
 
-    // WHICH chain each of those leads is on. Read from campaign-service, per org, never inferred.
+    // WHICH funnel each of those leads is on. Read from campaign-service, per org, never inferred.
     const funnelByCampaign = new Map<string, FunnelKey | null>();
     try {
       for (const orgId of new Set(statementRows.map((r) => r.org_id))) {
@@ -759,12 +808,12 @@ router.get(
         }
       }
     } catch (error) {
-      if (!(error instanceof FunnelChainError)) throw error;
+      if (!(error instanceof FunnelStepsError)) throw error;
       console.error(error.message);
       res.status(502).json({
         error:
           "campaign-service could not say which sales funnels these leads' campaigns sell through, " +
-          "so no chain can be applied. No answer is returned rather than one built on a chain " +
+          "so no funnel can be applied. No answer is returned rather than one built on a funnel " +
           "nobody stated.",
         code: "campaign_service_unavailable",
       });
@@ -782,7 +831,7 @@ router.get(
       res.status(409).json({
         error:
           "Some of these leads belong to campaigns that state no sales funnel, so their steps have " +
-          "no order and no chain can be applied. Declare those campaigns' funnels and the chain " +
+          "no order and no funnel can be applied. Declare those campaigns' funnels and the funnel " +
           "resolves.",
         code: "funnel_unstated",
         campaignIds: unstated,
@@ -790,7 +839,7 @@ router.get(
       return;
     }
 
-    // Outcomes contradict a "never" further up the chain, so they are read before anything is
+    // Outcomes contradict a "never" further up the funnel, so they are read before anything is
     // concluded: a lead that demonstrably paid is not dead at the steps that lead to paying.
     const leadIds = Array.from(new Set(statementRows.map((r) => r.lead_id)));
     const outcomeRows = (await db.execute(sql`
@@ -808,11 +857,18 @@ router.get(
       let m = outcomesByLead.get(o.matched_lead_id);
       if (!m) outcomesByLead.set(o.matched_lead_id, (m = new Map()));
       if (!m.has(step)) {
-        m.set(step, { source: "manual", valueCents: null, note: null, statedByUserId: null, at: null });
+        m.set(step, {
+          source: "manual",
+          valueCents: null,
+          costCents: null,
+          note: null,
+          statedByUserId: null,
+          at: null,
+        });
       }
     }
 
-    // One resolution per (lead, campaign): that pair is the chain a statement was made on.
+    // One resolution per (lead, campaign): that pair is the funnel a statement was made on.
     interface Group {
       leadId: string;
       campaignId: string;
@@ -831,7 +887,7 @@ router.get(
           (group = { leadId: r.lead_id, campaignId: r.campaign_id, email: r.email, nevers: new Map() }),
         );
       }
-      group.nevers.set(step, { note: null, statedByUserId: null, at: null });
+      group.nevers.set(step, { costCents: null, note: null, statedByUserId: null, at: null });
     }
 
     const impliedLeads = Object.fromEntries(
@@ -849,10 +905,10 @@ router.get(
 
     for (const group of groups.values()) {
       const funnelKey = funnelByCampaign.get(group.campaignId) as FunnelKey;
-      const chain = FUNNEL_STEP_CHAINS[funnelKey];
+      const funnelSteps = FUNNEL_STEPS[funnelKey];
       const states = resolveStepStates({
         allSteps: LEAD_STEP_OUTCOMES,
-        chain,
+        funnelSteps: funnelSteps,
         outcomes: outcomesByLead.get(group.leadId) ?? new Map(),
         nevers: group.nevers,
       });
@@ -875,6 +931,210 @@ router.get(
     }
 
     res.json({ counts, byStep, impliedCounts, impliedByStep, effectiveCounts, effectiveByStep });
+  }),
+);
+
+/**
+ * GET /internal/brands/:brandId/step-costs[?step=<step>]
+ *
+ * INTERNAL (service-auth: x-api-key — the same tier as the conversion-count reads, NO Clerk).
+ * What the CUSTOMER told us each funnel step cost THEM, one row per statement.
+ *
+ * The platform automates the first link of a sales funnel and bills for it; the customer performs
+ * the rest — they run the meeting, they close the deal. Until this existed, a funnel's cost of
+ * acquisition could only count the link the platform paid for, so every return computed for that
+ * funnel was too good. This is the read that closes the gap: whoever computes money adds these legs
+ * to the platform spend it already knows about.
+ *
+ * THIS IS NOT PLATFORM SPEND. Nothing here was ever charged to the organisation, no runs-service
+ * cost was declared for it, and none of it appears in the organisation's billing. It is money the
+ * customer says they spent, recorded verbatim because they are the only one who can know it.
+ *
+ * Per row:
+ *  - `kind` — `outcome` (the step happened) or `never` (it will not, and the leg still cost). Both
+ *    are real spend: a meeting that was run and went nowhere cost exactly what it cost.
+ *  - `costCents` — what they stated, in cents. **0 is a stated zero.** `null` means nobody was ever
+ *    asked: every statement made before the cost became mandatory, and every tracker-reported
+ *    outcome (a page-load tag observes a page load and knows nothing about a customer's spend).
+ *    Never conflate the two — `statedCount` / `unstatedCount` are what say how much of a step's
+ *    population actually answered.
+ *  - `campaignId` — every hand statement carries one (it is made on a lead row, which belongs to a
+ *    campaign), so this read attributes at campaign grain and not only at brand grain.
+ *  - `occurredAt` — when the outcome happened, or when the "never" was last stated. ISO-8601.
+ *  - `email` / `leadId` — the join keys a consumer already holds. Email is the lead's canonical
+ *    one, lowercased, and null when the lead has no email contact method (never a dropped row).
+ *
+ * The set is EVERY live hand statement for the brand, which is deliberately NOT the set
+ * /conversion-counts counts, and the difference is not a contradiction because this is money and
+ * that is a population:
+ *  - a hand-stated `website_visit` whose click the delivery layer already measured is suppressed
+ *    from the COUNTS (so the same visit is not counted twice) but kept HERE, because the customer
+ *    spent the money either way and dropping it would understate their cost.
+ *  - a RETRACTED "never" is excluded, exactly as it is from every other read: it was superseded by
+ *    an outcome, and that outcome carries its own cost.
+ *
+ * `?step=` narrows to one step of the outcome vocabulary (legacy "purchase" folds to "sale"); an
+ * unrecognised value is a 400, never a silent "all steps". Never 404 — a brand nobody has stated a
+ * cost for answers zeros and an empty array.
+ */
+router.get(
+  "/internal/brands/:brandId/step-costs",
+  apiKeyAuth,
+  wrap(async (req: Request, res: Response) => {
+    const brandId = req.params.brandId;
+
+    let step: LeadStepOutcomeName | null = null;
+    if (req.query.step !== undefined) {
+      step = canonicalizeStepOutcome(req.query.step);
+      if (!step) {
+        res.status(400).json({ error: `step must be one of ${LEAD_STEP_OUTCOMES.join(" | ")}` });
+        return;
+      }
+    }
+    const stepFilter = step;
+
+    // Hand-stated OUTCOMES. `source = 'manual'` is the whole of it: a tracker row is not a customer
+    // statement and carries no cost by construction, so including it would only add null rows that
+    // inflate `unstatedCount` with a population nobody was ever going to ask.
+    const outcomeRows = (await db.execute(sql`
+      SELECT
+        ce.matched_lead_id AS lead_id,
+        ce.lead_campaign_id,
+        ce.campaign_id,
+        ce.event AS step,
+        ce.cost_cents,
+        ce.stated_by_user_id,
+        ce.received_at AS occurred_at,
+        lower(canonical.value) AS email
+      FROM conversion_events ce
+      LEFT JOIN LATERAL (
+        SELECT cm.value
+        FROM lead_contact_methods cm
+        WHERE cm.lead_id = ce.matched_lead_id AND cm.channel = 'email'
+        ORDER BY cm.created_at ASC NULLS LAST, cm.value ASC
+        LIMIT 1
+      ) canonical ON true
+      WHERE ce.brand_id = ${brandId}
+        AND ce.source = 'manual'
+        AND ce.attribution_status = 'attributed'
+        ${stepFilter ? sql`AND ce.event = ${stepFilter}` : sql``}
+      ORDER BY ce.received_at DESC NULLS LAST
+    `)) as unknown as Array<{
+      lead_id: string | null;
+      lead_campaign_id: string | null;
+      campaign_id: string | null;
+      step: string;
+      cost_cents: number | null;
+      stated_by_user_id: string | null;
+      occurred_at: Date | string | null;
+      email: string | null;
+    }>;
+
+    // Stated "never"s. A dead leg still cost — the meeting was run, the call was taken — and a cost
+    // of acquisition that ignores it is too good for exactly the same reason the outcome legs are.
+    const neverRows = (await db.execute(sql`
+      SELECT
+        d.lead_id,
+        d.lead_campaign_id,
+        d.campaign_id,
+        d.step,
+        d.cost_cents,
+        d.stated_by_user_id,
+        d.updated_at AS occurred_at,
+        lower(canonical.value) AS email
+      FROM lead_step_disqualifications d
+      LEFT JOIN LATERAL (
+        SELECT cm.value
+        FROM lead_contact_methods cm
+        WHERE cm.lead_id = d.lead_id AND cm.channel = 'email'
+        ORDER BY cm.created_at ASC NULLS LAST, cm.value ASC
+        LIMIT 1
+      ) canonical ON true
+      WHERE d.brand_id = ${brandId}
+        AND d.retracted_at IS NULL
+        ${stepFilter ? sql`AND d.step = ${stepFilter}` : sql``}
+      ORDER BY d.updated_at DESC NULLS LAST
+    `)) as unknown as Array<{
+      lead_id: string;
+      lead_campaign_id: string | null;
+      campaign_id: string | null;
+      step: string;
+      cost_cents: number | null;
+      stated_by_user_id: string | null;
+      occurred_at: Date | string | null;
+      email: string | null;
+    }>;
+
+    interface StepCostRow {
+      leadId: string | null;
+      leadCampaignId: string | null;
+      campaignId: string | null;
+      email: string | null;
+      step: LeadStepOutcomeName;
+      kind: "outcome" | "never";
+      costCents: number | null;
+      statedByUserId: string | null;
+      occurredAt: string | null;
+    }
+
+    const costs: StepCostRow[] = [];
+    const push = (
+      r: {
+        lead_id: string | null;
+        lead_campaign_id: string | null;
+        campaign_id: string | null;
+        step: string;
+        cost_cents: number | null;
+        stated_by_user_id: string | null;
+        occurred_at: Date | string | null;
+        email: string | null;
+      },
+      kind: "outcome" | "never",
+    ) => {
+      const canonical = canonicalizeStepOutcome(r.step);
+      if (!canonical) return;
+      costs.push({
+        leadId: r.lead_id,
+        leadCampaignId: r.lead_campaign_id,
+        campaignId: r.campaign_id,
+        email: r.email && r.email.length > 0 ? r.email : null,
+        step: canonical,
+        kind,
+        // A raw `sql` integer comes back as a number; anything else is an absent answer, and an
+        // absent answer stays null. 0 survives this check precisely because it is an answer.
+        costCents: typeof r.cost_cents === "number" ? r.cost_cents : null,
+        statedByUserId: r.stated_by_user_id,
+        // Raw `sql` hands a timestamptz back as a Date on some paths and a string on others —
+        // normalize, never `.toISOString()` on the raw value.
+        occurredAt: toIsoTimestamp(r.occurred_at),
+      });
+    };
+    for (const r of outcomeRows) push(r, "outcome");
+    for (const r of neverRows) push(r, "never");
+
+    const steps = stepFilter ? [stepFilter] : LEAD_STEP_OUTCOMES;
+    const byStep = Object.fromEntries(
+      steps.map((s) => [s, { costCents: 0, statedCount: 0, unstatedCount: 0 }]),
+    ) as Record<LeadStepOutcomeName, { costCents: number; statedCount: number; unstatedCount: number }>;
+
+    let totalCostCents = 0;
+    let statedCount = 0;
+    let unstatedCount = 0;
+    for (const c of costs) {
+      const bucket = byStep[c.step];
+      if (!bucket) continue;
+      if (c.costCents === null) {
+        bucket.unstatedCount += 1;
+        unstatedCount += 1;
+        continue;
+      }
+      bucket.costCents += c.costCents;
+      bucket.statedCount += 1;
+      totalCostCents += c.costCents;
+      statedCount += 1;
+    }
+
+    res.json({ brandId, totalCostCents, statedCount, unstatedCount, byStep, costs });
   }),
 );
 

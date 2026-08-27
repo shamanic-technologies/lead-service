@@ -618,7 +618,7 @@ router.get(
  * per-workflow and per-offer grains cannot attribute it at all) and no value (so a won deal gets
  * priced at the brand's AVERAGE lifetime revenue instead of what it was actually worth). This read
  * carries all three, so a consumer can value a lead by what somebody OBSERVED rather than by
- * projecting a chain of declared rates through it.
+ * projecting a funnel of declared rates through it.
  *
  * The set is EXACTLY the one /conversion-counts and /conversion-counts-by-day count: stored
  * conversion_events rows (deduped at write via the (brand_id, dedupe_signature) partial unique
@@ -643,6 +643,14 @@ router.get(
  *    person gave), ISO-8601. Null only when genuinely undated — never fabricated.
  *  - `valueCents` — the revenue stated for the outcome, when one was. Null means nobody said, NOT
  *    zero: a consumer falls back to its own average for those and only those.
+ *  - `costCents` — what the CUSTOMER states this leg cost THEM, in cents: the meeting they ran, the
+ *    call they took, the time they valued however they chose. It is the leg the platform did not
+ *    pay for, and a cost of acquisition that omits it counts only the first link of the funnel. It
+ *    is NEVER platform spend: nothing here was charged to the organisation, no runs-service cost
+ *    was declared for it, and it is absent from the organisation's billing. 0 is a STATED zero;
+ *    null means nobody was ever asked (a tracker-reported outcome knows nothing about the
+ *    customer's spend, and so does every statement made before the cost became mandatory). The
+ *    whole per-step picture, "never" legs included, is /internal/brands/:brandId/step-costs.
  *  - `source` — `manual` (a human stated it) or `tracker` (the website tag reported it).
  *
  * `event` is REQUIRED, one of the five step outcomes (legacy "purchase" normalized to "sale");
@@ -676,6 +684,7 @@ router.get(
         ce.matched_lead_id AS lead_id,
         ce.campaign_id,
         ce.value_cents,
+        ce.cost_cents,
         ce.source,
         ce.received_at,
         lower(canonical.value) AS email
@@ -696,6 +705,7 @@ router.get(
       lead_id: string | null;
       campaign_id: string | null;
       value_cents: number | null;
+      cost_cents: number | null;
       source: string | null;
       received_at: Date | string | null;
       email: string | null;
@@ -709,6 +719,7 @@ router.get(
       // normalize, never `.toISOString()` on the raw value.
       occurredAt: toIsoTimestamp(r.received_at),
       valueCents: typeof r.value_cents === "number" ? r.value_cents : null,
+      costCents: typeof r.cost_cents === "number" ? r.cost_cents : null,
       source: (r.source === "manual" ? "manual" : "tracker") as StatementSource,
     }));
 

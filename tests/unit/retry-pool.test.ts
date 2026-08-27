@@ -124,7 +124,7 @@ function execute(query: { queryChunks: unknown[] }): Promise<unknown[]> {
 
 const markSentUpdates: { ids: unknown; set: unknown }[] = [];
 
-// `update` is a builder chain, so the mock has to be one too. Note what that means: this
+// `update` is a builder funnel, so the mock has to be one too. Note what that means: this
 // double cannot fail the way a real database does — the statement it stands in for shipped
 // broken past a green run of this very file. The statements themselves are exercised in
 // tests/integration/retry-pool-sql.test.ts, against a real database; keep them there.

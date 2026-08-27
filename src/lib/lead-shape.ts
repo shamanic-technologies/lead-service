@@ -89,7 +89,7 @@ export interface FullLead {
   country: string | null;
   /**
    * Recipient's IANA timezone (e.g. "America/New_York"). Forwarded from upstream
-   * so the send chain (email-gateway-service → instantly-service) can schedule
+   * so the send funnel (email-gateway-service → instantly-service) can schedule
    * cold email in the recipient's local business hours. null when unknown.
    */
   timezone: string | null;

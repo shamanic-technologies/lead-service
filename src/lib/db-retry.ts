@@ -53,7 +53,7 @@ const TRANSIENT_MESSAGES =
   /connect_timeout|connection timeout|timeout expired|timeout exceeded when trying to connect|cannot connect now|the database system is starting up|connection closed|connection ended|write connection_closed|socket hang up|terminating connection due to administrator command/i;
 
 /**
- * Transient failures arrive wrapped: `cause` chains, and `AggregateError.errors`
+ * Transient failures arrive wrapped: `cause` funnels, and `AggregateError.errors`
  * for happy-eyeballs (one sub-error per candidate address). Walk both, guarding
  * against cycles.
  */

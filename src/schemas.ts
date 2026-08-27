@@ -72,7 +72,7 @@ const AuthHeaders = [
     name: "x-feature-slug",
     required: false,
     schema: { type: "string" as const },
-    description: "Feature slug for tracking (propagated through the call chain)",
+    description: "Feature slug for tracking (propagated through the call path)",
   },
   {
     in: "header" as const,
@@ -2645,6 +2645,18 @@ const ConvertedLeadOutcomeSchema = z
         "stated from now on always carries one: the write refuses a sale with no value.",
       example: 490000,
     }),
+    costCents: z.number().int().nullable().openapi({
+      description:
+        "What the CUSTOMER states this leg cost THEM, in cents — the meeting they ran, the call they " +
+        "took, their time valued however they chose. The platform automates the first link of a sales " +
+        "funnel and the customer performs the rest, so a cost of acquisition that omits this counts only " +
+        "the link we billed for. It is NEVER platform spend: nothing here was charged to the " +
+        "organisation, no platform cost was declared for it, and it is absent from their billing. 0 is " +
+        "a STATED zero; null means nobody was ever asked (a tracker-reported outcome knows nothing " +
+        "about a customer's spend, and so does every statement made before the cost became mandatory). " +
+        "The whole per-step picture, \"never\" legs included, is /internal/brands/{brandId}/step-costs.",
+      example: 12000,
+    }),
     source: z.enum(["tracker", "manual"]).openapi({
       description: "manual — a human stated it; tracker — the website tag reported it.",
     }),
@@ -2796,15 +2808,15 @@ const FUNNEL_KEY_ENUM = [
   "lead_forms_from_ads",
 ] as const;
 
-const ChainFieldsSchema = {
+const FunnelFieldsSchema = {
   funnelKey: z.enum(FUNNEL_KEY_ENUM).openapi({
     description:
-      "The sales funnel this lead's CAMPAIGN states it sells through, read from campaign-service and never inferred. It is what gives the steps an order: \"before\" and \"after\" mean nothing without knowing which chain the lead is on.",
+      "The sales funnel this lead's CAMPAIGN states it sells through, read from campaign-service and never inferred. It is what gives the steps an order: \"before\" and \"after\" mean nothing without knowing which funnel the lead is on.",
     example: "sales_meetings_from_conversation",
   }),
-  chain: z.array(z.enum(STEP_ENUM)).openapi({
+  funnelSteps: z.array(z.enum(STEP_ENUM)).openapi({
     description:
-      "That funnel's steps, IN ORDER, expressed in this service's step vocabulary. A step of the vocabulary that is not on this chain is constrained by nothing: no chain rule reaches it.",
+      "That funnel's steps, IN ORDER, expressed in this service's step vocabulary. A step of the vocabulary that is not on this funnel is constrained by nothing: no funnel rule reaches it.",
     example: ["meeting_booked", "meeting_attended", "sale"],
   }),
 };
@@ -2825,6 +2837,21 @@ const StepStatementRequestSchema = z
       description:
         "What the outcome was worth, in cents. REQUIRED on a \"sale\" outcome and optional on every other step: a won deal is the one place estimating has no excuse, because with no value every downstream money figure prices it at the brand's average lifetime revenue, which describes no real customer. Stating it early on an unusually large lead, long before it closes, is exactly why the other steps keep it optional. Rejected with 400 on a \"never\" statement rather than silently dropped.",
       example: 490000,
+    }),
+    costCents: z.number().int().openapi({
+      description:
+        "What this step cost YOU, in cents — MANDATORY on every statement, outcome and \"never\" " +
+        "alike. The platform automates the first link of a sales funnel and you perform the rest (you " +
+        "run the meeting, you close the deal), so you are the only one who can say what that leg cost; " +
+        "without it a funnel's cost of acquisition counts only the link we billed for and every return " +
+        "shown for it is too good. You choose what goes in: zero, your time valued however you like, " +
+        "real expenses. ZERO IS A LEGITIMATE ANSWER and reads back as a stated zero — leaving the field " +
+        "out is a 400 (code cost_required), never a zero, because an absent cost and a stated zero must " +
+        "stay distinguishable. Negative is a 400. THIS MONEY IS YOURS: it is recorded because you told " +
+        "us, it is never charged to you, and it never enters the platform's own spend ledger or your " +
+        "billing. A \"never\" carries one too — a meeting that was run and went nowhere still cost what " +
+        "it cost.",
+      example: 12000,
     }),
     note: z.string().optional().openapi({
       description: "Free text the person stating the fact wrote, stored verbatim.",
@@ -2853,6 +2880,11 @@ const StepStatementSchema = z.object({
   kind: z.enum(["outcome", "never"]),
   source: z.enum(["tracker", "manual"]),
   valueCents: z.number().int().nullable(),
+  costCents: z.number().int().nullable().openapi({
+    description:
+      "What the author stated this step cost them, in cents, echoed back. 0 is a stated zero. Never " +
+      "charged, never part of the platform's spend ledger.",
+  }),
   note: z.string().nullable(),
   statedByUserId: z.string().nullable(),
   statedAt: z.string().nullable(),
@@ -2861,10 +2893,10 @@ const StepStatementSchema = z.object({
 const StepStatementResponseSchema = z
   .object({
     statement: StepStatementSchema,
-    ...ChainFieldsSchema,
+    ...FunnelFieldsSchema,
     retractedNever: z.boolean().optional().openapi({
       description:
-        "True when this outcome superseded at least one earlier \"never\" — for the same step (the person did the thing after all) or for a step BEFORE it on the chain (a lead that paid necessarily got through the steps that lead to paying). The two cannot both stand, and this is the only direction that can be true — stating \"never\" for a step that already happened, or that a later step on the chain says already happened, is a 409.",
+        "True when this outcome superseded at least one earlier \"never\" — for the same step (the person did the thing after all) or for a step BEFORE it on the funnel (a lead that paid necessarily got through the steps that lead to paying). The two cannot both stand, and this is the only direction that can be true — stating \"never\" for a step that already happened, or that a later step on the funnel says already happened, is a 409.",
     }),
     retractedNeverSteps: z.array(z.enum(STEP_ENUM)).optional().openapi({
       description:
@@ -2900,7 +2932,12 @@ registry.registerPath({
       description: "The statement as recorded",
       content: { "application/json": { schema: StepStatementResponseSchema } },
     },
-    400: { description: "Invalid id, step, kind, occurredAt; valueCents on a \"never\"; or a \"sale\" outcome with no valueCents" },
+    400: {
+      description:
+        "Invalid id, step, kind, occurredAt; valueCents on a \"never\"; a \"sale\" outcome with no " +
+        "valueCents; a missing costCents (code cost_required — absent is a refusal, never a zero); or " +
+        "a negative costCents",
+    },
     401: { description: "Unauthorized" },
     404: { description: "No such lead row for this org (or for the requested brand scope)" },
     409: {
@@ -2910,7 +2947,7 @@ registry.registerPath({
     500: { description: "Internal server error" },
     502: {
       description:
-        "campaign-service could not say which funnel the campaign sells through (code campaign_service_unavailable) — no answer is returned rather than one built on a chain nobody stated",
+        "campaign-service could not say which funnel the campaign sells through (code campaign_service_unavailable) — no answer is returned rather than one built on a funnel nobody stated",
     },
   },
 });
@@ -2920,11 +2957,11 @@ const StepStateSchema = z
     step: z.enum(STEP_ENUM),
     state: z.enum(["outcome", "never", "pending"]).openapi({
       description:
-        "outcome — it happened, either because somebody stated it or because a LATER step of this campaign's chain did; never — it will not happen, either stated or implied by an EARLIER step of the chain being never; pending — neither has been stated and no chain rule reaches it. Nothing counts a \"never\", however it arose.",
+        "outcome — it happened, either because somebody stated it or because a LATER step of this campaign's funnel did; never — it will not happen, either stated or implied by an EARLIER step of the funnel being never; pending — neither has been stated and no funnel rule reaches it. Nothing counts a \"never\", however it arose.",
     }),
     origin: z.enum(["stated", "implied"]).nullable().openapi({
       description:
-        "Whether a PERSON stated this step or the CHAIN implies it. Null exactly when the step is pending. An implied step is not a statement somebody made: it carries no author, no note and no date, and it moves automatically when the statement that implied it is retracted or superseded.",
+        "Whether a PERSON stated this step or the FUNNEL implies it. Null exactly when the step is pending. An implied step is not a statement somebody made: it carries no author, no note and no date, and it moves automatically when the statement that implied it is retracted or superseded.",
     }),
     impliedBy: z.enum(STEP_ENUM).nullable().openapi({
       description:
@@ -2932,20 +2969,29 @@ const StepStateSchema = z
     }),
     statedState: z.enum(["outcome", "never"]).nullable().openapi({
       description:
-        "What a person actually stated about THIS step, whatever the chain concluded — so a real statement is never lost to satisfy the chain. A \"never\" contradicted by a later outcome reads state=outcome, origin=implied, statedState=never.",
+        "What a person actually stated about THIS step, whatever the funnel concluded — so a real statement is never lost to satisfy the funnel. A \"never\" contradicted by a later outcome reads state=outcome, origin=implied, statedState=never.",
     }),
-    inChain: z.boolean().openapi({
+    inFunnel: z.boolean().openapi({
       description:
-        "Whether this step is part of the lead's funnel chain. A step outside it reads from statements alone: no chain rule reaches it.",
+        "Whether this step is part of the lead's funnel. A step outside it reads from statements alone: no funnel rule reaches it.",
     }),
-    chainIndex: z.number().int().nullable().openapi({
-      description: "Where the step sits on the chain, or null when the chain does not contain it.",
+    stepIndex: z.number().int().nullable().openapi({
+      description: "Where the step sits on the funnel, or null when the funnel does not contain it.",
     }),
     source: z.enum(["tracker", "manual"]).nullable().openapi({
       description:
         "Who said so. Null on a pending step (nobody has said anything) and on an implied one (nobody stated it).",
     }),
     valueCents: z.number().int().nullable(),
+    costCents: z.number().int().nullable().openapi({
+      description:
+        "What the CUSTOMER stated getting through this step cost them, in cents. 0 is a stated zero. " +
+        "Null on a pending step (nobody said anything), on an IMPLIED one (nobody stated it, so nobody " +
+        "stated its cost either), on a tracker-reported outcome (a page-load tag knows nothing about a " +
+        "customer's spend) and on a statement made before the cost became mandatory. Never platform " +
+        "spend and never billed.",
+      example: 12000,
+    }),
     note: z.string().nullable(),
     statedByUserId: z.string().nullable(),
     at: z.string().nullable(),
@@ -2958,10 +3004,10 @@ const StepStatementsListSchema = z
     leadId: z.string(),
     campaignId: z.string(),
     brandId: z.string(),
-    ...ChainFieldsSchema,
+    ...FunnelFieldsSchema,
     steps: z.array(StepStateSchema).openapi({
       description:
-        "One entry per step of the outcome vocabulary, ALWAYS all of them, in a fixed order: signup, meeting_booked, form_submission, sale, meeting_attended, website_visit. Each carries the chain's two rules already applied — a \"never\" makes every LATER step of `chain` never, an outcome makes every EARLIER one reached — with `origin` telling a stated step from an implied one. The website visit additionally reads as an outcome with source=tracker when the delivery layer already measured a click for this lead, so the panel never invites somebody to state a fact the system already holds.",
+        "One entry per step of the outcome vocabulary, ALWAYS all of them, in a fixed order: signup, meeting_booked, form_submission, sale, meeting_attended, website_visit. Each carries the funnel's two rules already applied — a \"never\" makes every LATER step of `steps` never, an outcome makes every EARLIER one reached — with `origin` telling a stated step from an implied one. The website visit additionally reads as an outcome with source=tracker when the delivery layer already measured a click for this lead, so the panel never invites somebody to state a fact the system already holds.",
     }),
   })
   .openapi("LeadStepStatementsResponse", {
@@ -2976,11 +3022,11 @@ registry.registerPath({
     "The read behind the panel a statement is made from: one entry per step, always all of them, each " +
     "either an outcome (with the source that reported or stated it), a \"never\", or pending. A " +
     "tracker-reported outcome is attributed to the person at brand grain, a hand-stated one to the exact " +
-    "row it was stated on; both are returned here. A funnel is a CHAIN, so the answer respects it: a " +
-    "\"never\" makes every LATER step of that campaign's chain read as never, and an outcome makes every " +
-    "EARLIER one read as reached — `origin` tells a step a person STATED from one the chain IMPLIES, and " +
-    "`statedState` keeps what somebody really said readable even where the chain concluded otherwise. The " +
-    "chain order is per FUNNEL (`funnelKey` + `chain`), read from campaign-service and never guessed: a " +
+    "row it was stated on; both are returned here. A funnel is a FUNNEL, so the answer respects it: a " +
+    "\"never\" makes every LATER step of that campaign's funnel read as never, and an outcome makes every " +
+    "EARLIER one read as reached — `origin` tells a step a person STATED from one the funnel IMPLIES, and " +
+    "`statedState` keeps what somebody really said readable even where the funnel concluded otherwise. The " +
+    "funnel order is per FUNNEL (`funnelKey` + `steps`), read from campaign-service and never guessed: a " +
     "campaign that states no funnel is a 409, not a made-up order.",
   request: { params: LeadRowIdPathParam },
   parameters: StepStatementOrgHeaders,
@@ -2994,7 +3040,7 @@ registry.registerPath({
     404: { description: "No such lead row for this org (or for the requested brand scope)" },
     409: {
       description:
-        "The campaign states no sales funnel this service has a chain for, so its steps have no order (code funnel_unstated / campaign_unknown)",
+        "The campaign states no sales funnel this service has a funnel for, so its steps have no order (code funnel_unstated / campaign_unknown)",
     },
     500: { description: "Internal server error" },
     502: {
@@ -3062,14 +3108,14 @@ const StepDisqualificationsResponseSchema = z
   .extend({
     impliedCounts: StepCountsShape.optional().openapi({
       description:
-        "Only with ?implied=true. Per step, how many DISTINCT people NOBODY stated that step for, whom a \"never\" EARLIER on their campaign's funnel makes never anyway: once a step is false, everything after it is false. Kept apart from `counts` so a reader can always tell what somebody stated from what the chain concluded.",
+        "Only with ?implied=true. Per step, how many DISTINCT people NOBODY stated that step for, whom a \"never\" EARLIER on their campaign's funnel makes never anyway: once a step is false, everything after it is false. Kept apart from `counts` so a reader can always tell what somebody stated from what the funnel concluded.",
     }),
     impliedByStep: StepEmailsShape.optional().openapi({
       description: "Only with ?implied=true. The same canonical-email join key, for the implied set.",
     }),
     effectiveCounts: StepCountsShape.optional().openapi({
       description:
-        "Only with ?implied=true. Stated and implied together — the answer to \"is this lead dead at this step?\". A \"never\" contradicted by an outcome further down the chain is absent here (the lead demonstrably got there) while remaining in `counts`, which is the record of what was said.",
+        "Only with ?implied=true. Stated and implied together — the answer to \"is this lead dead at this step?\". A \"never\" contradicted by an outcome further down the funnel is absent here (the lead demonstrably got there) while remaining in `counts`, which is the record of what was said.",
     }),
     effectiveByStep: StepEmailsShape.optional().openapi({
       description: "Only with ?implied=true. The same canonical-email join key, for the effective set.",
@@ -3078,6 +3124,121 @@ const StepDisqualificationsResponseSchema = z
   .openapi("LeadStepDisqualificationsResponse", {
     description: "Per-brand, who is dead at which funnel step.",
   });
+
+// --- What the CUSTOMER spent on the legs the platform does not automate ---
+
+const StepCostRowSchema = z
+  .object({
+    leadId: z.string().nullable(),
+    leadCampaignId: z.string().nullable().openapi({
+      description: "The lead row the statement was made on — the id a list row already carries.",
+    }),
+    campaignId: z.string().nullable().openapi({
+      description:
+        "The campaign the cost is attributable to. Every hand statement carries one (it is made on a " +
+        "lead row, which belongs to a campaign), so this read attributes at campaign grain and not " +
+        "only at brand grain.",
+    }),
+    email: z.string().nullable().openapi({
+      description:
+        "The lead's canonical (primary) email, lowercased — the SAME join key the conversion reads " +
+        "return. Null when the lead has no email contact method; the row is still returned.",
+      example: "jane@acme.com",
+    }),
+    step: z.enum(STEP_ENUM),
+    kind: z.enum(["outcome", "never"]).openapi({
+      description:
+        "outcome — the step happened; never — it will not, and the leg still cost. Both are real " +
+        "spend: a meeting that was run and went nowhere cost exactly what it cost.",
+    }),
+    costCents: z.number().int().nullable().openapi({
+      description:
+        "What the customer stated this leg cost them, in cents. 0 is a STATED ZERO. Null means nobody " +
+        "was ever asked — every statement made before the cost became mandatory. The two are " +
+        "deliberately distinguishable; `statedCount` / `unstatedCount` say how much of a step's " +
+        "population actually answered.",
+      example: 12000,
+    }),
+    statedByUserId: z.string().nullable(),
+    occurredAt: z.string().nullable().openapi({
+      description:
+        "When the outcome happened, or when the \"never\" was last stated, ISO-8601.",
+      example: "2026-08-19T14:30:00.000Z",
+    }),
+  })
+  .openapi("LeadStepCost");
+
+const StepCostTotalsShape = z
+  .object({
+    costCents: z.number().int(),
+    statedCount: z.number().int(),
+    unstatedCount: z.number().int(),
+  })
+  .openapi("LeadStepCostTotals");
+
+const StepCostsResponseSchema = z
+  .object({
+    brandId: z.string(),
+    totalCostCents: z.number().int().openapi({
+      description:
+        "The sum of every STATED cost, in cents. Rows nobody answered contribute nothing rather than " +
+        "a fabricated zero — `unstatedCount` is how a consumer knows how incomplete the sum is.",
+    }),
+    statedCount: z.number().int(),
+    unstatedCount: z.number().int(),
+    byStep: z.record(z.string(), StepCostTotalsShape).openapi({
+      description:
+        "The same three figures per step of the outcome vocabulary. With ?step= the map holds that " +
+        "step alone.",
+    }),
+    costs: z.array(StepCostRowSchema).openapi({
+      description: "One row per live hand statement for the brand.",
+    }),
+  })
+  .openapi("LeadStepCostsResponse", {
+    description: "Per-brand, what the customer says each funnel leg cost them.",
+  });
+
+registry.registerPath({
+  method: "get",
+  path: "/internal/brands/{brandId}/step-costs",
+  summary: "What the CUSTOMER spent on each funnel leg, per statement (internal, service-auth)",
+  description:
+    "INTERNAL (service-auth: x-api-key — the same tier as the conversion-count reads, NO Clerk). The " +
+    "platform automates the first link of a sales funnel and bills for it; the customer performs the rest " +
+    "— they run the meeting, they close the deal — so they are the only one who knows what those legs " +
+    "cost. Without this read a funnel's cost of acquisition counts only the link the platform paid for and " +
+    "every return computed for that funnel is too good. THIS IS NOT PLATFORM SPEND: nothing here was ever " +
+    "charged to the organisation, no platform cost was declared for it, and none of it appears in their " +
+    "billing. The set is every LIVE hand statement for the brand — outcomes and \"never\"s alike, since a " +
+    "dead leg still cost — which is deliberately not the set /conversion-counts counts, and that is not a " +
+    "contradiction because this is money and that is a population: a hand-stated website_visit whose click " +
+    "the delivery layer already measured is suppressed from the COUNTS (so one visit is not counted twice) " +
+    "but kept here (the money was spent either way), while a RETRACTED \"never\" is excluded exactly as it " +
+    "is everywhere else, because the outcome that superseded it carries its own cost. Never 404 — a brand " +
+    "nobody has stated a cost for answers zeros and an empty array.",
+  request: {
+    params: BrandIdPathParam,
+    query: z.object({
+      step: z.enum(STEP_ENUM).optional().openapi({
+        param: { name: "step", in: "query" },
+        description:
+          "Narrow to one step of the outcome vocabulary (legacy \"purchase\" folds to \"sale\"). An " +
+          "unrecognised value is a 400, never a silent \"all steps\".",
+      }),
+    }),
+  },
+  parameters: FeatureMembershipApiKeyHeader,
+  responses: {
+    200: {
+      description: "Per-statement customer costs plus per-step totals",
+      content: { "application/json": { schema: StepCostsResponseSchema } },
+    },
+    400: { description: "Unrecognised step" },
+    401: { description: "Unauthorized" },
+    500: { description: "Internal server error" },
+  },
+});
 
 registry.registerPath({
   method: "get",
@@ -3095,7 +3256,7 @@ registry.registerPath({
       implied: z.literal("true").optional().openapi({
         param: { name: "implied", in: "query" },
         description:
-          "Apply each lead's campaign funnel CHAIN as well: a lead that will never book has, by the same statement, never attended and never paid. Opt-in because it needs a campaign-service read per org; without it the response is byte-identical to what this endpoint has always answered.",
+          "Apply each lead's campaign funnel FUNNEL as well: a lead that will never book has, by the same statement, never attended and never paid. Opt-in because it needs a campaign-service read per org; without it the response is byte-identical to what this endpoint has always answered.",
       }),
     }),
   },
@@ -3108,7 +3269,7 @@ registry.registerPath({
     401: { description: "Unauthorized" },
     409: {
       description:
-        "Only with ?implied=true: some of these leads belong to campaigns that state no sales funnel, so no chain can be applied (code funnel_unstated, with the offending campaignIds)",
+        "Only with ?implied=true: some of these leads belong to campaigns that state no sales funnel, so no funnel can be applied (code funnel_unstated, with the offending campaignIds)",
     },
     502: {
       description:

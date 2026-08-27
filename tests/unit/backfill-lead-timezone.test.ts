@@ -87,7 +87,7 @@ describe("backfill-lead-timezone", () => {
     expect(isPlausibleIanaZone("America/Indiana/Indianapolis")).toBe(true);
     expect(isPlausibleIanaZone("UTC")).toBe(true);
     // a country, an offset or an empty cell would be written onto the lead as a
-    // timezone the send chain rejects all over again
+    // timezone the send funnel rejects all over again
     expect(isPlausibleIanaZone("United States")).toBe(false);
     expect(isPlausibleIanaZone("-05:00")).toBe(false);
     expect(isPlausibleIanaZone("")).toBe(false);
