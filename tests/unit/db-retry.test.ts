@@ -28,7 +28,7 @@ describe("isTransientConnectError", () => {
     expect(isTransientConnectError(new Error("timeout exceeded when trying to connect"))).toBe(true);
   });
 
-  it("walks a nested cause chain", () => {
+  it("walks a nested cause funnel", () => {
     const inner = Object.assign(new Error("socket"), { code: "ECONNRESET" });
     expect(isTransientConnectError(new Error("boom", { cause: new Error("mid", { cause: inner }) }))).toBe(true);
   });
