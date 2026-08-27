@@ -54,6 +54,7 @@ const StepStatementBodySchema = z.object({
   step: z.string(),
   kind: z.enum(["outcome", "never"]),
   valueCents: z.number().int().optional(),
+  costCents: z.number().int().optional(),
   note: z.string().optional(),
   occurredAt: z.string().optional(),
 });
@@ -261,6 +262,39 @@ router.post(
       return;
     }
 
+    // WHAT THIS LEG COST THE CUSTOMER, and stating it is mandatory.
+    //
+    // The platform automates the first link of a sales chain; the customer performs the rest —
+    // they run the meeting, they close the deal — so they are the only one who knows what that
+    // leg cost. Without it a chain's cost of acquisition counts only the link we billed for, and
+    // every return displayed for that chain is too good.
+    //
+    // ABSENT IS A REFUSAL, NEVER A ZERO. Defaulting it would silently answer a question nobody
+    // was asked, and the answer would be indistinguishable from a real "it cost me nothing" — so
+    // the author has to choose, and zero is a legitimate choice that reads back as a stated zero.
+    // A "never" carries one too: a dead leg still cost something (the meeting was run, the call
+    // was taken), and a cost of acquisition that ignores it is too good for the same reason.
+    //
+    // This money is the CUSTOMER'S. It is recorded because they told us; it is never charged to
+    // them, no runs-service cost is declared for it and nothing about it reaches the platform's
+    // own spend ledger.
+    if (body.costCents === undefined) {
+      res.status(400).json({
+        error:
+          "costCents is required — state what this step cost you, in cents. Zero is a legitimate " +
+          "answer and is recorded as a stated zero; leaving it out is not, because an absent cost " +
+          "would be indistinguishable from a stated zero and would make this chain's cost of " +
+          "acquisition read better than it is. This is your money, never charged to you.",
+        code: "cost_required",
+      });
+      return;
+    }
+    if (body.costCents < 0) {
+      res.status(400).json({ error: "costCents must be zero or more" });
+      return;
+    }
+    const costCents = body.costCents;
+
     // The moment the outcome happened, when the caller states a past fact. Bound as an ISO string
     // (a raw `sql` template hands params straight to postgres.js Bind, which cannot serialize a
     // Date), and rejected outright when unparseable — never silently replaced by now().
@@ -359,12 +393,14 @@ router.post(
 
       const inserted = (await db.execute(sql`
         INSERT INTO lead_step_disqualifications (
-          lead_id, lead_campaign_id, campaign_id, brand_id, org_id, step, note, stated_by_user_id
+          lead_id, lead_campaign_id, campaign_id, brand_id, org_id, step, cost_cents, note,
+          stated_by_user_id
         ) VALUES (
           ${row.lead_id}, ${row.id}, ${row.campaign_id}, ${brandId}, ${req.orgId!}, ${step},
-          ${body.note ?? null}, ${statedBy}
+          ${costCents}, ${body.note ?? null}, ${statedBy}
         )
         ON CONFLICT (lead_id, campaign_id, step) DO UPDATE SET
+          cost_cents = EXCLUDED.cost_cents,
           note = EXCLUDED.note,
           stated_by_user_id = EXCLUDED.stated_by_user_id,
           lead_campaign_id = EXCLUDED.lead_campaign_id,
@@ -375,7 +411,7 @@ router.post(
           retracted_by_step = NULL,
           retracted_by_user_id = NULL,
           updated_at = now()
-        RETURNING id, created_at, updated_at
+        RETURNING id, cost_cents, created_at, updated_at
       `)) as unknown as Array<{ id: string; created_at: Date | string; updated_at: Date | string }>;
 
       res.status(201).json({
@@ -390,6 +426,7 @@ router.post(
           // A "never" has no source: nothing observes it, a person states it. Counted by nothing.
           source: "manual" as StatementSource,
           valueCents: null,
+          costCents,
           note: body.note ?? null,
           statedByUserId: statedBy,
           statedAt: toIsoTimestamp(inserted[0].updated_at),
@@ -426,17 +463,18 @@ router.post(
     // was established: the caller NAMED the lead, which is as deterministic as identity gets.
     const inserted = (await db.execute(sql`
       INSERT INTO conversion_events (
-        brand_id, org_id, event, dedupe_signature, value_cents, matched_lead_id, match_method,
-        match_confidence, attribution_status, candidate_count, received_at, source, campaign_id,
-        lead_campaign_id, stated_by_user_id, note
+        brand_id, org_id, event, dedupe_signature, value_cents, cost_cents, matched_lead_id,
+        match_method, match_confidence, attribution_status, candidate_count, received_at, source,
+        campaign_id, lead_campaign_id, stated_by_user_id, note
       ) VALUES (
         ${brandId}, ${req.orgId!}, ${step}, ${manualOutcomeSignature(row.id, step)},
-        ${body.valueCents ?? null}, ${row.lead_id}, 'manual', 'deterministic', 'attributed', 1,
-        ${occurredAtIso ?? nowIso}, 'manual', ${row.campaign_id}, ${row.id}, ${statedBy},
-        ${body.note ?? null}
+        ${body.valueCents ?? null}, ${costCents}, ${row.lead_id}, 'manual', 'deterministic',
+        'attributed', 1, ${occurredAtIso ?? nowIso}, 'manual', ${row.campaign_id}, ${row.id},
+        ${statedBy}, ${body.note ?? null}
       )
       ON CONFLICT (brand_id, dedupe_signature) WHERE dedupe_signature IS NOT NULL DO UPDATE SET
         value_cents = EXCLUDED.value_cents,
+        cost_cents = EXCLUDED.cost_cents,
         note = EXCLUDED.note,
         received_at = EXCLUDED.received_at,
         stated_by_user_id = EXCLUDED.stated_by_user_id,
@@ -455,6 +493,7 @@ router.post(
         kind: "outcome",
         source: "manual" as StatementSource,
         valueCents: body.valueCents ?? null,
+        costCents,
         note: body.note ?? null,
         statedByUserId: statedBy,
         statedAt: toIsoTimestamp(inserted[0].received_at),
@@ -522,7 +561,7 @@ router.get(
     // Outcomes credited to this person for this brand. A hand-stated one is keyed to the row it
     // was stated on; a tracker-reported one knows only the brand, so it is matched on the lead.
     const outcomeRows = (await db.execute(sql`
-      SELECT event, source, value_cents, note, stated_by_user_id, received_at
+      SELECT event, source, value_cents, cost_cents, note, stated_by_user_id, received_at
       FROM conversion_events
       WHERE brand_id = ${brandId}
         AND matched_lead_id = ${row.lead_id}
@@ -533,6 +572,7 @@ router.get(
       event: string;
       source: string;
       value_cents: number | null;
+      cost_cents: number | null;
       note: string | null;
       stated_by_user_id: string | null;
       received_at: Date | string | null;
@@ -540,13 +580,14 @@ router.get(
 
     // Retracted statements are excluded: they are kept for the record, not to be read as live.
     const neverRows = (await db.execute(sql`
-      SELECT step, note, stated_by_user_id, updated_at
+      SELECT step, cost_cents, note, stated_by_user_id, updated_at
       FROM lead_step_disqualifications
       WHERE lead_id = ${row.lead_id}
         AND campaign_id = ${row.campaign_id}
         AND retracted_at IS NULL
     `)) as unknown as Array<{
       step: string;
+      cost_cents: number | null;
       note: string | null;
       stated_by_user_id: string | null;
       updated_at: Date | string | null;
@@ -560,6 +601,10 @@ router.get(
       outcomes.set(step, {
         source: o.source === "manual" ? "manual" : "tracker",
         valueCents: o.value_cents,
+        // Null is "nobody was ever asked" — a tracker event observes a page load and knows nothing
+        // about the customer's spend, and a statement predating the mandatory cost carries none.
+        // 0 is a stated zero. Never conflated.
+        costCents: o.cost_cents,
         note: o.note,
         statedByUserId: o.stated_by_user_id,
         at: toIsoTimestamp(o.received_at),
@@ -571,6 +616,7 @@ router.get(
       const step = canonicalizeStepOutcome(n.step);
       if (!step) continue;
       nevers.set(step, {
+        costCents: n.cost_cents,
         note: n.note,
         statedByUserId: n.stated_by_user_id,
         at: toIsoTimestamp(n.updated_at),
@@ -596,6 +642,9 @@ router.get(
         outcomes.set(WEBSITE_VISIT, {
           source: "tracker",
           valueCents: null,
+          // The delivery layer measured a click. It knows nothing about what the customer spent,
+          // so nobody was asked: null, never a fabricated zero.
+          costCents: null,
           note: null,
           statedByUserId: null,
           at: null,
@@ -808,7 +857,14 @@ router.get(
       let m = outcomesByLead.get(o.matched_lead_id);
       if (!m) outcomesByLead.set(o.matched_lead_id, (m = new Map()));
       if (!m.has(step)) {
-        m.set(step, { source: "manual", valueCents: null, note: null, statedByUserId: null, at: null });
+        m.set(step, {
+          source: "manual",
+          valueCents: null,
+          costCents: null,
+          note: null,
+          statedByUserId: null,
+          at: null,
+        });
       }
     }
 
@@ -831,7 +887,7 @@ router.get(
           (group = { leadId: r.lead_id, campaignId: r.campaign_id, email: r.email, nevers: new Map() }),
         );
       }
-      group.nevers.set(step, { note: null, statedByUserId: null, at: null });
+      group.nevers.set(step, { costCents: null, note: null, statedByUserId: null, at: null });
     }
 
     const impliedLeads = Object.fromEntries(
@@ -875,6 +931,210 @@ router.get(
     }
 
     res.json({ counts, byStep, impliedCounts, impliedByStep, effectiveCounts, effectiveByStep });
+  }),
+);
+
+/**
+ * GET /internal/brands/:brandId/step-costs[?step=<step>]
+ *
+ * INTERNAL (service-auth: x-api-key — the same tier as the conversion-count reads, NO Clerk).
+ * What the CUSTOMER told us each funnel step cost THEM, one row per statement.
+ *
+ * The platform automates the first link of a sales chain and bills for it; the customer performs
+ * the rest — they run the meeting, they close the deal. Until this existed, a chain's cost of
+ * acquisition could only count the link the platform paid for, so every return computed for that
+ * chain was too good. This is the read that closes the gap: whoever computes money adds these legs
+ * to the platform spend it already knows about.
+ *
+ * THIS IS NOT PLATFORM SPEND. Nothing here was ever charged to the organisation, no runs-service
+ * cost was declared for it, and none of it appears in the organisation's billing. It is money the
+ * customer says they spent, recorded verbatim because they are the only one who can know it.
+ *
+ * Per row:
+ *  - `kind` — `outcome` (the step happened) or `never` (it will not, and the leg still cost). Both
+ *    are real spend: a meeting that was run and went nowhere cost exactly what it cost.
+ *  - `costCents` — what they stated, in cents. **0 is a stated zero.** `null` means nobody was ever
+ *    asked: every statement made before the cost became mandatory, and every tracker-reported
+ *    outcome (a page-load tag observes a page load and knows nothing about a customer's spend).
+ *    Never conflate the two — `statedCount` / `unstatedCount` are what say how much of a step's
+ *    population actually answered.
+ *  - `campaignId` — every hand statement carries one (it is made on a lead row, which belongs to a
+ *    campaign), so this read attributes at campaign grain and not only at brand grain.
+ *  - `occurredAt` — when the outcome happened, or when the "never" was last stated. ISO-8601.
+ *  - `email` / `leadId` — the join keys a consumer already holds. Email is the lead's canonical
+ *    one, lowercased, and null when the lead has no email contact method (never a dropped row).
+ *
+ * The set is EVERY live hand statement for the brand, which is deliberately NOT the set
+ * /conversion-counts counts, and the difference is not a contradiction because this is money and
+ * that is a population:
+ *  - a hand-stated `website_visit` whose click the delivery layer already measured is suppressed
+ *    from the COUNTS (so the same visit is not counted twice) but kept HERE, because the customer
+ *    spent the money either way and dropping it would understate their cost.
+ *  - a RETRACTED "never" is excluded, exactly as it is from every other read: it was superseded by
+ *    an outcome, and that outcome carries its own cost.
+ *
+ * `?step=` narrows to one step of the outcome vocabulary (legacy "purchase" folds to "sale"); an
+ * unrecognised value is a 400, never a silent "all steps". Never 404 — a brand nobody has stated a
+ * cost for answers zeros and an empty array.
+ */
+router.get(
+  "/internal/brands/:brandId/step-costs",
+  apiKeyAuth,
+  wrap(async (req: Request, res: Response) => {
+    const brandId = req.params.brandId;
+
+    let step: LeadStepOutcomeName | null = null;
+    if (req.query.step !== undefined) {
+      step = canonicalizeStepOutcome(req.query.step);
+      if (!step) {
+        res.status(400).json({ error: `step must be one of ${LEAD_STEP_OUTCOMES.join(" | ")}` });
+        return;
+      }
+    }
+    const stepFilter = step;
+
+    // Hand-stated OUTCOMES. `source = 'manual'` is the whole of it: a tracker row is not a customer
+    // statement and carries no cost by construction, so including it would only add null rows that
+    // inflate `unstatedCount` with a population nobody was ever going to ask.
+    const outcomeRows = (await db.execute(sql`
+      SELECT
+        ce.matched_lead_id AS lead_id,
+        ce.lead_campaign_id,
+        ce.campaign_id,
+        ce.event AS step,
+        ce.cost_cents,
+        ce.stated_by_user_id,
+        ce.received_at AS occurred_at,
+        lower(canonical.value) AS email
+      FROM conversion_events ce
+      LEFT JOIN LATERAL (
+        SELECT cm.value
+        FROM lead_contact_methods cm
+        WHERE cm.lead_id = ce.matched_lead_id AND cm.channel = 'email'
+        ORDER BY cm.created_at ASC NULLS LAST, cm.value ASC
+        LIMIT 1
+      ) canonical ON true
+      WHERE ce.brand_id = ${brandId}
+        AND ce.source = 'manual'
+        AND ce.attribution_status = 'attributed'
+        ${stepFilter ? sql`AND ce.event = ${stepFilter}` : sql``}
+      ORDER BY ce.received_at DESC NULLS LAST
+    `)) as unknown as Array<{
+      lead_id: string | null;
+      lead_campaign_id: string | null;
+      campaign_id: string | null;
+      step: string;
+      cost_cents: number | null;
+      stated_by_user_id: string | null;
+      occurred_at: Date | string | null;
+      email: string | null;
+    }>;
+
+    // Stated "never"s. A dead leg still cost — the meeting was run, the call was taken — and a cost
+    // of acquisition that ignores it is too good for exactly the same reason the outcome legs are.
+    const neverRows = (await db.execute(sql`
+      SELECT
+        d.lead_id,
+        d.lead_campaign_id,
+        d.campaign_id,
+        d.step,
+        d.cost_cents,
+        d.stated_by_user_id,
+        d.updated_at AS occurred_at,
+        lower(canonical.value) AS email
+      FROM lead_step_disqualifications d
+      LEFT JOIN LATERAL (
+        SELECT cm.value
+        FROM lead_contact_methods cm
+        WHERE cm.lead_id = d.lead_id AND cm.channel = 'email'
+        ORDER BY cm.created_at ASC NULLS LAST, cm.value ASC
+        LIMIT 1
+      ) canonical ON true
+      WHERE d.brand_id = ${brandId}
+        AND d.retracted_at IS NULL
+        ${stepFilter ? sql`AND d.step = ${stepFilter}` : sql``}
+      ORDER BY d.updated_at DESC NULLS LAST
+    `)) as unknown as Array<{
+      lead_id: string;
+      lead_campaign_id: string | null;
+      campaign_id: string | null;
+      step: string;
+      cost_cents: number | null;
+      stated_by_user_id: string | null;
+      occurred_at: Date | string | null;
+      email: string | null;
+    }>;
+
+    interface StepCostRow {
+      leadId: string | null;
+      leadCampaignId: string | null;
+      campaignId: string | null;
+      email: string | null;
+      step: LeadStepOutcomeName;
+      kind: "outcome" | "never";
+      costCents: number | null;
+      statedByUserId: string | null;
+      occurredAt: string | null;
+    }
+
+    const costs: StepCostRow[] = [];
+    const push = (
+      r: {
+        lead_id: string | null;
+        lead_campaign_id: string | null;
+        campaign_id: string | null;
+        step: string;
+        cost_cents: number | null;
+        stated_by_user_id: string | null;
+        occurred_at: Date | string | null;
+        email: string | null;
+      },
+      kind: "outcome" | "never",
+    ) => {
+      const canonical = canonicalizeStepOutcome(r.step);
+      if (!canonical) return;
+      costs.push({
+        leadId: r.lead_id,
+        leadCampaignId: r.lead_campaign_id,
+        campaignId: r.campaign_id,
+        email: r.email && r.email.length > 0 ? r.email : null,
+        step: canonical,
+        kind,
+        // A raw `sql` integer comes back as a number; anything else is an absent answer, and an
+        // absent answer stays null. 0 survives this check precisely because it is an answer.
+        costCents: typeof r.cost_cents === "number" ? r.cost_cents : null,
+        statedByUserId: r.stated_by_user_id,
+        // Raw `sql` hands a timestamptz back as a Date on some paths and a string on others —
+        // normalize, never `.toISOString()` on the raw value.
+        occurredAt: toIsoTimestamp(r.occurred_at),
+      });
+    };
+    for (const r of outcomeRows) push(r, "outcome");
+    for (const r of neverRows) push(r, "never");
+
+    const steps = stepFilter ? [stepFilter] : LEAD_STEP_OUTCOMES;
+    const byStep = Object.fromEntries(
+      steps.map((s) => [s, { costCents: 0, statedCount: 0, unstatedCount: 0 }]),
+    ) as Record<LeadStepOutcomeName, { costCents: number; statedCount: number; unstatedCount: number }>;
+
+    let totalCostCents = 0;
+    let statedCount = 0;
+    let unstatedCount = 0;
+    for (const c of costs) {
+      const bucket = byStep[c.step];
+      if (!bucket) continue;
+      if (c.costCents === null) {
+        bucket.unstatedCount += 1;
+        unstatedCount += 1;
+        continue;
+      }
+      bucket.costCents += c.costCents;
+      bucket.statedCount += 1;
+      totalCostCents += c.costCents;
+      statedCount += 1;
+    }
+
+    res.json({ brandId, totalCostCents, statedCount, unstatedCount, byStep, costs });
   }),
 );
 

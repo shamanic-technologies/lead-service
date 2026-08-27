@@ -905,6 +905,9 @@ describe("GET /internal/brands/:brandId/converted-leads", () => {
         lead_id: "lead-1",
         campaign_id: "camp-1",
         value_cents: 490000,
+        // A stated ZERO: the customer answered "this leg cost me nothing". It must survive as 0
+        // and never be folded into the null that means nobody was ever asked.
+        cost_cents: 0,
         source: "manual",
         // A raw `sql` row hands a timestamptz back as a STRING on some paths — the fixture
         // must be one, or a handler that calls .toISOString() on it ships green and throws in prod.
@@ -931,6 +934,7 @@ describe("GET /internal/brands/:brandId/converted-leads", () => {
         campaignId: "camp-1",
         occurredAt: "2026-08-19T14:30:00.000Z",
         valueCents: 490000,
+        costCents: 0,
         source: "manual",
       },
       {
@@ -938,6 +942,8 @@ describe("GET /internal/brands/:brandId/converted-leads", () => {
         email: "bob@globex.com",
         campaignId: null,
         occurredAt: "2026-08-18T09:00:00.000Z",
+        // A tracker event observes a page load and knows nothing about the customer's spend.
+        costCents: null,
         valueCents: null,
         source: "tracker",
       },
