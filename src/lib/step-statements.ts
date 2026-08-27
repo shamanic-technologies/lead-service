@@ -44,7 +44,7 @@ export const MEETING_ATTENDED = "meeting_attended" as const;
 
 /**
  * The lead LANDED ON the brand's website. Two of the four sales funnels START here, and until now
- * it was the one step of those chains nobody could state: the panel showed a row it could only
+ * it was the one step of those funnels nobody could state: the panel showed a row it could only
  * read above three it could act on, and there was no way at all to correct the first step when the
  * automatic signal missed it.
  *

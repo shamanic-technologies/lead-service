@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { resolveStepStates, type StatedNever, type StatedOutcome } from "../../src/lib/step-chain-state.js";
-import { FUNNEL_STEP_CHAINS, stepAndEarlier, stepAndLater, canonicalizeFunnelKey } from "../../src/lib/funnel-chains.js";
+import { resolveStepStates, type StatedNever, type StatedOutcome } from "../../src/lib/step-funnel-state.js";
+import { FUNNEL_STEPS, stepAndEarlier, stepAndLater, canonicalizeFunnelKey } from "../../src/lib/funnel-steps.js";
 import { LEAD_STEP_OUTCOMES, type LeadStepOutcomeName } from "../../src/lib/step-statements.js";
 
-const REPLY_MEETINGS = FUNNEL_STEP_CHAINS.sales_meetings_from_conversation;
-const WEBSITE = FUNNEL_STEP_CHAINS.website_purchases;
+const REPLY_MEETINGS = FUNNEL_STEPS.sales_meetings_from_conversation;
+const WEBSITE = FUNNEL_STEPS.website_purchases;
 
 function outcome(partial: Partial<StatedOutcome> = {}): StatedOutcome {
   return {
@@ -21,20 +21,20 @@ function never(partial: Partial<StatedNever> = {}): StatedNever {
 }
 
 function states(
-  chain: readonly LeadStepOutcomeName[],
+  funnelSteps: readonly LeadStepOutcomeName[],
   outcomes: Array<[LeadStepOutcomeName, StatedOutcome]> = [],
   nevers: Array<[LeadStepOutcomeName, StatedNever]> = [],
 ) {
   const resolved = resolveStepStates({
     allSteps: LEAD_STEP_OUTCOMES,
-    chain,
+    funnelSteps,
     outcomes: new Map(outcomes),
     nevers: new Map(nevers),
   });
   return Object.fromEntries(resolved.map((s) => [s.step, s]));
 }
 
-describe("a never constrains everything AFTER it on the chain", () => {
+describe("a never constrains everything AFTER it on the funnel", () => {
   it("a lead that will never book has never attended and never paid", () => {
     const s = states(REPLY_MEETINGS, [], [["meeting_booked", never()]]);
     expect(s.meeting_booked).toMatchObject({ state: "never", origin: "stated" });
@@ -56,7 +56,7 @@ describe("a never constrains everything AFTER it on the chain", () => {
   });
 });
 
-describe("an outcome constrains everything BEFORE it on the chain", () => {
+describe("an outcome constrains everything BEFORE it on the funnel", () => {
   it("a lead that paid necessarily got through the steps that lead to paying", () => {
     const s = states(REPLY_MEETINGS, [["sale", outcome({ valueCents: 490000 })]]);
     expect(s.sale).toMatchObject({ state: "outcome", origin: "stated", valueCents: 490000 });
@@ -85,7 +85,7 @@ describe("the two directions agree whichever order the statements arrived in", (
       state: "outcome",
       origin: "implied",
       impliedBy: "sale",
-      // what the person really said is still readable — nothing is lost to satisfy the chain
+      // what the person really said is still readable — nothing is lost to satisfy the funnel
       statedState: "never",
     });
     // ... and it stops propagating: nothing downstream reads as never
@@ -102,22 +102,22 @@ describe("the two directions agree whichever order the statements arrived in", (
 });
 
 describe("a step neither rule reaches stays pending", () => {
-  it("nobody spoke about it and no chain rule touches it", () => {
+  it("nobody spoke about it and no funnel rule touches it", () => {
     const s = states(REPLY_MEETINGS);
     expect(LEAD_STEP_OUTCOMES.every((step) => s[step].state === "pending")).toBe(true);
     expect(s.sale.origin).toBeNull();
   });
 
-  it("a step off this campaign's chain reads from statements alone", () => {
+  it("a step off this campaign's funnel reads from statements alone", () => {
     const s = states(REPLY_MEETINGS, [], [["meeting_booked", never()]]);
-    // signup / form_submission / website_visit are not on the reply-meetings chain
-    expect(s.signup).toMatchObject({ state: "pending", inChain: false, chainIndex: null });
+    // signup / form_submission / website_visit are not on the reply-meetings funnel
+    expect(s.signup).toMatchObject({ state: "pending", inFunnel: false, funnelStepIndex: null });
     expect(s.form_submission.state).toBe("pending");
     expect(s.website_visit.state).toBe("pending");
   });
 });
 
-describe("two campaigns on different funnels get their own chain order", () => {
+describe("two campaigns on different funnels get their own step order", () => {
   it("the same statement implies different steps on a different funnel", () => {
     const reply = states(REPLY_MEETINGS, [["sale", outcome()]]);
     const website = states(WEBSITE, [["sale", outcome()]]);
@@ -129,7 +129,7 @@ describe("two campaigns on different funnels get their own chain order", () => {
   });
 });
 
-describe("the chain slices", () => {
+describe("the funnel slices", () => {
   it("a never covers its own step and everything after", () => {
     expect(stepAndLater(REPLY_MEETINGS, "meeting_booked")).toEqual([
       "meeting_booked",
@@ -144,7 +144,7 @@ describe("the chain slices", () => {
       "sale",
     ]);
   });
-  it("a step off the chain constrains only itself", () => {
+  it("a step off the funnel constrains only itself", () => {
     expect(stepAndLater(REPLY_MEETINGS, "signup")).toEqual(["signup"]);
     expect(stepAndEarlier(REPLY_MEETINGS, "signup")).toEqual(["signup"]);
   });
@@ -153,12 +153,12 @@ describe("the chain slices", () => {
     expect(canonicalizeFunnelKey("reply_meeting")).toBe("sales_meetings_from_conversation");
     expect(canonicalizeFunnelKey("nonsense")).toBeNull();
   });
-  it("every chain is made of steps this service can answer for, and ends at the sale", () => {
-    for (const chain of Object.values(FUNNEL_STEP_CHAINS)) {
-      expect(chain.length).toBeGreaterThan(0);
-      expect(chain[chain.length - 1]).toBe("sale");
-      for (const step of chain) expect(LEAD_STEP_OUTCOMES).toContain(step);
-      expect(new Set(chain).size).toBe(chain.length);
+  it("every funnel is made of steps this service can answer for, and ends at the sale", () => {
+    for (const funnelSteps of Object.values(FUNNEL_STEPS)) {
+      expect(funnelSteps.length).toBeGreaterThan(0);
+      expect(funnelSteps[funnelSteps.length - 1]).toBe("sale");
+      for (const step of funnelSteps) expect(LEAD_STEP_OUTCOMES).toContain(step);
+      expect(new Set(funnelSteps).size).toBe(funnelSteps.length);
     }
   });
 });

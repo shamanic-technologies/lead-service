@@ -1,7 +1,7 @@
 /**
  * A website visit stated by hand.
  *
- * Two of the four sales funnels START at a website visit, and it was the one step of those chains
+ * Two of the four sales funnels START at a website visit, and it was the one step of those funnels
  * a person could not state: the panel showed a row it could only read above three it could act on.
  * The automatic signal for a visit is a CLICK measured by the delivery layer, and it misses — so a
  * human states what it missed. Nothing about what the delivery layer measures changes, and a lead
@@ -27,18 +27,18 @@ vi.mock("../../src/config.js", () => ({
   CAMPAIGN_SERVICE_API_KEY: "campaign-key",
 }));
 
-// WHICH chain the lead is on is campaign-service's answer. These leads sell meetings off the
+// WHICH funnel the lead is on is campaign-service's answer. These leads sell meetings off the
 // website — website_visit -> meeting_booked -> meeting_attended -> sale — one of the two funnels
 // that START at the visit this file is about.
-const resolveCampaignChain = vi.fn(async () => ({
+const resolveCampaignFunnel = vi.fn(async () => ({
   funnelKey: "sales_meetings_from_website",
-  chain: ["website_visit", "meeting_booked", "meeting_attended", "sale"],
+  funnelSteps: ["website_visit", "meeting_booked", "meeting_attended", "sale"],
 }));
 
 vi.mock("../../src/lib/campaign-funnel-client.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../../src/lib/campaign-funnel-client.js")>();
-  return { ...actual, resolveCampaignChain: (...args: unknown[]) => resolveCampaignChain(...args) };
+  return { ...actual, resolveCampaignFunnel: (...args: unknown[]) => resolveCampaignFunnel(...args) };
 });
 
 vi.mock("../../src/lib/email-gateway-client.js", () => ({

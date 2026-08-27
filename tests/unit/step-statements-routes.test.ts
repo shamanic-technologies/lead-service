@@ -18,11 +18,11 @@ vi.mock("../../src/config.js", () => ({
 }));
 
 /**
- * WHICH chain the lead is on is campaign-service's answer, so it is stubbed here rather than
+ * WHICH funnel the lead is on is campaign-service's answer, so it is stubbed here rather than
  * hardcoded in the route. The default is the reply funnel — meeting_booked -> meeting_attended ->
- * sale — which is the chain the nonsense this feature removes was reported on.
+ * sale — which is the funnel the nonsense this feature removes was reported on.
  */
-const resolveCampaignChain = vi.fn();
+const resolveCampaignFunnel = vi.fn();
 const fetchOrgCampaignFunnelKeys = vi.fn();
 
 vi.mock("../../src/lib/campaign-funnel-client.js", async (importOriginal) => {
@@ -30,14 +30,14 @@ vi.mock("../../src/lib/campaign-funnel-client.js", async (importOriginal) => {
     await importOriginal<typeof import("../../src/lib/campaign-funnel-client.js")>();
   return {
     ...actual,
-    resolveCampaignChain: (...args: unknown[]) => resolveCampaignChain(...args),
+    resolveCampaignFunnel: (...args: unknown[]) => resolveCampaignFunnel(...args),
     fetchOrgCampaignFunnelKeys: (...args: unknown[]) => fetchOrgCampaignFunnelKeys(...args),
   };
 });
 
-const REPLY_MEETING_CHAIN = {
+const REPLY_MEETING_FUNNEL = {
   funnelKey: "sales_meetings_from_conversation",
-  chain: ["meeting_booked", "meeting_attended", "sale"],
+  funnelSteps: ["meeting_booked", "meeting_attended", "sale"],
 };
 
 const dialect = new PgDialect();
@@ -119,7 +119,7 @@ describe("POST /orgs/leads/:id/step-statements", () => {
   }, 30_000);
   beforeEach(() => {
     execute.mockReset().mockResolvedValue([]);
-    resolveCampaignChain.mockReset().mockResolvedValue(REPLY_MEETING_CHAIN);
+    resolveCampaignFunnel.mockReset().mockResolvedValue(REPLY_MEETING_FUNNEL);
     fetchOrgCampaignFunnelKeys.mockReset().mockResolvedValue(new Map());
   });
 
@@ -335,7 +335,7 @@ describe("GET /orgs/leads/:id/step-statements", () => {
   }, 30_000);
   beforeEach(() => {
     execute.mockReset().mockResolvedValue([]);
-    resolveCampaignChain.mockReset().mockResolvedValue(REPLY_MEETING_CHAIN);
+    resolveCampaignFunnel.mockReset().mockResolvedValue(REPLY_MEETING_FUNNEL);
     fetchOrgCampaignFunnelKeys.mockReset().mockResolvedValue(new Map());
   });
 
@@ -415,18 +415,18 @@ describe("GET /orgs/leads/:id/step-statements", () => {
   });
 });
 
-describe("the funnel chain constrains a statement's neighbours", () => {
+describe("the funnel order constrains a statement's neighbours", () => {
   let app: express.Express;
   beforeAll(async () => {
     app = await buildApp();
   }, 30_000);
   beforeEach(() => {
     execute.mockReset().mockResolvedValue([]);
-    resolveCampaignChain.mockReset().mockResolvedValue(REPLY_MEETING_CHAIN);
+    resolveCampaignFunnel.mockReset().mockResolvedValue(REPLY_MEETING_FUNNEL);
     fetchOrgCampaignFunnelKeys.mockReset().mockResolvedValue(new Map());
   });
 
-  it("refuses a \"never\" on a step a LATER step of the chain says already happened", async () => {
+  it("refuses a \"never\" on a step a LATER step of the funnel says already happened", async () => {
     execute
       .mockResolvedValueOnce(leadRow())
       .mockResolvedValueOnce([{ event: "sale" }]); // the lead paid
@@ -439,7 +439,7 @@ describe("the funnel chain constrains a statement's neighbours", () => {
     expect(paramsAt(1)).toContainEqual(["meeting_booked", "meeting_attended", "sale"]);
   });
 
-  it("an outcome retracts the nevers standing EARLIER on the chain, and names them", async () => {
+  it("an outcome retracts the nevers standing EARLIER on the funnel, and names them", async () => {
     execute
       .mockResolvedValueOnce(leadRow())
       .mockResolvedValueOnce([{ step: "meeting_booked" }, { step: "meeting_attended" }])
@@ -452,7 +452,7 @@ describe("the funnel chain constrains a statement's neighbours", () => {
     expect(sqlAt(1)).toContain("retracted_at is null");
   });
 
-  it("a step off the chain constrains only itself", async () => {
+  it("a step off the funnel constrains only itself", async () => {
     execute
       .mockResolvedValueOnce(leadRow())
       .mockResolvedValueOnce([])
@@ -475,9 +475,9 @@ describe("the funnel chain constrains a statement's neighbours", () => {
   });
 
   it("502 when campaign-service cannot say which funnel the campaign sells through", async () => {
-    const { FunnelChainError } = await import("../../src/lib/campaign-funnel-client.js");
+    const { FunnelResolutionError } = await import("../../src/lib/campaign-funnel-client.js");
     execute.mockResolvedValueOnce(leadRow());
-    resolveCampaignChain.mockRejectedValueOnce(new FunnelChainError("unavailable", "down"));
+    resolveCampaignFunnel.mockRejectedValueOnce(new FunnelResolutionError("unavailable", "down"));
     const res = await post(app, { step: "sale", kind: "outcome", valueCents: 1000 });
     expect(res.status).toBe(502);
     expect(res.body.code).toBe("campaign_service_unavailable");
@@ -485,9 +485,9 @@ describe("the funnel chain constrains a statement's neighbours", () => {
   });
 
   it("409, never a guessed order, when the campaign states no funnel", async () => {
-    const { FunnelChainError } = await import("../../src/lib/campaign-funnel-client.js");
+    const { FunnelResolutionError } = await import("../../src/lib/campaign-funnel-client.js");
     execute.mockResolvedValueOnce(leadRow());
-    resolveCampaignChain.mockRejectedValueOnce(new FunnelChainError("unstated", "no funnel"));
+    resolveCampaignFunnel.mockRejectedValueOnce(new FunnelResolutionError("unstated", "no funnel"));
     const res = await post(app, { step: "sale", kind: "outcome", valueCents: 1000 });
     expect(res.status).toBe(409);
     expect(res.body.code).toBe("funnel_unstated");
@@ -511,7 +511,7 @@ describe("the funnel chain constrains a statement's neighbours", () => {
       .set("x-org-id", "org-1");
     expect(res.status).toBe(200);
     expect(res.body.funnelKey).toBe("sales_meetings_from_conversation");
-    expect(res.body.chain).toEqual(["meeting_booked", "meeting_attended", "sale"]);
+    expect(res.body.funnelSteps).toEqual(["meeting_booked", "meeting_attended", "sale"]);
     const byStep = Object.fromEntries(
       res.body.steps.map((s: { step: string }) => [s.step, s]),
     ) as Record<string, { state: string; origin: string | null; impliedBy: string | null }>;
@@ -572,7 +572,7 @@ describe("GET /internal/brands/:brandId/step-disqualifications", () => {
   }, 30_000);
   beforeEach(() => {
     execute.mockReset().mockResolvedValue([]);
-    resolveCampaignChain.mockReset().mockResolvedValue(REPLY_MEETING_CHAIN);
+    resolveCampaignFunnel.mockReset().mockResolvedValue(REPLY_MEETING_FUNNEL);
     fetchOrgCampaignFunnelKeys.mockReset().mockResolvedValue(new Map());
   });
 
@@ -607,7 +607,7 @@ describe("GET /internal/brands/:brandId/step-disqualifications", () => {
     expect(res.body.byStep.sale).toEqual(["a@x.com", "b@x.com"]);
   });
 
-  it("?implied=true applies each campaign's own chain, and keeps stated apart from implied", async () => {
+  it("?implied=true applies each campaign's own funnel order, and keeps stated apart from implied", async () => {
     fetchOrgCampaignFunnelKeys.mockResolvedValue(
       new Map([
         ["campaign-reply", "sales_meetings_from_conversation"],
@@ -646,7 +646,7 @@ describe("GET /internal/brands/:brandId/step-disqualifications", () => {
     // what somebody stated — unchanged
     expect(res.body.counts.meeting_booked).toBe(1);
     expect(res.body.counts.sale).toBe(0);
-    // what the chains conclude — two funnels, two different orders
+    // what the funnels conclude — two funnels, two different orders
     expect(res.body.impliedByStep.meeting_attended).toEqual(["a@x.com"]);
     expect(res.body.impliedByStep.sale.sort()).toEqual(["a@x.com", "b@x.com"]);
     expect(res.body.impliedByStep.signup).toEqual([]);
@@ -654,7 +654,7 @@ describe("GET /internal/brands/:brandId/step-disqualifications", () => {
     expect(res.body.effectiveByStep.meeting_booked).toEqual(["a@x.com"]);
   });
 
-  it("a never contradicted by an outcome further down the chain leaves the effective set", async () => {
+  it("a never contradicted by an outcome further down the funnel leaves the effective set", async () => {
     fetchOrgCampaignFunnelKeys.mockResolvedValue(
       new Map([["campaign-reply", "sales_meetings_from_conversation"]]),
     );

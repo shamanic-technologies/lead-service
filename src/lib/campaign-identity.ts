@@ -14,7 +14,7 @@
  * ALL FOUR PARTS ARE READ FROM campaign-service, never re-derived. In particular the sales funnel
  * is never inferred from the campaign's goal: two funnels answer to the same goal
  * (`sales_meetings_from_conversation` and `sales_meetings_from_website` are both `meetingBooked`),
- * so a goal→funnel inference prints a chain the campaign never stated.
+ * so a goal→funnel inference prints an order the campaign never stated.
  */
 
 /** A campaign row as campaign-service serves it, trimmed to the identity. */

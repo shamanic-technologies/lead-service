@@ -618,7 +618,7 @@ router.get(
  * per-workflow and per-offer grains cannot attribute it at all) and no value (so a won deal gets
  * priced at the brand's AVERAGE lifetime revenue instead of what it was actually worth). This read
  * carries all three, so a consumer can value a lead by what somebody OBSERVED rather than by
- * projecting a chain of declared rates through it.
+ * projecting a sequence of declared rates through it.
  *
  * The set is EXACTLY the one /conversion-counts and /conversion-counts-by-day count: stored
  * conversion_events rows (deduped at write via the (brand_id, dedupe_signature) partial unique
@@ -645,7 +645,7 @@ router.get(
  *    zero: a consumer falls back to its own average for those and only those.
  *  - `costCents` — what the CUSTOMER states this leg cost THEM, in cents: the meeting they ran, the
  *    call they took, the time they valued however they chose. It is the leg the platform did not
- *    pay for, and a cost of acquisition that omits it counts only the first link of the chain. It
+ *    pay for, and a cost of acquisition that omits it counts only the first leg of the funnel. It
  *    is NEVER platform spend: nothing here was charged to the organisation, no runs-service cost
  *    was declared for it, and it is absent from the organisation's billing. 0 is a STATED zero;
  *    null means nobody was ever asked (a tracker-reported outcome knows nothing about the

@@ -1,21 +1,21 @@
 /**
- * What every step of one lead's funnel reads as, once the chain's two rules are applied.
+ * What every step of one lead's funnel reads as, once the funnel's two rules are applied.
  *
  * PURE: it takes the statements a person actually made (plus whatever the delivery layer measured)
  * and answers what each step reads as. Nothing here writes, and nothing here invents a statement —
  * an implied step carries no author, no note and no date, because nobody made it. `origin` is what
  * keeps the two apart for a reader, and `statedState` is what a person really said about that step
- * even when the chain overrides it, so a real statement is never lost to satisfy the chain.
+ * even when the funnel overrides it, so a real statement is never lost to satisfy the funnel.
  *
  * Precedence per step, in this order and for this reason:
  *
  *   1. its own stated OUTCOME               — the person said it happened.
- *   2. an outcome LATER on the chain        — it necessarily got through this step to reach that
+ *   2. an outcome LATER on the funnel       — it necessarily got through this step to reach that
  *                                             one. A fact beats a prediction, which is exactly the
  *                                             same-step rule ("an outcome retracts a never")
- *                                             expressed along the chain.
+ *                                             expressed along the funnel.
  *   3. its own stated NEVER                 — the person said it will not happen.
- *   4. a never EARLIER on the chain         — once a step is false, everything after it is false.
+ *   4. a never EARLIER on the funnel        — once a step is false, everything after it is false.
  *   5. pending                              — nobody spoke, neither rule reaches it.
  *
  * A never that sits at or before the deepest outcome is contradicted by that outcome, so it does
@@ -25,7 +25,7 @@
  */
 import type { LeadStepOutcomeName, StatementSource, StepState } from "./step-statements.js";
 
-/** Whether a step's state is something a person stated, or something the chain implies. */
+/** Whether a step's state is something a person stated, or something the funnel implies. */
 export type StepOrigin = "stated" | "implied";
 
 export interface StatedOutcome {
@@ -53,11 +53,11 @@ export interface StepReadState {
   origin: StepOrigin | null;
   /** The STATED step that implies this one, or null when nothing implies it. */
   impliedBy: LeadStepOutcomeName | null;
-  /** What a person actually stated about THIS step, whatever the chain concluded. */
+  /** What a person actually stated about THIS step, whatever the funnel concluded. */
   statedState: "outcome" | "never" | null;
-  /** Whether this step is part of the lead's funnel chain at all. */
-  inChain: boolean;
-  chainIndex: number | null;
+  /** Whether this step is part of the lead's funnel at all. */
+  inFunnel: boolean;
+  funnelStepIndex: number | null;
   source: StatementSource | null;
   valueCents: number | null;
   /**
@@ -75,16 +75,16 @@ export interface StepReadState {
 export interface ResolveStepStatesInput {
   /** Every step this service can answer for, in the order the response lists them. */
   allSteps: readonly LeadStepOutcomeName[];
-  /** The lead's funnel chain, in order. */
-  chain: readonly LeadStepOutcomeName[];
+  /** The lead's funnel steps, in order. */
+  funnelSteps: readonly LeadStepOutcomeName[];
   outcomes: ReadonlyMap<LeadStepOutcomeName, StatedOutcome>;
   nevers: ReadonlyMap<LeadStepOutcomeName, StatedNever>;
 }
 
 function pending(
   step: LeadStepOutcomeName,
-  inChain: boolean,
-  chainIndex: number | null,
+  inFunnel: boolean,
+  funnelStepIndex: number | null,
 ): StepReadState {
   return {
     step,
@@ -92,8 +92,8 @@ function pending(
     origin: null,
     impliedBy: null,
     statedState: null,
-    inChain,
-    chainIndex,
+    inFunnel,
+    funnelStepIndex,
     source: null,
     valueCents: null,
     costCents: null,
@@ -104,24 +104,24 @@ function pending(
 }
 
 export function resolveStepStates(input: ResolveStepStatesInput): StepReadState[] {
-  const { allSteps, chain, outcomes, nevers } = input;
+  const { allSteps, funnelSteps, outcomes, nevers } = input;
 
-  // The deepest step on the chain a stated outcome reaches. Everything up to it is reached.
+  // The deepest step of the funnel a stated outcome reaches. Everything up to it is reached.
   let deepestOutcome = -1;
-  for (let i = 0; i < chain.length; i++) {
-    if (outcomes.has(chain[i])) deepestOutcome = i;
+  for (let i = 0; i < funnelSteps.length; i++) {
+    if (outcomes.has(funnelSteps[i])) deepestOutcome = i;
   }
 
   // The shallowest never that is NOT contradicted by that outcome. Everything from it on is never.
   let earliestNever = -1;
-  for (let i = chain.length - 1; i > deepestOutcome; i--) {
-    if (nevers.has(chain[i])) earliestNever = i;
+  for (let i = funnelSteps.length - 1; i > deepestOutcome; i--) {
+    if (nevers.has(funnelSteps[i])) earliestNever = i;
   }
 
   return allSteps.map((step) => {
-    const index = chain.indexOf(step);
-    const inChain = index >= 0;
-    const chainIndex = inChain ? index : null;
+    const index = funnelSteps.indexOf(step);
+    const inFunnel = index >= 0;
+    const funnelStepIndex = inFunnel ? index : null;
     const outcome = outcomes.get(step) ?? null;
     const never = nevers.get(step) ?? null;
     const statedState: "outcome" | "never" | null = outcome ? "outcome" : never ? "never" : null;
@@ -133,8 +133,8 @@ export function resolveStepStates(input: ResolveStepStatesInput): StepReadState[
         origin: "stated" as StepOrigin,
         impliedBy: null,
         statedState,
-        inChain,
-        chainIndex,
+        inFunnel,
+        funnelStepIndex,
         source: outcome.source,
         valueCents: outcome.valueCents,
         costCents: outcome.costCents,
@@ -144,17 +144,17 @@ export function resolveStepStates(input: ResolveStepStatesInput): StepReadState[
       };
     }
 
-    if (inChain && deepestOutcome >= 0 && index < deepestOutcome) {
-      // Reached, because a later step on this chain demonstrably happened. Nobody stated it, so it
+    if (inFunnel && deepestOutcome >= 0 && index < deepestOutcome) {
+      // Reached, because a later step of this funnel demonstrably happened. Nobody stated it, so it
       // carries no author, no note and no date.
       return {
         step,
         state: "outcome" as StepState,
         origin: "implied" as StepOrigin,
-        impliedBy: chain[deepestOutcome],
+        impliedBy: funnelSteps[deepestOutcome],
         statedState,
-        inChain,
-        chainIndex,
+        inFunnel,
+        funnelStepIndex,
         source: null,
         valueCents: null,
         costCents: null,
@@ -171,8 +171,8 @@ export function resolveStepStates(input: ResolveStepStatesInput): StepReadState[
         origin: "stated" as StepOrigin,
         impliedBy: null,
         statedState,
-        inChain,
-        chainIndex,
+        inFunnel,
+        funnelStepIndex,
         source: "manual" as StatementSource,
         valueCents: null,
         costCents: never.costCents,
@@ -182,15 +182,15 @@ export function resolveStepStates(input: ResolveStepStatesInput): StepReadState[
       };
     }
 
-    if (inChain && earliestNever >= 0 && index > earliestNever) {
+    if (inFunnel && earliestNever >= 0 && index > earliestNever) {
       return {
         step,
         state: "never" as StepState,
         origin: "implied" as StepOrigin,
-        impliedBy: chain[earliestNever],
+        impliedBy: funnelSteps[earliestNever],
         statedState,
-        inChain,
-        chainIndex,
+        inFunnel,
+        funnelStepIndex,
         source: null,
         valueCents: null,
         costCents: null,
@@ -200,6 +200,6 @@ export function resolveStepStates(input: ResolveStepStatesInput): StepReadState[
       };
     }
 
-    return pending(step, inChain, chainIndex);
+    return pending(step, inFunnel, funnelStepIndex);
   });
 }

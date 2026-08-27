@@ -1,9 +1,9 @@
 -- 0034: what the CUSTOMER spent getting a lead through a funnel step.
 --
--- The platform automates the first link of a sales chain and the customer performs the rest: they
+-- The platform automates the first leg of a sales funnel and the customer performs the rest: they
 -- run the meeting, they close the deal. So they are the only one who knows what that leg cost, and
--- without it a chain's cost of acquisition counts only the leg we billed for — every return we
--- display for that chain is too good.
+-- without it a funnel's cost of acquisition counts only the leg we billed for — every return we
+-- display for that funnel is too good.
 --
 -- Stating it is MANDATORY at the API, and the author chooses what goes in: zero, their time valued
 -- however they like, real expenses. A stated ZERO is a real answer and reads as one, which is why
