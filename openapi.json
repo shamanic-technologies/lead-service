@@ -2769,7 +2769,7 @@
             "items": {
               "$ref": "#/components/schemas/LeadStepState"
             },
-            "description": "One entry per step of the outcome vocabulary, ALWAYS all of them, in a fixed order: signup, meeting_booked, form_submission, sale, meeting_attended, website_visit. Each carries the funnel's two rules already applied — a \"never\" makes every LATER step of `steps` never, an outcome makes every EARLIER one reached — with `origin` telling a stated step from an implied one. The website visit additionally reads as an outcome with source=tracker when the delivery layer already measured a click for this lead, so the panel never invites somebody to state a fact the system already holds."
+            "description": "One entry per step of the outcome vocabulary, ALWAYS all of them, in a fixed order: signup, meeting_booked, form_submission, sale, meeting_attended, website_visit. Each carries the funnel's two rules already applied — a \"never\" makes every LATER step of `funnelSteps` never, an outcome makes every EARLIER one reached — with `origin` telling a stated step from an implied one. The website visit additionally reads as an outcome with source=tracker when the delivery layer already measured a click for this lead, so the panel never invites somebody to state a fact the system already holds."
           }
         },
         "required": [
@@ -4958,7 +4958,7 @@
       },
       "get": {
         "summary": "Everything known about every funnel step of one lead",
-        "description": "The read behind the panel a statement is made from: one entry per step, always all of them, each either an outcome (with the source that reported or stated it), a \"never\", or pending. A tracker-reported outcome is attributed to the person at brand grain, a hand-stated one to the exact row it was stated on; both are returned here. A funnel is a FUNNEL, so the answer respects it: a \"never\" makes every LATER step of that campaign's funnel read as never, and an outcome makes every EARLIER one read as reached — `origin` tells a step a person STATED from one the funnel IMPLIES, and `statedState` keeps what somebody really said readable even where the funnel concluded otherwise. The funnel order is per FUNNEL (`funnelKey` + `steps`), read from campaign-service and never guessed: a campaign that states no funnel is a 409, not a made-up order.",
+        "description": "The read behind the panel a statement is made from: one entry per step, always all of them, each either an outcome (with the source that reported or stated it), a \"never\", or pending. A tracker-reported outcome is attributed to the person at brand grain, a hand-stated one to the exact row it was stated on; both are returned here. A funnel is ORDERED, so the answer respects it: a \"never\" makes every LATER step of that campaign's funnel read as never, and an outcome makes every EARLIER one read as reached — `origin` tells a step a person STATED from one the funnel IMPLIES, and `statedState` keeps what somebody really said readable even where the funnel concluded otherwise. The step order is per FUNNEL (`funnelKey` + `funnelSteps`), read from campaign-service and never guessed: a campaign that states no funnel is a 409, not a made-up order.",
         "parameters": [
           {
             "in": "header",
