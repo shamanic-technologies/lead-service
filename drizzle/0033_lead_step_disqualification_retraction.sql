@@ -1,6 +1,6 @@
 -- 0033: a "never" is RETRACTED, never deleted.
 --
--- A funnel is a chain: stating that a lead PAID says it also got through the steps that lead to
+-- A funnel is ORDERED: stating that a lead PAID says it also got through the steps that lead to
 -- paying, so a "never" standing on any of those steps is contradicted by the fact. The same-step
 -- version of that rule already shipped, and it resolved the contradiction by DELETING the
 -- disqualification row — which destroys the record of what a person actually stated, and the record
@@ -11,7 +11,7 @@
 -- read back. Restating the same "never" clears the mark (the person changed their mind again).
 --
 -- `retracted_by_step` records WHICH outcome retracted it — the same step for the same-step rule,
--- an EARLIER step's row retracted by a LATER outcome for the chain rule.
+-- an EARLIER step's row retracted by a LATER outcome for the funnel-order rule.
 --
 -- Idempotent: every statement guards itself, so a partially-applied state is a no-op.
 
