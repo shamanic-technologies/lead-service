@@ -310,6 +310,15 @@ export const conversionEvents = pgTable(
     // index is partial (WHERE dedupe_signature IS NOT NULL).
     dedupeSignature: text("dedupe_signature"),
     valueCents: integer("value_cents"),
+    // What the CUSTOMER spent getting the lead through this step — their money, never ours. The
+    // platform automates the first leg of a sales chain and the customer performs the rest (they
+    // run the meeting, they close the deal), so they are the only one who can state what that leg
+    // cost. Stating it is mandatory at the API, so a hand-stated outcome always carries one.
+    // NULL means nobody was ever asked (every row written before this shipped, and every
+    // tracker-reported event, which observes a page load and knows nothing about spend); 0 means
+    // somebody answered zero. The two are deliberately distinguishable. This NEVER enters the
+    // platform's cost ledger: no runs-service cost is declared for it and nothing is billed.
+    costCents: integer("cost_cents"),
     matchedLeadId: uuid("matched_lead_id").references(() => leads.id, {
       onDelete: "set null",
     }),
@@ -368,6 +377,14 @@ export const leadStepDisqualifications = pgTable(
     orgId: text("org_id").notNull(),
     /** one of LEAD_STEP_OUTCOMES — the step this person will never reach */
     step: text("step").notNull(),
+    /**
+     * What the CUSTOMER spent on this leg before concluding it will never complete. A dead leg
+     * still costs — the meeting was run, the call was taken — and a cost of acquisition that
+     * ignores it is too good. Same three states as on a conversion event: NULL = nobody was ever
+     * asked (rows written before this shipped), 0 = somebody answered zero. Never billed, never
+     * declared to the platform's cost ledger.
+     */
+    costCents: integer("cost_cents"),
     note: text("note"),
     statedByUserId: text("stated_by_user_id"),
     /**

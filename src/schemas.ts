@@ -2645,6 +2645,18 @@ const ConvertedLeadOutcomeSchema = z
         "stated from now on always carries one: the write refuses a sale with no value.",
       example: 490000,
     }),
+    costCents: z.number().int().nullable().openapi({
+      description:
+        "What the CUSTOMER states this leg cost THEM, in cents — the meeting they ran, the call they " +
+        "took, their time valued however they chose. The platform automates the first link of a sales " +
+        "chain and the customer performs the rest, so a cost of acquisition that omits this counts only " +
+        "the link we billed for. It is NEVER platform spend: nothing here was charged to the " +
+        "organisation, no platform cost was declared for it, and it is absent from their billing. 0 is " +
+        "a STATED zero; null means nobody was ever asked (a tracker-reported outcome knows nothing " +
+        "about a customer's spend, and so does every statement made before the cost became mandatory). " +
+        "The whole per-step picture, \"never\" legs included, is /internal/brands/{brandId}/step-costs.",
+      example: 12000,
+    }),
     source: z.enum(["tracker", "manual"]).openapi({
       description: "manual — a human stated it; tracker — the website tag reported it.",
     }),
@@ -2826,6 +2838,21 @@ const StepStatementRequestSchema = z
         "What the outcome was worth, in cents. REQUIRED on a \"sale\" outcome and optional on every other step: a won deal is the one place estimating has no excuse, because with no value every downstream money figure prices it at the brand's average lifetime revenue, which describes no real customer. Stating it early on an unusually large lead, long before it closes, is exactly why the other steps keep it optional. Rejected with 400 on a \"never\" statement rather than silently dropped.",
       example: 490000,
     }),
+    costCents: z.number().int().openapi({
+      description:
+        "What this step cost YOU, in cents — MANDATORY on every statement, outcome and \"never\" " +
+        "alike. The platform automates the first link of a sales chain and you perform the rest (you " +
+        "run the meeting, you close the deal), so you are the only one who can say what that leg cost; " +
+        "without it a chain's cost of acquisition counts only the link we billed for and every return " +
+        "shown for it is too good. You choose what goes in: zero, your time valued however you like, " +
+        "real expenses. ZERO IS A LEGITIMATE ANSWER and reads back as a stated zero — leaving the field " +
+        "out is a 400 (code cost_required), never a zero, because an absent cost and a stated zero must " +
+        "stay distinguishable. Negative is a 400. THIS MONEY IS YOURS: it is recorded because you told " +
+        "us, it is never charged to you, and it never enters the platform's own spend ledger or your " +
+        "billing. A \"never\" carries one too — a meeting that was run and went nowhere still cost what " +
+        "it cost.",
+      example: 12000,
+    }),
     note: z.string().optional().openapi({
       description: "Free text the person stating the fact wrote, stored verbatim.",
       example: "Closed on the call, contract signed 2026-08-19.",
@@ -2853,6 +2880,11 @@ const StepStatementSchema = z.object({
   kind: z.enum(["outcome", "never"]),
   source: z.enum(["tracker", "manual"]),
   valueCents: z.number().int().nullable(),
+  costCents: z.number().int().nullable().openapi({
+    description:
+      "What the author stated this step cost them, in cents, echoed back. 0 is a stated zero. Never " +
+      "charged, never part of the platform's spend ledger.",
+  }),
   note: z.string().nullable(),
   statedByUserId: z.string().nullable(),
   statedAt: z.string().nullable(),
@@ -2900,7 +2932,12 @@ registry.registerPath({
       description: "The statement as recorded",
       content: { "application/json": { schema: StepStatementResponseSchema } },
     },
-    400: { description: "Invalid id, step, kind, occurredAt; valueCents on a \"never\"; or a \"sale\" outcome with no valueCents" },
+    400: {
+      description:
+        "Invalid id, step, kind, occurredAt; valueCents on a \"never\"; a \"sale\" outcome with no " +
+        "valueCents; a missing costCents (code cost_required — absent is a refusal, never a zero); or " +
+        "a negative costCents",
+    },
     401: { description: "Unauthorized" },
     404: { description: "No such lead row for this org (or for the requested brand scope)" },
     409: {
@@ -2946,6 +2983,15 @@ const StepStateSchema = z
         "Who said so. Null on a pending step (nobody has said anything) and on an implied one (nobody stated it).",
     }),
     valueCents: z.number().int().nullable(),
+    costCents: z.number().int().nullable().openapi({
+      description:
+        "What the CUSTOMER stated getting through this step cost them, in cents. 0 is a stated zero. " +
+        "Null on a pending step (nobody said anything), on an IMPLIED one (nobody stated it, so nobody " +
+        "stated its cost either), on a tracker-reported outcome (a page-load tag knows nothing about a " +
+        "customer's spend) and on a statement made before the cost became mandatory. Never platform " +
+        "spend and never billed.",
+      example: 12000,
+    }),
     note: z.string().nullable(),
     statedByUserId: z.string().nullable(),
     at: z.string().nullable(),
@@ -3078,6 +3124,121 @@ const StepDisqualificationsResponseSchema = z
   .openapi("LeadStepDisqualificationsResponse", {
     description: "Per-brand, who is dead at which funnel step.",
   });
+
+// --- What the CUSTOMER spent on the legs the platform does not automate ---
+
+const StepCostRowSchema = z
+  .object({
+    leadId: z.string().nullable(),
+    leadCampaignId: z.string().nullable().openapi({
+      description: "The lead row the statement was made on — the id a list row already carries.",
+    }),
+    campaignId: z.string().nullable().openapi({
+      description:
+        "The campaign the cost is attributable to. Every hand statement carries one (it is made on a " +
+        "lead row, which belongs to a campaign), so this read attributes at campaign grain and not " +
+        "only at brand grain.",
+    }),
+    email: z.string().nullable().openapi({
+      description:
+        "The lead's canonical (primary) email, lowercased — the SAME join key the conversion reads " +
+        "return. Null when the lead has no email contact method; the row is still returned.",
+      example: "jane@acme.com",
+    }),
+    step: z.enum(STEP_ENUM),
+    kind: z.enum(["outcome", "never"]).openapi({
+      description:
+        "outcome — the step happened; never — it will not, and the leg still cost. Both are real " +
+        "spend: a meeting that was run and went nowhere cost exactly what it cost.",
+    }),
+    costCents: z.number().int().nullable().openapi({
+      description:
+        "What the customer stated this leg cost them, in cents. 0 is a STATED ZERO. Null means nobody " +
+        "was ever asked — every statement made before the cost became mandatory. The two are " +
+        "deliberately distinguishable; `statedCount` / `unstatedCount` say how much of a step's " +
+        "population actually answered.",
+      example: 12000,
+    }),
+    statedByUserId: z.string().nullable(),
+    occurredAt: z.string().nullable().openapi({
+      description:
+        "When the outcome happened, or when the \"never\" was last stated, ISO-8601.",
+      example: "2026-08-19T14:30:00.000Z",
+    }),
+  })
+  .openapi("LeadStepCost");
+
+const StepCostTotalsShape = z
+  .object({
+    costCents: z.number().int(),
+    statedCount: z.number().int(),
+    unstatedCount: z.number().int(),
+  })
+  .openapi("LeadStepCostTotals");
+
+const StepCostsResponseSchema = z
+  .object({
+    brandId: z.string(),
+    totalCostCents: z.number().int().openapi({
+      description:
+        "The sum of every STATED cost, in cents. Rows nobody answered contribute nothing rather than " +
+        "a fabricated zero — `unstatedCount` is how a consumer knows how incomplete the sum is.",
+    }),
+    statedCount: z.number().int(),
+    unstatedCount: z.number().int(),
+    byStep: z.record(z.string(), StepCostTotalsShape).openapi({
+      description:
+        "The same three figures per step of the outcome vocabulary. With ?step= the map holds that " +
+        "step alone.",
+    }),
+    costs: z.array(StepCostRowSchema).openapi({
+      description: "One row per live hand statement for the brand.",
+    }),
+  })
+  .openapi("LeadStepCostsResponse", {
+    description: "Per-brand, what the customer says each funnel leg cost them.",
+  });
+
+registry.registerPath({
+  method: "get",
+  path: "/internal/brands/{brandId}/step-costs",
+  summary: "What the CUSTOMER spent on each funnel leg, per statement (internal, service-auth)",
+  description:
+    "INTERNAL (service-auth: x-api-key — the same tier as the conversion-count reads, NO Clerk). The " +
+    "platform automates the first link of a sales chain and bills for it; the customer performs the rest " +
+    "— they run the meeting, they close the deal — so they are the only one who knows what those legs " +
+    "cost. Without this read a chain's cost of acquisition counts only the link the platform paid for and " +
+    "every return computed for that chain is too good. THIS IS NOT PLATFORM SPEND: nothing here was ever " +
+    "charged to the organisation, no platform cost was declared for it, and none of it appears in their " +
+    "billing. The set is every LIVE hand statement for the brand — outcomes and \"never\"s alike, since a " +
+    "dead leg still cost — which is deliberately not the set /conversion-counts counts, and that is not a " +
+    "contradiction because this is money and that is a population: a hand-stated website_visit whose click " +
+    "the delivery layer already measured is suppressed from the COUNTS (so one visit is not counted twice) " +
+    "but kept here (the money was spent either way), while a RETRACTED \"never\" is excluded exactly as it " +
+    "is everywhere else, because the outcome that superseded it carries its own cost. Never 404 — a brand " +
+    "nobody has stated a cost for answers zeros and an empty array.",
+  request: {
+    params: BrandIdPathParam,
+    query: z.object({
+      step: z.enum(STEP_ENUM).optional().openapi({
+        param: { name: "step", in: "query" },
+        description:
+          "Narrow to one step of the outcome vocabulary (legacy \"purchase\" folds to \"sale\"). An " +
+          "unrecognised value is a 400, never a silent \"all steps\".",
+      }),
+    }),
+  },
+  parameters: FeatureMembershipApiKeyHeader,
+  responses: {
+    200: {
+      description: "Per-statement customer costs plus per-step totals",
+      content: { "application/json": { schema: StepCostsResponseSchema } },
+    },
+    400: { description: "Unrecognised step" },
+    401: { description: "Unauthorized" },
+    500: { description: "Internal server error" },
+  },
+});
 
 registry.registerPath({
   method: "get",

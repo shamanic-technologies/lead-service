@@ -117,13 +117,19 @@ describe("stating a website visit by hand", () => {
     checkDeliveryStatus.mockReset().mockImplementation(measured());
   });
 
+  // Stating what the step cost is mandatory, so every statement here carries one — a stated ZERO
+  // unless the case says otherwise.
   function post(body: unknown) {
+    const withCost =
+      body && typeof body === "object" && !("costCents" in (body as object))
+        ? { costCents: 0, ...(body as object) }
+        : (body as object);
     return request(app)
       .post(`/orgs/leads/${LEAD_ROW_ID}/step-statements`)
       .set("x-api-key", "test-api-key")
       .set("x-org-id", "org-1")
       .set("x-user-id", "user-1")
-      .send(body as object);
+      .send(withCost);
   }
 
   it("writes the visit to the ledger every consumer already counts, tagged manual", async () => {

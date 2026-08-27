@@ -31,12 +31,16 @@ export type StepOrigin = "stated" | "implied";
 export interface StatedOutcome {
   source: StatementSource;
   valueCents: number | null;
+  /** What the CUSTOMER stated this leg cost them. Null = never asked; 0 = a stated zero. */
+  costCents: number | null;
   note: string | null;
   statedByUserId: string | null;
   at: string | null;
 }
 
 export interface StatedNever {
+  /** What the CUSTOMER stated this dead leg cost them. Null = never asked; 0 = a stated zero. */
+  costCents: number | null;
   note: string | null;
   statedByUserId: string | null;
   at: string | null;
@@ -56,6 +60,13 @@ export interface StepReadState {
   chainIndex: number | null;
   source: StatementSource | null;
   valueCents: number | null;
+  /**
+   * What the CUSTOMER stated getting through this step cost them, in cents. Null on a pending step
+   * (nobody said anything), on an IMPLIED one (nobody stated it, so nobody stated its cost either
+   * — an implied step is not a statement) and on a statement made before the cost was asked for.
+   * 0 is a stated zero, and it is not the same thing as null.
+   */
+  costCents: number | null;
   note: string | null;
   statedByUserId: string | null;
   at: string | null;
@@ -85,6 +96,7 @@ function pending(
     chainIndex,
     source: null,
     valueCents: null,
+    costCents: null,
     note: null,
     statedByUserId: null,
     at: null,
@@ -125,6 +137,7 @@ export function resolveStepStates(input: ResolveStepStatesInput): StepReadState[
         chainIndex,
         source: outcome.source,
         valueCents: outcome.valueCents,
+        costCents: outcome.costCents,
         note: outcome.note,
         statedByUserId: outcome.statedByUserId,
         at: outcome.at,
@@ -144,6 +157,7 @@ export function resolveStepStates(input: ResolveStepStatesInput): StepReadState[
         chainIndex,
         source: null,
         valueCents: null,
+        costCents: null,
         note: null,
         statedByUserId: null,
         at: null,
@@ -161,6 +175,7 @@ export function resolveStepStates(input: ResolveStepStatesInput): StepReadState[
         chainIndex,
         source: "manual" as StatementSource,
         valueCents: null,
+        costCents: never.costCents,
         note: never.note,
         statedByUserId: never.statedByUserId,
         at: never.at,
@@ -178,6 +193,7 @@ export function resolveStepStates(input: ResolveStepStatesInput): StepReadState[
         chainIndex,
         source: null,
         valueCents: null,
+        costCents: null,
         note: null,
         statedByUserId: null,
         at: null,

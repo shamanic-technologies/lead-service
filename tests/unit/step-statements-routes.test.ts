@@ -96,13 +96,20 @@ async function buildApp() {
   return app;
 }
 
+// Stating what the step cost is MANDATORY, so every statement below carries one. The default is a
+// stated ZERO — a real answer, not an absent one — and the cases that care about the cost pass their
+// own. What happens when it is left out entirely lives in its own describe block.
 function post(app: express.Express, body: unknown) {
+  const withCost =
+    body && typeof body === "object" && !("costCents" in (body as object))
+      ? { costCents: 0, ...(body as object) }
+      : (body as object);
   return request(app)
     .post(`/orgs/leads/${LEAD_ROW_ID}/step-statements`)
     .set("x-api-key", "test-api-key")
     .set("x-org-id", "org-1")
     .set("x-user-id", "user-1")
-    .send(body as object);
+    .send(withCost);
 }
 
 describe("POST /orgs/leads/:id/step-statements", () => {
@@ -309,7 +316,7 @@ describe("POST /orgs/leads/:id/step-statements", () => {
       .set("x-api-key", "test-api-key")
       .set("x-org-id", "org-1")
       .set("x-brand-id", "brand-other")
-      .send({ step: "sale", kind: "outcome", valueCents: 1000 });
+      .send({ step: "sale", kind: "outcome", valueCents: 1000, costCents: 0 });
     expect(res.status).toBe(404);
     expect(allSql()).not.toContain("insert into conversion_events");
   });
