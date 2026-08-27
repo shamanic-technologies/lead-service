@@ -1,5 +1,5 @@
 /**
- * A sales funnel is a CHAIN, and what is known about one of its steps constrains its neighbours.
+ * A sales funnel is a FUNNEL, and what is known about one of its steps constrains its neighbours.
  *
  * The hand-stated statements (v0.57.0, v0.58.0) enforced two rules between a step and ITSELF — an
  * outcome retracts an earlier "never", a "never" over a step that already happened is refused —
@@ -9,7 +9,7 @@
  *     Meeting attended   outcome
  *     Paid client        outcome
  *
- * Nobody attends a meeting that was never booked. Two rules follow from the chain, and they run in
+ * Nobody attends a meeting that was never booked. Two rules follow from the funnel, and they run in
  * opposite directions:
  *
  *   - a NEVER constrains everything AFTER it. A lead that will never book has, by the same
@@ -20,11 +20,11 @@
  * A step neither rule reaches, and nobody spoke about, stays PENDING — the honest "still on its
  * way".
  *
- * "Before" and "after" mean nothing without knowing WHICH chain the lead is on: a campaign selling
+ * "Before" and "after" mean nothing without knowing WHICH funnel the lead is on: a campaign selling
  * meetings off replies runs reply -> booked -> attended -> paid, one selling off the website runs
  * visit -> signup -> paid. So the order is per FUNNEL. The funnel is stated by the CAMPAIGN
  * (campaign-service owns `funnelKey`, and lead rows carry their campaign), and the catalogue below
- * is the funnel key -> chain mapping expressed in THIS service's step vocabulary.
+ * is the funnel key -> funnel mapping expressed in THIS service's step vocabulary.
  *
  * Why the mapping lives here rather than being read off brand-service: brand-service publishes a
  * funnel's `steps` as DISPLAY LABELS ("Website visit", "Signup", "Paid client"), which is a
@@ -34,7 +34,7 @@
  * and never inferred (never from a goal — two funnels answer to the same goal), which is the part
  * that must not be re-derived.
  *
- * A chain deliberately contains ONLY steps a statement can be made about. `conversation_reply` and
+ * A funnel deliberately contains ONLY steps a statement can be made about. `conversation_reply` and
  * `ad_click` start two of the catalogue's funnels and are not conversion outcomes here, so they are
  * absent — which changes nothing about the order of the steps that remain.
  */
@@ -66,12 +66,12 @@ const LEGACY_FUNNEL_KEYS: Readonly<Record<string, FunnelKey>> = {
 };
 
 /**
- * Each funnel's chain, in order, in this service's step vocabulary.
+ * Each funnel's funnel, in order, in this service's step vocabulary.
  *
  * `sales_from_conversation` closes inside the conversation: no meeting is ever booked, so its only
- * statable step is the sale. A one-step chain is a real chain — it simply implies nothing.
+ * statable step is the sale. A one-step funnel is a real funnel — it simply implies nothing.
  */
-export const FUNNEL_STEP_CHAINS: Readonly<Record<FunnelKey, readonly LeadStepOutcomeName[]>> = {
+export const FUNNEL_STEPS: Readonly<Record<FunnelKey, readonly LeadStepOutcomeName[]>> = {
   // Positive reply -> Meeting booked -> Meeting attended -> Paid client
   sales_meetings_from_conversation: ["meeting_booked", "meeting_attended", "sale"],
   // Website visit -> Meeting booked -> Meeting attended -> Paid client
@@ -95,40 +95,40 @@ export function canonicalizeFunnelKey(value: unknown): FunnelKey | null {
   return LEGACY_FUNNEL_KEYS[value] ?? null;
 }
 
-/** The ordered chain a funnel key names, or null when it names no funnel this service knows. */
-export function chainForFunnelKey(value: unknown): readonly LeadStepOutcomeName[] | null {
+/** The ordered funnel a funnel key names, or null when it names no funnel this service knows. */
+export function stepsForFunnelKey(value: unknown): readonly LeadStepOutcomeName[] | null {
   const key = canonicalizeFunnelKey(value);
-  return key ? FUNNEL_STEP_CHAINS[key] : null;
+  return key ? FUNNEL_STEPS[key] : null;
 }
 
-/** Where a step sits on a chain, or -1 when the chain does not contain it. */
-export function chainIndexOf(
-  chain: readonly LeadStepOutcomeName[],
+/** Where a step sits on a funnel, or -1 when the funnel does not contain it. */
+export function stepIndexOf(
+  funnelSteps: readonly LeadStepOutcomeName[],
   step: LeadStepOutcomeName,
 ): number {
-  return chain.indexOf(step);
+  return funnelSteps.indexOf(step);
 }
 
 /**
  * Every step a "never" on `step` also makes never — `step` itself and everything AFTER it on the
- * chain. A step the chain does not contain constrains nothing but itself.
+ * funnel. A step the funnel does not contain constrains nothing but itself.
  */
 export function stepAndLater(
-  chain: readonly LeadStepOutcomeName[],
+  funnelSteps: readonly LeadStepOutcomeName[],
   step: LeadStepOutcomeName,
 ): LeadStepOutcomeName[] {
-  const i = chainIndexOf(chain, step);
-  return i < 0 ? [step] : [...chain.slice(i)];
+  const i = stepIndexOf(funnelSteps, step);
+  return i < 0 ? [step] : [...funnelSteps.slice(i)];
 }
 
 /**
  * Every step an OUTCOME on `step` also makes reached — `step` itself and everything BEFORE it on
- * the chain. A step the chain does not contain constrains nothing but itself.
+ * the funnel. A step the funnel does not contain constrains nothing but itself.
  */
 export function stepAndEarlier(
-  chain: readonly LeadStepOutcomeName[],
+  funnelSteps: readonly LeadStepOutcomeName[],
   step: LeadStepOutcomeName,
 ): LeadStepOutcomeName[] {
-  const i = chainIndexOf(chain, step);
-  return i < 0 ? [step] : [...chain.slice(0, i + 1)];
+  const i = stepIndexOf(funnelSteps, step);
+  return i < 0 ? [step] : [...funnelSteps.slice(0, i + 1)];
 }

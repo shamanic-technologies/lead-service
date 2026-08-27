@@ -93,7 +93,7 @@ export interface Person {
   country: string | null;
   /**
    * Recipient's IANA timezone (e.g. "America/New_York"), resolved upstream from
-   * the person's location. Forwarded onto the lead so the send chain
+   * the person's location. Forwarded onto the lead so the send funnel
    * (email-gateway-service → instantly-service) can schedule cold email in the
    * recipient's local business hours. null when upstream provides none.
    */

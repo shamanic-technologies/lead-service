@@ -19,7 +19,7 @@ vi.mock("../../src/db/index.js", () => ({
       set: () => ({
         where: () => ({
           returning: (...a: unknown[]) => updateReturning(...a),
-          // when no .returning() chain is invoked we still need a thenable
+          // when no .returning() funnel is invoked we still need a thenable
           then: (resolve: (v: unknown) => unknown) => Promise.resolve(undefined).then(resolve),
         }),
       }),

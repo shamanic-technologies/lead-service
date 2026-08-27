@@ -1,40 +1,40 @@
 /**
- * WHICH chain a lead is on: the funnel its CAMPAIGN states.
+ * WHICH funnel a lead is on: the funnel its CAMPAIGN states.
  *
  * campaign-service owns `funnelKey` on the campaign row, so it is read from there and never
  * inferred — not from the brand's declared funnels, not from a goal (two funnels answer to the
- * same goal, so a goal->funnel inference prints a chain the campaign never stated), and not from a
+ * same goal, so a goal->funnel inference prints a funnel the campaign never stated), and not from a
  * sibling campaign.
  *
- * NO SILENT FALLBACK. A chain that cannot be resolved is an error, and the three ways it fails are
+ * NO SILENT FALLBACK. A funnel that cannot be resolved is an error, and the three ways it fails are
  * kept apart because a caller acts on them differently:
  *
  *   unavailable — campaign-service could not answer. Transient; retrying later is the fix.
  *   unknown     — campaign-service does not know this campaign id at all.
  *   unstated    — the campaign exists and states no funnel, or states one this service has no
- *                 chain for. Nothing is broken and nothing is missing; there is simply no order to
- *                 read the steps in, and inventing one would print a chain nobody stated.
+ *                 funnel for. Nothing is broken and nothing is missing; there is simply no order to
+ *                 read the steps in, and inventing one would print a funnel nobody stated.
  */
 import { CAMPAIGN_SERVICE_URL, CAMPAIGN_SERVICE_API_KEY } from "../config.js";
 import { fetchWithRetry } from "./fetch-retry.js";
-import { chainForFunnelKey, canonicalizeFunnelKey, type FunnelKey } from "./funnel-chains.js";
+import { stepsForFunnelKey, canonicalizeFunnelKey, type FunnelKey } from "./funnel-steps.js";
 import type { LeadStepOutcomeName } from "./step-statements.js";
 
-export type FunnelChainFailure = "unavailable" | "unknown" | "unstated";
+export type FunnelStepsFailure = "unavailable" | "unknown" | "unstated";
 
-export class FunnelChainError extends Error {
+export class FunnelStepsError extends Error {
   constructor(
-    readonly reason: FunnelChainFailure,
+    readonly reason: FunnelStepsFailure,
     message: string,
   ) {
     super(message);
-    this.name = "FunnelChainError";
+    this.name = "FunnelStepsError";
   }
 }
 
-export interface ResolvedFunnelChain {
+export interface ResolvedFunnelSteps {
   funnelKey: FunnelKey;
-  chain: readonly LeadStepOutcomeName[];
+  funnelSteps: readonly LeadStepOutcomeName[];
 }
 
 export interface CampaignFunnelContext {
@@ -56,10 +56,10 @@ function headersFor(ctx: CampaignFunnelContext): Record<string, string> {
 }
 
 /** The funnel a campaign states, or a typed failure. Never null-on-error, never a guess. */
-export async function resolveCampaignChain(
+export async function resolveCampaignFunnelSteps(
   campaignId: string,
   ctx: CampaignFunnelContext,
-): Promise<ResolvedFunnelChain> {
+): Promise<ResolvedFunnelSteps> {
   let response: Response;
   try {
     response = await fetchWithRetry(`${CAMPAIGN_SERVICE_URL}/campaigns/${campaignId}`, {
@@ -68,21 +68,21 @@ export async function resolveCampaignChain(
       signal: AbortSignal.timeout(30_000),
     });
   } catch (error) {
-    throw new FunnelChainError(
+    throw new FunnelStepsError(
       "unavailable",
       `[campaign-funnel-client] campaign-service unreachable for campaign ${campaignId}: ${(error as Error).message}`,
     );
   }
 
   if (response.status === 404) {
-    throw new FunnelChainError(
+    throw new FunnelStepsError(
       "unknown",
       `[campaign-funnel-client] campaign-service does not know campaign ${campaignId}`,
     );
   }
   if (!response.ok) {
     const body = await response.text();
-    throw new FunnelChainError(
+    throw new FunnelStepsError(
       "unavailable",
       `[campaign-funnel-client] campaign-service /campaigns/${campaignId} failed (${response.status}): ${body}`,
     );
@@ -90,15 +90,15 @@ export async function resolveCampaignChain(
 
   const data = (await response.json()) as { campaign?: { funnelKey?: string | null } };
   const funnelKey = canonicalizeFunnelKey(data.campaign?.funnelKey);
-  const chain = chainForFunnelKey(data.campaign?.funnelKey);
-  if (!funnelKey || !chain) {
-    throw new FunnelChainError(
+  const funnelSteps = stepsForFunnelKey(data.campaign?.funnelKey);
+  if (!funnelKey || !funnelSteps) {
+    throw new FunnelStepsError(
       "unstated",
       `[campaign-funnel-client] campaign ${campaignId} states no sales funnel this service has a ` +
-        `chain for (funnelKey=${JSON.stringify(data.campaign?.funnelKey ?? null)})`,
+        `funnel for (funnelKey=${JSON.stringify(data.campaign?.funnelKey ?? null)})`,
     );
   }
-  return { funnelKey, chain };
+  return { funnelKey, funnelSteps };
 }
 
 /**
@@ -117,14 +117,14 @@ export async function fetchOrgCampaignFunnelKeys(
       signal: AbortSignal.timeout(30_000),
     });
   } catch (error) {
-    throw new FunnelChainError(
+    throw new FunnelStepsError(
       "unavailable",
       `[campaign-funnel-client] campaign-service unreachable for org ${ctx.orgId}: ${(error as Error).message}`,
     );
   }
   if (!response.ok) {
     const body = await response.text();
-    throw new FunnelChainError(
+    throw new FunnelStepsError(
       "unavailable",
       `[campaign-funnel-client] campaign-service /campaigns failed (${response.status}): ${body}`,
     );
@@ -133,7 +133,7 @@ export async function fetchOrgCampaignFunnelKeys(
     campaigns?: Array<{ id?: string; funnelKey?: string | null }>;
   };
   if (!Array.isArray(data.campaigns)) {
-    throw new FunnelChainError(
+    throw new FunnelStepsError(
       "unavailable",
       "[campaign-funnel-client] campaign-service /campaigns returned no campaigns array",
     );
