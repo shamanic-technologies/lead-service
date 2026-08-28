@@ -374,6 +374,7 @@ router.post(
         WHERE brand_id = ${brandId}
           AND matched_lead_id = ${row.lead_id}
           AND attribution_status = 'attributed'
+          AND withdrawn_at IS NULL
           AND (lead_campaign_id IS NULL OR lead_campaign_id = ${row.id})
           AND event = ANY(${sql.param(blockedBy)}::text[])
         LIMIT 1
@@ -410,6 +411,10 @@ router.post(
           retracted_at = NULL,
           retracted_by_step = NULL,
           retracted_by_user_id = NULL,
+          -- Restating a statement its author had WITHDRAWN makes it live again: the withdrawal
+          -- said "I never should have stated this", and this is them stating it after all.
+          withdrawn_at = NULL,
+          withdrawn_by_user_id = NULL,
           updated_at = now()
         RETURNING id, cost_cents, created_at, updated_at
       `)) as unknown as Array<{ id: string; created_at: Date | string; updated_at: Date | string }>;
@@ -455,6 +460,7 @@ router.post(
         AND campaign_id = ${row.campaign_id}
         AND step = ANY(${sql.param(supersedes)}::text[])
         AND retracted_at IS NULL
+        AND withdrawn_at IS NULL
       RETURNING step
     `)) as unknown as Array<{ step: string }>;
 
@@ -478,7 +484,11 @@ router.post(
         note = EXCLUDED.note,
         received_at = EXCLUDED.received_at,
         stated_by_user_id = EXCLUDED.stated_by_user_id,
-        campaign_id = EXCLUDED.campaign_id
+        campaign_id = EXCLUDED.campaign_id,
+        -- Restating a withdrawn outcome revives the same row: the withdrawal is the absence of a
+        -- statement, and this is the statement being made again.
+        withdrawn_at = NULL,
+        withdrawn_by_user_id = NULL
       RETURNING id, received_at
     `)) as unknown as Array<{ id: string; received_at: Date | string }>;
 
@@ -507,6 +517,124 @@ router.post(
     });
   }),
 );
+
+/**
+ * What every step of this lead's funnel reads as, right now: the live statements (an outcome on
+ * the ledger, a "never" on its own table) plus what the delivery layer measured, with the funnel's
+ * two rules applied on READ.
+ *
+ * Shared by the read and the withdrawal, deliberately: a withdrawal answers with the step states
+ * that FOLLOW from it, and computing them a second way is how two surfaces come to disagree about
+ * the same lead. Nothing is written here; a statement that was retracted or withdrawn is filtered
+ * out at the source, so everything it implied falls away with it automatically.
+ *
+ * Throws MeasuredVisitLookupError when email-gateway cannot answer — the caller turns that into a
+ * 502, never a guessed step state.
+ */
+async function loadStepStates(
+  row: LeadRow,
+  brandId: string,
+  orgId: string,
+  funnelSteps: readonly LeadStepOutcomeName[],
+) {
+  // Outcomes credited to this person for this brand. A hand-stated one is keyed to the row it
+  // was stated on; a tracker-reported one knows only the brand, so it is matched on the lead.
+  const outcomeRows = (await db.execute(sql`
+    SELECT event, source, value_cents, cost_cents, note, stated_by_user_id, received_at
+    FROM conversion_events
+    WHERE brand_id = ${brandId}
+      AND matched_lead_id = ${row.lead_id}
+      AND attribution_status = 'attributed'
+      AND withdrawn_at IS NULL
+      AND (lead_campaign_id IS NULL OR lead_campaign_id = ${row.id})
+    ORDER BY received_at DESC NULLS LAST
+  `)) as unknown as Array<{
+    event: string;
+    source: string;
+    value_cents: number | null;
+    cost_cents: number | null;
+    note: string | null;
+    stated_by_user_id: string | null;
+    received_at: Date | string | null;
+  }>;
+
+  // Retracted statements are excluded: they are kept for the record, not to be read as live.
+  const neverRows = (await db.execute(sql`
+    SELECT step, cost_cents, note, stated_by_user_id, updated_at
+    FROM lead_step_disqualifications
+    WHERE lead_id = ${row.lead_id}
+      AND campaign_id = ${row.campaign_id}
+      AND retracted_at IS NULL
+      AND withdrawn_at IS NULL
+  `)) as unknown as Array<{
+    step: string;
+    cost_cents: number | null;
+    note: string | null;
+    stated_by_user_id: string | null;
+    updated_at: Date | string | null;
+  }>;
+
+  // Rows arrive newest first, so the first one seen for a step is the one that answers.
+  const outcomes = new Map<LeadStepOutcomeName, StatedOutcome>();
+  for (const o of outcomeRows) {
+    const step = canonicalizeStepOutcome(o.event);
+    if (!step || outcomes.has(step)) continue;
+    outcomes.set(step, {
+      source: o.source === "manual" ? "manual" : "tracker",
+      valueCents: o.value_cents,
+      // Null is "nobody was ever asked" — a tracker event observes a page load and knows nothing
+      // about the customer's spend, and a statement predating the mandatory cost carries none.
+      // 0 is a stated zero. Never conflated.
+      costCents: o.cost_cents,
+      note: o.note,
+      statedByUserId: o.stated_by_user_id,
+      at: toIsoTimestamp(o.received_at),
+    });
+  }
+
+  const nevers = new Map<LeadStepOutcomeName, StatedNever>();
+  for (const n of neverRows) {
+    const step = canonicalizeStepOutcome(n.step);
+    if (!step) continue;
+    nevers.set(step, {
+      costCents: n.cost_cents,
+      note: n.note,
+      statedByUserId: n.stated_by_user_id,
+      at: toIsoTimestamp(n.updated_at),
+    });
+  }
+
+  // The website visit is the one step that is ALSO measured automatically — a click on the email
+  // we sent, owned by the delivery layer. A hand-stated visit is written like any other outcome
+  // (and read above); a MEASURED one is not in this ledger at all, so it is read where it lives.
+  // Without this the panel would offer to state a visit the system already knows about, and the
+  // count (which suppresses the hand-stated duplicate) would disagree with what the panel shows.
+  // A hand statement already on the row wins the display — it is the more specific fact, and it
+  // carries the note and the date the person gave.
+  if (!outcomes.has(WEBSITE_VISIT)) {
+    // Throws on an unanswerable lookup; the caller answers 502 rather than guessing.
+    const measured = await visitAlreadyMeasured(row, brandId, orgId);
+    if (measured) {
+      outcomes.set(WEBSITE_VISIT, {
+        source: "tracker",
+        valueCents: null,
+        // The delivery layer measured a click. It knows nothing about what the customer spent,
+        // so nobody was asked: null, never a fabricated zero.
+        costCents: null,
+        note: null,
+        statedByUserId: null,
+        at: null,
+      });
+    }
+  }
+
+  return resolveStepStates({
+    allSteps: LEAD_STEP_OUTCOMES,
+    funnelSteps,
+    outcomes,
+    nevers,
+  });
+}
 
 /**
  * GET /orgs/leads/:id/step-statements
@@ -558,98 +686,12 @@ router.get(
     const resolved = await resolveFunnelOrRespond(row, req, res);
     if (!resolved) return;
 
-    // Outcomes credited to this person for this brand. A hand-stated one is keyed to the row it
-    // was stated on; a tracker-reported one knows only the brand, so it is matched on the lead.
-    const outcomeRows = (await db.execute(sql`
-      SELECT event, source, value_cents, cost_cents, note, stated_by_user_id, received_at
-      FROM conversion_events
-      WHERE brand_id = ${brandId}
-        AND matched_lead_id = ${row.lead_id}
-        AND attribution_status = 'attributed'
-        AND (lead_campaign_id IS NULL OR lead_campaign_id = ${row.id})
-      ORDER BY received_at DESC NULLS LAST
-    `)) as unknown as Array<{
-      event: string;
-      source: string;
-      value_cents: number | null;
-      cost_cents: number | null;
-      note: string | null;
-      stated_by_user_id: string | null;
-      received_at: Date | string | null;
-    }>;
-
-    // Retracted statements are excluded: they are kept for the record, not to be read as live.
-    const neverRows = (await db.execute(sql`
-      SELECT step, cost_cents, note, stated_by_user_id, updated_at
-      FROM lead_step_disqualifications
-      WHERE lead_id = ${row.lead_id}
-        AND campaign_id = ${row.campaign_id}
-        AND retracted_at IS NULL
-    `)) as unknown as Array<{
-      step: string;
-      cost_cents: number | null;
-      note: string | null;
-      stated_by_user_id: string | null;
-      updated_at: Date | string | null;
-    }>;
-
-    // Rows arrive newest first, so the first one seen for a step is the one that answers.
-    const outcomes = new Map<LeadStepOutcomeName, StatedOutcome>();
-    for (const o of outcomeRows) {
-      const step = canonicalizeStepOutcome(o.event);
-      if (!step || outcomes.has(step)) continue;
-      outcomes.set(step, {
-        source: o.source === "manual" ? "manual" : "tracker",
-        valueCents: o.value_cents,
-        // Null is "nobody was ever asked" — a tracker event observes a page load and knows nothing
-        // about the customer's spend, and a statement predating the mandatory cost carries none.
-        // 0 is a stated zero. Never conflated.
-        costCents: o.cost_cents,
-        note: o.note,
-        statedByUserId: o.stated_by_user_id,
-        at: toIsoTimestamp(o.received_at),
-      });
-    }
-
-    const nevers = new Map<LeadStepOutcomeName, StatedNever>();
-    for (const n of neverRows) {
-      const step = canonicalizeStepOutcome(n.step);
-      if (!step) continue;
-      nevers.set(step, {
-        costCents: n.cost_cents,
-        note: n.note,
-        statedByUserId: n.stated_by_user_id,
-        at: toIsoTimestamp(n.updated_at),
-      });
-    }
-
-    // The website visit is the one step that is ALSO measured automatically — a click on the email
-    // we sent, owned by the delivery layer. A hand-stated visit is written like any other outcome
-    // (and read above); a MEASURED one is not in this ledger at all, so it is read where it lives.
-    // Without this the panel would offer to state a visit the system already knows about, and the
-    // count (which suppresses the hand-stated duplicate) would disagree with what the panel shows.
-    // A hand statement already on the row wins the display — it is the more specific fact, and it
-    // carries the note and the date the person gave.
-    if (!outcomes.has(WEBSITE_VISIT)) {
-      let measured: boolean;
-      try {
-        measured = await visitAlreadyMeasured(row, brandId, req.orgId!);
-      } catch (error) {
-        if (respondMeasuredVisitFailure(error, res)) return;
-        throw error;
-      }
-      if (measured) {
-        outcomes.set(WEBSITE_VISIT, {
-          source: "tracker",
-          valueCents: null,
-          // The delivery layer measured a click. It knows nothing about what the customer spent,
-          // so nobody was asked: null, never a fabricated zero.
-          costCents: null,
-          note: null,
-          statedByUserId: null,
-          at: null,
-        });
-      }
+    let steps;
+    try {
+      steps = await loadStepStates(row, brandId, req.orgId!, resolved.funnelSteps);
+    } catch (error) {
+      if (respondMeasuredVisitFailure(error, res)) return;
+      throw error;
     }
 
     res.json({
@@ -659,12 +701,243 @@ router.get(
       brandId,
       funnelKey: resolved.funnelKey,
       funnelSteps: resolved.funnelSteps,
-      steps: resolveStepStates({
-        allSteps: LEAD_STEP_OUTCOMES,
-        funnelSteps: resolved.funnelSteps,
-        outcomes,
-        nevers,
-      }),
+      steps,
+    });
+  }),
+);
+
+/**
+ * DELETE /orgs/leads/:id/step-statements/:step
+ *
+ * TAKE BACK a statement somebody made by hand about one step of one lead. Wrong lead, wrong step,
+ * a reply read the wrong way round: until this existed the only correction on offer was stating
+ * the opposite thing, which is itself a false statement and one that keeps counting.
+ *
+ * A withdrawal is NOT a third kind of statement — there is nothing new for a consumer to learn to
+ * count. It is the ABSENCE of one: the row is marked withdrawn, every read already filters it out
+ * alongside a retracted one, so the brand's outcome counts drop it, the cost the customer stated
+ * for that leg stops counting as their spend, and the step reads exactly as it did before anybody
+ * spoke. Because the funnel's rules are computed on READ, everything the withdrawn statement
+ * implied falls away with it — a step that only read as reached, or as dead, because of it falls
+ * back to whatever the remaining statements imply. The response carries the re-derived steps, so a
+ * caller never has to guess what its withdrawal did.
+ *
+ * NOTHING IS DELETED. What somebody actually stated, and the fact that they later withdrew it,
+ * both stay readable — the same posture retraction already takes. The two are different facts and
+ * stay apart: a RETRACTION is the funnel resolving a contradiction (an outcome proved the "never"
+ * wrong), a WITHDRAWAL is the author saying it should never have been stated. Withdrawing an
+ * outcome therefore also un-retracts the "never"s that outcome retracted — those statements were
+ * only superseded because of a statement that is now gone — while leaving any that were withdrawn
+ * on their own account alone.
+ *
+ * ONLY A STATEMENT A PERSON MADE IS WITHDRAWABLE, and the refusals say which is which:
+ *   409 not_a_statement — the step reads as an outcome because the TRACKER reported it or the
+ *                         delivery layer MEASURED it. Nobody stated it; there is nothing to take
+ *                         back, and this service does not edit what another system observed.
+ *   409 nothing_stated  — nobody stated this step at all. It may still READ as reached or as dead
+ *                         because the funnel implies it from a statement on ANOTHER step: withdraw
+ *                         that one. `state` / `origin` in the body say which case it is.
+ * Both are distinguishable from a 500 by carrying a `code`.
+ *
+ * IDEMPOTENT: withdrawing a statement already withdrawn answers 200 with
+ * `alreadyWithdrawn: true` and writes nothing.
+ */
+router.delete(
+  "/orgs/leads/:id/step-statements/:step",
+  apiKeyAuth,
+  requireOrgId,
+  wrap(async (req: AuthenticatedRequest, res: Response) => {
+    const id = req.params.id;
+    if (!UUID_RE.test(id)) {
+      res.status(400).json({ error: "id must be the `id` of a lead row, a uuid" });
+      return;
+    }
+
+    const step = canonicalizeStepOutcome(req.params.step);
+    if (!step) {
+      res.status(400).json({ error: `step must be one of ${LEAD_STEP_OUTCOMES.join(" | ")}` });
+      return;
+    }
+
+    const row = await fetchLeadRow(req.orgId!, id);
+    if (!row) {
+      res.status(404).json({ error: "Lead not found" });
+      return;
+    }
+    const brandId = resolveBrandId(row, req);
+    if (!brandId) {
+      res.status(404).json({ error: "Lead not found" });
+      return;
+    }
+
+    // The funnel is resolved before anything is written, exactly as it is on the write: the answer
+    // states what every step reads as AFTER the withdrawal, and that needs the order.
+    const resolved = await resolveFunnelOrRespond(row, req, res);
+    if (!resolved) return;
+
+    const withdrawnBy = req.userId ?? null;
+
+    // The live HAND statements for this step, and only the hand ones: `source = 'manual'` on the
+    // outcome side is what keeps a tracker-reported event out of reach of a withdrawal.
+    const liveOutcome = (await db.execute(sql`
+      SELECT id
+      FROM conversion_events
+      WHERE brand_id = ${brandId}
+        AND matched_lead_id = ${row.lead_id}
+        AND event = ${step}
+        AND source = 'manual'
+        AND attribution_status = 'attributed'
+        AND withdrawn_at IS NULL
+        AND (lead_campaign_id IS NULL OR lead_campaign_id = ${row.id})
+      LIMIT 1
+    `)) as unknown as Array<{ id: string }>;
+
+    const liveNever = (await db.execute(sql`
+      SELECT id
+      FROM lead_step_disqualifications
+      WHERE lead_id = ${row.lead_id}
+        AND campaign_id = ${row.campaign_id}
+        AND step = ${step}
+        AND retracted_at IS NULL
+        AND withdrawn_at IS NULL
+      LIMIT 1
+    `)) as unknown as Array<{ id: string }>;
+
+    const kind: "outcome" | "never" | null =
+      liveOutcome.length > 0 ? "outcome" : liveNever.length > 0 ? "never" : null;
+
+    // Nothing live to withdraw: say WHY, and never as a 500. Either somebody already withdrew it
+    // (idempotent success), or what makes the step read as it does is not a statement at all.
+    if (!kind) {
+      const alreadyWithdrawn = (await db.execute(sql`
+        SELECT 1 AS hit
+        FROM conversion_events
+        WHERE brand_id = ${brandId}
+          AND matched_lead_id = ${row.lead_id}
+          AND event = ${step}
+          AND source = 'manual'
+          AND withdrawn_at IS NOT NULL
+          AND (lead_campaign_id IS NULL OR lead_campaign_id = ${row.id})
+        UNION ALL
+        SELECT 1 AS hit
+        FROM lead_step_disqualifications
+        WHERE lead_id = ${row.lead_id}
+          AND campaign_id = ${row.campaign_id}
+          AND step = ${step}
+          AND withdrawn_at IS NOT NULL
+        LIMIT 1
+      `)) as unknown as Array<{ hit: number }>;
+
+      let steps;
+      try {
+        steps = await loadStepStates(row, brandId, req.orgId!, resolved.funnelSteps);
+      } catch (error) {
+        if (respondMeasuredVisitFailure(error, res)) return;
+        throw error;
+      }
+      const current = steps.find((s) => s.step === step)!;
+
+      if (alreadyWithdrawn.length > 0) {
+        res.json({
+          leadCampaignId: row.id,
+          leadId: row.lead_id,
+          campaignId: row.campaign_id,
+          brandId,
+          step,
+          withdrawn: false,
+          alreadyWithdrawn: true,
+          restoredNeverSteps: [],
+          funnelKey: resolved.funnelKey,
+          funnelSteps: resolved.funnelSteps,
+          steps,
+        });
+        return;
+      }
+
+      // A step that reads as an outcome with nothing hand-stated behind it was reported by the
+      // tracker or measured by the delivery layer. Neither is anybody's statement.
+      const observed = current.state === "outcome" && current.origin === "stated";
+      res.status(409).json({
+        error: observed
+          ? `${step} was reported by the website tracker or measured by the delivery layer for this ` +
+            "lead, not stated by a person — there is no statement to withdraw, and what another " +
+            "system observed is not edited here."
+          : `Nobody has stated ${step} for this lead, so there is nothing to withdraw.` +
+            (current.origin === "implied"
+              ? ` It reads as "${current.state}" because ${current.impliedBy} was stated and this ` +
+                "campaign's funnel implies it — withdraw that statement instead."
+              : ""),
+        code: observed ? "not_a_statement" : "nothing_stated",
+        state: current.state,
+        origin: current.origin,
+        impliedBy: current.impliedBy,
+      });
+      return;
+    }
+
+    let restoredNeverSteps: string[] = [];
+
+    if (kind === "outcome") {
+      await db.execute(sql`
+        UPDATE conversion_events
+        SET withdrawn_at = now(),
+            withdrawn_by_user_id = ${withdrawnBy}
+        WHERE id = ${liveOutcome[0].id}
+          AND withdrawn_at IS NULL
+      `);
+
+      // The "never"s this outcome retracted were superseded by a statement that no longer stands,
+      // so they stand again. One a person withdrew on its own account stays withdrawn: that was
+      // their decision, not a consequence of this one.
+      const restored = (await db.execute(sql`
+        UPDATE lead_step_disqualifications
+        SET retracted_at = NULL,
+            retracted_by_step = NULL,
+            retracted_by_user_id = NULL,
+            updated_at = now()
+        WHERE lead_id = ${row.lead_id}
+          AND campaign_id = ${row.campaign_id}
+          AND retracted_by_step = ${step}
+          AND retracted_at IS NOT NULL
+          AND withdrawn_at IS NULL
+        RETURNING step
+      `)) as unknown as Array<{ step: string }>;
+      restoredNeverSteps = restored.map((r) => r.step);
+    } else {
+      await db.execute(sql`
+        UPDATE lead_step_disqualifications
+        SET withdrawn_at = now(),
+            withdrawn_by_user_id = ${withdrawnBy},
+            updated_at = now()
+        WHERE id = ${liveNever[0].id}
+          AND withdrawn_at IS NULL
+      `);
+    }
+
+    // What the lead reads as NOW. Computed the same way the panel's read computes it, from the
+    // statements that remain — never patched up locally from what was just written.
+    let steps;
+    try {
+      steps = await loadStepStates(row, brandId, req.orgId!, resolved.funnelSteps);
+    } catch (error) {
+      if (respondMeasuredVisitFailure(error, res)) return;
+      throw error;
+    }
+
+    res.json({
+      leadCampaignId: row.id,
+      leadId: row.lead_id,
+      campaignId: row.campaign_id,
+      brandId,
+      step,
+      kind,
+      withdrawn: true,
+      alreadyWithdrawn: false,
+      withdrawnByUserId: withdrawnBy,
+      restoredNeverSteps,
+      funnelKey: resolved.funnelKey,
+      funnelSteps: resolved.funnelSteps,
+      steps,
     });
   }),
 );
@@ -725,6 +998,7 @@ router.get(
       FROM lead_step_disqualifications
       WHERE brand_id = ${brandId}
         AND retracted_at IS NULL
+        AND withdrawn_at IS NULL
       GROUP BY step
     `)) as unknown as Array<{ step: string; n: number }>;
     for (const r of countRows) {
@@ -744,6 +1018,7 @@ router.get(
       ) canonical ON true
       WHERE d.brand_id = ${brandId}
         AND d.retracted_at IS NULL
+        AND d.withdrawn_at IS NULL
         AND canonical.value IS NOT NULL
     `)) as unknown as Array<{ step: string; email: string | null }>;
     for (const r of emailRows) {
@@ -771,6 +1046,7 @@ router.get(
       ) canonical ON true
       WHERE d.brand_id = ${brandId}
         AND d.retracted_at IS NULL
+        AND d.withdrawn_at IS NULL
     `)) as unknown as Array<{
       lead_id: string;
       campaign_id: string;
@@ -847,6 +1123,7 @@ router.get(
       FROM conversion_events
       WHERE brand_id = ${brandId}
         AND attribution_status = 'attributed'
+        AND withdrawn_at IS NULL
         AND matched_lead_id = ANY(${sql.param(leadIds)}::uuid[])
     `)) as unknown as Array<{ matched_lead_id: string; event: string }>;
 
@@ -1017,6 +1294,7 @@ router.get(
       WHERE ce.brand_id = ${brandId}
         AND ce.source = 'manual'
         AND ce.attribution_status = 'attributed'
+        AND ce.withdrawn_at IS NULL
         ${stepFilter ? sql`AND ce.event = ${stepFilter}` : sql``}
       ORDER BY ce.received_at DESC NULLS LAST
     `)) as unknown as Array<{
@@ -1052,6 +1330,7 @@ router.get(
       ) canonical ON true
       WHERE d.brand_id = ${brandId}
         AND d.retracted_at IS NULL
+        AND d.withdrawn_at IS NULL
         ${stepFilter ? sql`AND d.step = ${stepFilter}` : sql``}
       ORDER BY d.updated_at DESC NULLS LAST
     `)) as unknown as Array<{
