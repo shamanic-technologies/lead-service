@@ -316,6 +316,7 @@ async function measuredVisitEventIds(brandId: string): Promise<string[]> {
     ) canonical ON true
     WHERE ce.brand_id = ${brandId}
       AND ce.attribution_status = 'attributed'
+      AND ce.withdrawn_at IS NULL
       AND ce.event = ${WEBSITE_VISIT}
   `)) as unknown as Array<{ id: string; org_id: string | null; email: string | null }>;
   if (rows.length === 0) return [];
@@ -410,6 +411,8 @@ router.get(
       FROM conversion_events ce
       WHERE ce.brand_id = ${brandId}
         AND ce.attribution_status = 'attributed'
+        -- A statement its author took back is not a live outcome: nothing counts it.
+        AND ce.withdrawn_at IS NULL
         ${excludeIds(suppressed)}
       GROUP BY ce.event, ce.source
     `)) as unknown as Array<{ event: string; source: string; n: number }>;
@@ -501,6 +504,8 @@ router.get(
       FROM conversion_events ce
       WHERE ce.brand_id = ${brandId}
         AND ce.attribution_status = 'attributed'
+        -- A statement its author took back is not a live outcome: nothing counts it.
+        AND ce.withdrawn_at IS NULL
         ${excludeIds(suppressed)}
       GROUP BY ce.event, day
     `)) as unknown as Array<{ event: string; day: string | null; n: number }>;
@@ -592,6 +597,8 @@ router.get(
       ) canonical ON true
       WHERE ce.brand_id = ${brandId}
         AND ce.attribution_status = 'attributed'
+        -- A statement its author took back is not a live outcome: nothing counts it.
+        AND ce.withdrawn_at IS NULL
         AND ce.event = ${event}
         AND canonical.value IS NOT NULL
         ${excludeIds(suppressed)}
@@ -698,6 +705,8 @@ router.get(
       ) canonical ON true
       WHERE ce.brand_id = ${brandId}
         AND ce.attribution_status = 'attributed'
+        -- A statement its author took back is not a live outcome: nothing counts it.
+        AND ce.withdrawn_at IS NULL
         AND ce.event = ${event}
         ${excludeIds(suppressed)}
       ORDER BY ce.received_at DESC NULLS LAST

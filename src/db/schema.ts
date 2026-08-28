@@ -343,6 +343,17 @@ export const conversionEvents = pgTable(
     leadCampaignId: uuid("lead_campaign_id"),
     statedByUserId: text("stated_by_user_id"),
     note: text("note"),
+    /**
+     * A hand-stated outcome somebody TOOK BACK — wrong lead, wrong step, a misread reply. Not a
+     * third kind of statement: it is the absence of one, so every read filters `withdrawn_at IS
+     * NULL` and the step falls back to whatever the remaining statements imply. The row survives
+     * because what somebody stated, and the fact they later withdrew it, are both part of the
+     * record. Distinct from `lead_step_disqualifications.retracted_at`, which means an outcome
+     * SUPERSEDED a "never"; this means the author says it should never have been stated at all.
+     * Restating the same step clears it (the existing upsert is the same statement, made again).
+     */
+    withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
+    withdrawnByUserId: text("withdrawn_by_user_id"),
   },
   (table) => [
     uniqueIndex("idx_ce_brand_dedupe_signature")
@@ -396,6 +407,14 @@ export const leadStepDisqualifications = pgTable(
     retractedAt: timestamp("retracted_at", { withTimezone: true }),
     retractedByStep: text("retracted_by_step"),
     retractedByUserId: text("retracted_by_user_id"),
+    /**
+     * The author TOOK THE STATEMENT BACK. A different fact from `retracted_at`: retraction is the
+     * funnel resolving a contradiction (an outcome proved the "never" wrong), withdrawal is the
+     * person saying they should never have stated it. Every read filters both, the row survives,
+     * and restating clears the mark.
+     */
+    withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
+    withdrawnByUserId: text("withdrawn_by_user_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

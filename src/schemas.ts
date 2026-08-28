@@ -3050,6 +3050,88 @@ registry.registerPath({
   },
 });
 
+const StepStatementWithdrawalResponseSchema = z
+  .object({
+    leadCampaignId: z.string(),
+    leadId: z.string(),
+    campaignId: z.string(),
+    brandId: z.string(),
+    step: z.enum(STEP_ENUM),
+    kind: z.enum(["outcome", "never"]).optional().openapi({
+      description:
+        "Which statement was taken back. Absent when nothing was written (the statement had already been withdrawn).",
+    }),
+    withdrawn: z.boolean().openapi({
+      description: "True when this call is what withdrew the statement.",
+    }),
+    alreadyWithdrawn: z.boolean().openapi({
+      description:
+        "True when the statement was already withdrawn, so nothing was written. Withdrawing twice is a success, not an error.",
+    }),
+    withdrawnByUserId: z.string().nullable().optional(),
+    restoredNeverSteps: z.array(z.enum(STEP_ENUM)).openapi({
+      description:
+        "The \"never\" statements that stand again. Withdrawing an OUTCOME un-retracts the \"never\"s that outcome had superseded: they were only set aside because of a statement that no longer stands. A \"never\" somebody withdrew on its own account is left alone — that was their decision, not a consequence of this one.",
+      example: ["meeting_booked"],
+    }),
+    ...FunnelFieldsSchema,
+    steps: z.array(StepStateSchema).openapi({
+      description:
+        "Every step of this lead's funnel RE-DERIVED after the withdrawal, so a caller never guesses what its withdrawal did. The funnel's rules are computed on read, so a step that only read as reached — or as dead — because of the withdrawn statement falls back to whatever the remaining statements imply.",
+    }),
+  })
+  .openapi("LeadStepStatementWithdrawalResponse", {
+    description: "The statement taken back, and what every step reads as now.",
+  });
+
+registry.registerPath({
+  method: "delete",
+  path: "/orgs/leads/{id}/step-statements/{step}",
+  summary: "Withdraw a statement somebody made by hand about one funnel step of one lead",
+  description:
+    "Organisation-authenticated, same tier as the write. A statement made by mistake — wrong lead, wrong " +
+    "step, a misread reply — is TAKEN BACK, so the step reads exactly as it did before anybody spoke. It " +
+    "is not a third kind of statement and there is nothing new to count: it is the ABSENCE of one, so the " +
+    "brand's outcome counts drop the outcome on the next read and the cost the customer stated for that " +
+    "leg stops counting as their spend. NOTHING IS DELETED — what somebody stated and the fact they later " +
+    "withdrew it both stay readable, the same posture a retraction already takes. Withdrawing an outcome " +
+    "also un-retracts the \"never\"s that outcome had superseded. ONLY A STATEMENT A PERSON MADE IS " +
+    "WITHDRAWABLE: a tracker-reported or delivery-measured outcome is a 409 code=not_a_statement, and a " +
+    "step nobody stated (however the funnel makes it READ) is a 409 code=nothing_stated — both " +
+    "distinguishable from a 500 by their code. Idempotent: withdrawing what is already withdrawn answers " +
+    "200 with alreadyWithdrawn=true and writes nothing.",
+  request: {
+    params: LeadRowIdPathParam.extend({
+      step: z.enum(STEP_ENUM).openapi({
+        param: { name: "step", in: "path" },
+        description:
+          "The funnel step whose statement is being withdrawn. The legacy spelling \"purchase\" folds to \"sale\"; anything else is a 400.",
+        example: "meeting_booked",
+      }),
+    }),
+  },
+  parameters: StepStatementOrgHeaders,
+  responses: {
+    200: {
+      description:
+        "The statement was withdrawn (or was already withdrawn), with every step re-derived",
+      content: { "application/json": { schema: StepStatementWithdrawalResponseSchema } },
+    },
+    400: { description: "id is not a uuid, or step is not one of the funnel steps" },
+    401: { description: "Unauthorized" },
+    404: { description: "No such lead row for this org (or for the requested brand scope)" },
+    409: {
+      description:
+        "Nothing a person stated to withdraw: the step was reported by the tracker or measured by the delivery layer (code not_a_statement), or nobody stated it and it only READS as reached or dead because the funnel implies it from a statement on another step (code nothing_stated). Also the campaign stating no sales funnel (code funnel_unstated / campaign_unknown).",
+    },
+    500: { description: "Internal server error" },
+    502: {
+      description:
+        "campaign-service could not say which funnel the campaign sells through (code campaign_service_unavailable), or email-gateway could not say whether the visit was already measured",
+    },
+  },
+});
+
 const StepCountsShape = z.object({
   signup: z.number().int(),
   meeting_booked: z.number().int(),
