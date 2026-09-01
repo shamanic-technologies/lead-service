@@ -38,11 +38,29 @@
  *   7. the funnel's last step "never"  -> disqualified. Somebody stated they will not buy, and
  *                                        a "never" propagates forward, so it lands on the last
  *                                        step whichever step it was made on.
- *   8. bounced               -> disqualified. The mail never arrived and never will.
- *   9. entry step reached    -> sales_interest. The measured half: a click on a visit-led funnel,
+ *   8. entry step reached    -> sales_interest. The measured half: a click on a visit-led funnel,
  *                              a positive reply on a conversation-led one.
- *  10. negative reply        -> disqualified.
- *  11. replied / clicked / opened -> engaged. Something happened; it is not the step being sold.
+ *   9. permanently out       -> disqualified. The delivery layer reports this person as not the
+ *                              right contact, or gone from the role — ordinary sales
+ *                              qualification, and the ONLY reading of a reply that takes a lead
+ *                              out of play. We sell pears to supermarkets and wrote to somebody
+ *                              in construction.
+ *  9b. negative reply, known NOT to be that -> engaged. A decline is a judgement about the
+ *                              MOMENT: the person is still reachable, the lead is still
+ *                              recyclable, and the "no" is named as the evidence rather than
+ *                              used as a verdict. Same posture as the bounce below.
+ *  9c. negative reply, nobody can say which -> unresolved, reason
+ *                              `reply_disqualification_unknown`. A provider that does not track
+ *                              replies serves no disqualification reading at all, and neither
+ *                              does a payload older than the field. Absent is stated, never
+ *                              defaulted in either direction.
+ *  10. replied / clicked / opened -> engaged. Something happened; it is not the step being sold.
+ *  11. bounced              -> contacted, carrying `signal: "bounced"`. A failure of DELIVERY is
+ *                             not an opinion: a bad address says nothing about whether the person
+ *                             behind it would buy, so they stay in play and the bounce is named
+ *                             as the evidence rather than used as a verdict. It sits below the
+ *                             signals above so a lead who reached the funnel, or who said no, is
+ *                             not demoted by a later bounce on a follow-up.
  *  12. contacted            -> contacted.
  *  13. otherwise            -> not_contacted.
  *
@@ -85,6 +103,7 @@ export const LEAD_STANDING_SIGNALS = [
   "click",
   "reply",
   "negative_reply",
+  "disqualifying_reply",
   "positive_reply",
   "measured_visit",
   "stated_outcome",
@@ -100,6 +119,7 @@ export const LEAD_STANDING_UNRESOLVED_REASONS = [
   "campaign_unknown",
   "funnel_unstated",
   "statements_unreadable",
+  "reply_disqualification_unknown",
 ] as const;
 export type LeadStandingUnresolvedReason = (typeof LEAD_STANDING_UNRESOLVED_REASONS)[number];
 
@@ -130,6 +150,15 @@ export interface LeadStandingDelivery {
   clicked: boolean;
   replied: boolean;
   replyClassification: "positive" | "negative" | "neutral" | null;
+  /**
+   * Whether the delivery layer reports this person as PERMANENTLY out — the wrong contact, or
+   * gone from the role. Derived by the provider from its own reply vocabulary and forwarded here;
+   * this service reads the derived answer and never re-derives it.
+   *
+   * `undefined` is a THIRD state and it means nobody can tell us (a provider that does not track
+   * replies, or a payload older than the field). It is neither a yes nor a no — see the ladder.
+   */
+  disqualified?: boolean;
   bounced: boolean;
   unsubscribed: boolean;
   globalBounced: boolean;
@@ -291,11 +320,6 @@ export function resolveLeadStanding(input: LeadStandingInput): LeadStanding {
     };
   }
 
-  // 8. The mail never arrived and never will.
-  if (delivery.bounced || delivery.globalBounced) {
-    return { ...shared, state: "disqualified", signal: "bounced", origin: "measured", reason: null };
-  }
-
   // 9. The measured half of the entry step: a click on a visit-led funnel, a positive reply on a
   //    conversation-led one. This is what a click on the campaign that sells a visit means.
   if (reachedEntryStep === true) {
@@ -308,11 +332,43 @@ export function resolveLeadStanding(input: LeadStandingInput): LeadStanding {
     };
   }
 
-  // 10. They said no, in a message, and the funnel's own entry step was not reached.
-  if (delivery.replyClassification === "negative") {
+  // 10. The provider says this person is PERMANENTLY out: the wrong contact, or gone from the
+  //     role. That is ordinary sales qualification — we realised they are not who we sell to —
+  //     and it is the ONE thing that takes a lead out of play on the strength of a reply.
+  if (delivery.disqualified === true) {
     return {
       ...shared,
       state: "disqualified",
+      signal: "disqualifying_reply",
+      origin: "measured",
+      reason: null,
+    };
+  }
+
+  // 11. They said no, in a message, and the funnel's own entry step was not reached.
+  //
+  //     A decline is a judgement about the MOMENT, not about the person: they are still reachable
+  //     and the lead is still recyclable, so they stay in play and the "no" is named as the
+  //     evidence rather than used as a verdict. Same posture as the bounce below.
+  //
+  //     When the provider serves no disqualification reading at all (`undefined` — a provider
+  //     without reply tracking, or a payload older than the field), we cannot tell a decline from
+  //     a wrong-contact. Absent is deliberately NOT read as "not disqualified", any more than it
+  //     is read as "disqualified": both are claims this service would be making on the provider's
+  //     behalf. It says so instead.
+  if (delivery.replyClassification === "negative") {
+    if (delivery.disqualified === undefined) {
+      return {
+        ...shared,
+        state: "unresolved",
+        signal: "negative_reply",
+        origin: null,
+        reason: "reply_disqualification_unknown",
+      };
+    }
+    return {
+      ...shared,
+      state: "engaged",
       signal: "negative_reply",
       origin: "measured",
       reason: null,
@@ -328,6 +384,19 @@ export function resolveLeadStanding(input: LeadStandingInput): LeadStanding {
   }
   if (delivery.opened) {
     return { ...shared, state: "engaged", signal: "open", origin: "measured", reason: null };
+  }
+
+  // 12. The mail did not arrive. That is a failure of DELIVERY, not an opinion: a bad address
+  //     says nothing about whether the person behind it would buy, so they stay in play and the
+  //     bounce is named as the evidence rather than used as a verdict. It sits HERE rather than
+  //     above, so a lead who did reach the funnel — or who said no — is not demoted to it by a
+  //     later bounce on a follow-up.
+  //
+  //     Deliberately NOT `engaged`: that state means the PERSON did something, and a bounce is
+  //     the mail server. An address to repair is what this is, and the consumer reads `signal` to
+  //     say so.
+  if (delivery.bounced || delivery.globalBounced) {
+    return { ...shared, state: "contacted", signal: "bounced", origin: "measured", reason: null };
   }
 
   if (delivery.contacted) {

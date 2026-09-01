@@ -1191,15 +1191,26 @@ const LeadStandingSchema = z
         "`sales_interest` = they reached the step this campaign's sales funnel is entered by (a " +
         "visit on a visit-led funnel, a positive reply on a conversation-led one) or a later step " +
         "of it. `customer` = the funnel's last step (the sale) is reached. `disqualified` = they " +
-        "opted out, bounced, said no, or somebody stated they never will. `engaged` = something " +
+        "opted out, or we realised they are not our target at all — the wrong contact, or gone " +
+        "from the role — or somebody stated they never will buy. A prospect who simply DECLINES " +
+        "is not disqualified: that is a judgement about the moment, they stay reachable and the " +
+        "lead stays recyclable, so they read as `engaged` with `signal: \"negative_reply\"`. " +
+        "`engaged` = something " +
         "happened that is not the step this campaign sells. `contacted` = written to, nothing " +
-        "since. `not_contacted` = never written to. `unresolved` = a signal could not be resolved " +
+        "since — INCLUDING a lead whose mail bounced, which is a failure of delivery rather than " +
+        "an opinion about the person, and is named by `signal: \"bounced\"` rather than used as a " +
+        "verdict. `not_contacted` = never written to. `unresolved` = a signal could not be resolved " +
         "and is stated as such rather than defaulted — read `reason`. A consumer needs to know " +
         "none of the reply kinds or funnel step names to use this.",
       example: "sales_interest",
     }),
     signal: z.enum(LEAD_STANDING_SIGNALS as unknown as [string, ...string[]]).openapi({
-      description: "Which single piece of evidence decided the state.",
+      description:
+        "Which single piece of evidence decided the state. `unsubscribed` is the prospect's own " +
+        "act and never shares a state with a commercial judgement of ours, which is what draws " +
+        "an opt-out apart from every other way of being out of play. `disqualifying_reply` = the " +
+        "delivery layer reports this person as permanently out (the wrong contact, or gone from " +
+        "the role). `negative_reply` = they declined; that leaves them in play.",
       example: "measured_visit",
     }),
     origin: z
@@ -1222,7 +1233,11 @@ const LeadStandingSchema = z
           "`campaign_service_unavailable` / `campaign_unknown` / `funnel_unstated` = the " +
           "campaign's sales funnel could not be resolved, so there is no telling whether a click " +
           "is the step it sells. `statements_unreadable` = the hand-stated statements could not " +
-          "be read. Never a plausible default.",
+          "be read. `reply_disqualification_unknown` = the reply reads as negative and the " +
+          "provider serves no disqualification reading for it (a provider without reply " +
+          "tracking, or a payload older than the field), so whether this is a decline about the " +
+          "moment or a permanent fact about the person cannot be told apart here. Never a " +
+          "plausible default.",
         example: null,
       }),
     funnelKey: z

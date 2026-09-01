@@ -13,6 +13,17 @@ export interface ScopedStatus {
   clicked: boolean;
   replied: boolean;
   replyClassification: "positive" | "negative" | "neutral" | null;
+  // Whether the provider reports this person as PERMANENTLY out — the wrong contact, or gone from
+  // the role. A prospect who merely declines today is NOT disqualified: that is a judgement about
+  // the moment and the lead stays recyclable. The provider DERIVES this from its own reply
+  // vocabulary and email-gateway forwards it; this service reads the derived answer and never
+  // re-derives it from a list of reply kinds it would then have to keep in lockstep.
+  //
+  // ABSENT (undefined) is a THIRD state, not a false: a provider without reply tracking (postmark)
+  // omits it, and so does an older payload. Nobody can tell us, and "no" is a claim this service
+  // cannot make on their behalf — see `resolveLeadStanding`, which answers `unresolved` rather
+  // than guessing either way.
+  disqualified?: boolean;
   bounced: boolean;
   unsubscribed: boolean;
   // Count of emails actually sent to this recipient in this scope (sequence:
