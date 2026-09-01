@@ -6,6 +6,13 @@ import {
 // The published `reason` enum IS the empty-serve vocabulary — read it from the one module
 // that declares it, so the contract cannot drift from what the serve path actually returns.
 import { SERVE_EMPTY_REASONS } from "./lib/serve-reasons.js";
+import {
+  LEAD_STANDING_SIGNALS,
+  LEAD_STANDING_STATES,
+  LEAD_STANDING_UNRESOLVED_REASONS,
+} from "./lib/lead-standing.js";
+import { FUNNEL_KEYS } from "./lib/funnel-steps.js";
+
 
 extendZodWithOpenApi(z);
 
@@ -1172,6 +1179,117 @@ export const BufferNextResponseSchema = z
 
 // --- Leads ---
 
+/**
+ * Where one lead stands on the campaign it was served under — the SERVED answer to "is this
+ * person still a live prospect", so a consumer renders a value instead of deriving one of its own.
+ */
+const LeadStandingSchema = z
+  .object({
+    state: z.enum(LEAD_STANDING_STATES as unknown as [string, ...string[]]).openapi({
+      description:
+        "Where this person stands on THIS campaign, decided by lead-service and by nobody else. " +
+        "`sales_interest` = they reached the step this campaign's sales funnel is entered by (a " +
+        "visit on a visit-led funnel, a positive reply on a conversation-led one) or a later step " +
+        "of it. `customer` = the funnel's last step (the sale) is reached. `disqualified` = they " +
+        "opted out, bounced, said no, or somebody stated they never will. `engaged` = something " +
+        "happened that is not the step this campaign sells. `contacted` = written to, nothing " +
+        "since. `not_contacted` = never written to. `unresolved` = a signal could not be resolved " +
+        "and is stated as such rather than defaulted — read `reason`. A consumer needs to know " +
+        "none of the reply kinds or funnel step names to use this.",
+      example: "sales_interest",
+    }),
+    signal: z.enum(LEAD_STANDING_SIGNALS as unknown as [string, ...string[]]).openapi({
+      description: "Which single piece of evidence decided the state.",
+      example: "measured_visit",
+    }),
+    origin: z
+      .enum(["stated", "implied", "measured"])
+      .nullable()
+      .openapi({
+        description:
+          "Who said it: `stated` = a person stated it (or the website tracker reported it), " +
+          "`implied` = the campaign's funnel implies it from another statement, `measured` = the " +
+          "delivery layer measured it. null when nothing decided the state.",
+        example: "measured",
+      }),
+    reason: z
+      .enum(LEAD_STANDING_UNRESOLVED_REASONS as unknown as [string, ...string[]])
+      .nullable()
+      .openapi({
+        description:
+          "Why the state is `unresolved`, and null for every other state. `delivery_not_queried` " +
+          "= the read named no brand or campaign, so the delivery layer was never asked. " +
+          "`campaign_service_unavailable` / `campaign_unknown` / `funnel_unstated` = the " +
+          "campaign's sales funnel could not be resolved, so there is no telling whether a click " +
+          "is the step it sells. `statements_unreadable` = the hand-stated statements could not " +
+          "be read. Never a plausible default.",
+        example: null,
+      }),
+    funnelKey: z
+      .enum(FUNNEL_KEYS as unknown as [string, ...string[]])
+      .nullable()
+      .openapi({
+        description:
+          "The sales funnel this campaign sells, as campaign-service states it. Never inferred " +
+          "from the brand or from a goal; null when it could not be resolved.",
+        example: "form_magnet",
+      }),
+    entryStep: z
+      .string()
+      .nullable()
+      .openapi({
+        description:
+          "The step somebody takes to get ONTO this campaign's funnel, in the funnel vocabulary " +
+          "brand-service publishes: `website_visit`, `conversation_reply` or `ad_click`. This is " +
+          "what `sales_interest` means for this campaign.",
+        example: "website_visit",
+      }),
+    entryMeasure: z
+      .enum(["delivery_click", "positive_reply"])
+      .nullable()
+      .openapi({
+        description:
+          "Which signal that entry step is read off: `delivery_click` = a click on the email we " +
+          "sent, `positive_reply` = a reply the delivery layer classified as positive. null when " +
+          "this service holds no signal for it at all (an ad click), which is why " +
+          "`reachedEntryStep` is null on ads-led funnels rather than false.",
+        example: "delivery_click",
+      }),
+    reachedEntryStep: z
+      .boolean()
+      .nullable()
+      .openapi({
+        description:
+          "Whether this person got onto the campaign's funnel. Answered separately from `state` " +
+          "because both can be true at once: somebody who clicked and then unsubscribed reached " +
+          "the entry step AND is disqualified. null — never false — when the signal for it cannot " +
+          "be resolved.",
+        example: true,
+      }),
+    deepestStep: z
+      .string()
+      .nullable()
+      .openapi({
+        description:
+          "The deepest step of this campaign's funnel known to have been reached, in this " +
+          "service's outcome vocabulary. null when no step is known reached.",
+        example: null,
+      }),
+    at: z
+      .string()
+      .nullable()
+      .openapi({
+        description: "When the deciding statement was made, when a statement decided the state.",
+        example: null,
+      }),
+  })
+  .openapi("LeadStanding", {
+    description:
+      "The single served answer to 'where does this lead stand on this campaign'. Additive: every " +
+      "raw delivery fact (contacted, clicked, replied, replyClassification, unsubscribed, …) stays " +
+      "on the row beside it, unchanged, and a consumer that ignores this field keeps working.",
+  });
+
 const LeadDetailSchema = z
   .object({
     id: z
@@ -1375,6 +1493,13 @@ const LeadDetailSchema = z
         example: "verified",
       }),
     lead: FullLeadSchema.nullable(),
+    standing: LeadStandingSchema.openapi({
+      description:
+        "Where this lead stands on the campaign it was served under, decided here so that two " +
+        "surfaces cannot say different things about the same person. Derived on read from the " +
+        "delivery evidence below plus the hand-stated step statements this service owns; nothing " +
+        "is stored, so a retracted or withdrawn statement moves it with no write.",
+    }),
     contacted: z
       .boolean()
       .openapi({
@@ -3007,7 +3132,7 @@ const StepStatementsListSchema = z
     ...FunnelFieldsSchema,
     steps: z.array(StepStateSchema).openapi({
       description:
-        "One entry per step of the outcome vocabulary, ALWAYS all of them, in a fixed order: signup, meeting_booked, form_submission, sale, meeting_attended, website_visit. Each carries the funnel's two rules already applied — a \"never\" makes every LATER step of `steps` never, an outcome makes every EARLIER one reached — with `origin` telling a stated step from an implied one. The website visit additionally reads as an outcome with source=tracker when the delivery layer already measured a click for this lead, so the panel never invites somebody to state a fact the system already holds.",
+        "One entry per step of the outcome vocabulary, ALWAYS all of them, in a fixed order: signup, meeting_booked, form_submission, sale, meeting_attended, website_visit. Each carries the funnel's two rules already applied — a \"never\" makes every LATER step of `funnelSteps` never, an outcome makes every EARLIER one reached — with `origin` telling a stated step from an implied one. The website visit additionally reads as an outcome with source=tracker when the delivery layer already measured a click for this lead, so the panel never invites somebody to state a fact the system already holds.",
     }),
   })
   .openapi("LeadStepStatementsResponse", {
@@ -3022,11 +3147,11 @@ registry.registerPath({
     "The read behind the panel a statement is made from: one entry per step, always all of them, each " +
     "either an outcome (with the source that reported or stated it), a \"never\", or pending. A " +
     "tracker-reported outcome is attributed to the person at brand grain, a hand-stated one to the exact " +
-    "row it was stated on; both are returned here. A funnel is a FUNNEL, so the answer respects it: a " +
+    "row it was stated on; both are returned here. A funnel is ORDERED, so the answer respects it: a " +
     "\"never\" makes every LATER step of that campaign's funnel read as never, and an outcome makes every " +
     "EARLIER one read as reached — `origin` tells a step a person STATED from one the funnel IMPLIES, and " +
     "`statedState` keeps what somebody really said readable even where the funnel concluded otherwise. The " +
-    "funnel order is per FUNNEL (`funnelKey` + `steps`), read from campaign-service and never guessed: a " +
+    "step order is per FUNNEL (`funnelKey` + `funnelSteps`), read from campaign-service and never guessed: a " +
     "campaign that states no funnel is a 409, not a made-up order.",
   request: { params: LeadRowIdPathParam },
   parameters: StepStatementOrgHeaders,
@@ -3046,6 +3171,88 @@ registry.registerPath({
     502: {
       description:
         "campaign-service could not say which funnel the campaign sells through (code campaign_service_unavailable)",
+    },
+  },
+});
+
+const StepStatementWithdrawalResponseSchema = z
+  .object({
+    leadCampaignId: z.string(),
+    leadId: z.string(),
+    campaignId: z.string(),
+    brandId: z.string(),
+    step: z.enum(STEP_ENUM),
+    kind: z.enum(["outcome", "never"]).optional().openapi({
+      description:
+        "Which statement was taken back. Absent when nothing was written (the statement had already been withdrawn).",
+    }),
+    withdrawn: z.boolean().openapi({
+      description: "True when this call is what withdrew the statement.",
+    }),
+    alreadyWithdrawn: z.boolean().openapi({
+      description:
+        "True when the statement was already withdrawn, so nothing was written. Withdrawing twice is a success, not an error.",
+    }),
+    withdrawnByUserId: z.string().nullable().optional(),
+    restoredNeverSteps: z.array(z.enum(STEP_ENUM)).openapi({
+      description:
+        "The \"never\" statements that stand again. Withdrawing an OUTCOME un-retracts the \"never\"s that outcome had superseded: they were only set aside because of a statement that no longer stands. A \"never\" somebody withdrew on its own account is left alone — that was their decision, not a consequence of this one.",
+      example: ["meeting_booked"],
+    }),
+    ...FunnelFieldsSchema,
+    steps: z.array(StepStateSchema).openapi({
+      description:
+        "Every step of this lead's funnel RE-DERIVED after the withdrawal, so a caller never guesses what its withdrawal did. The funnel's rules are computed on read, so a step that only read as reached — or as dead — because of the withdrawn statement falls back to whatever the remaining statements imply.",
+    }),
+  })
+  .openapi("LeadStepStatementWithdrawalResponse", {
+    description: "The statement taken back, and what every step reads as now.",
+  });
+
+registry.registerPath({
+  method: "delete",
+  path: "/orgs/leads/{id}/step-statements/{step}",
+  summary: "Withdraw a statement somebody made by hand about one funnel step of one lead",
+  description:
+    "Organisation-authenticated, same tier as the write. A statement made by mistake — wrong lead, wrong " +
+    "step, a misread reply — is TAKEN BACK, so the step reads exactly as it did before anybody spoke. It " +
+    "is not a third kind of statement and there is nothing new to count: it is the ABSENCE of one, so the " +
+    "brand's outcome counts drop the outcome on the next read and the cost the customer stated for that " +
+    "leg stops counting as their spend. NOTHING IS DELETED — what somebody stated and the fact they later " +
+    "withdrew it both stay readable, the same posture a retraction already takes. Withdrawing an outcome " +
+    "also un-retracts the \"never\"s that outcome had superseded. ONLY A STATEMENT A PERSON MADE IS " +
+    "WITHDRAWABLE: a tracker-reported or delivery-measured outcome is a 409 code=not_a_statement, and a " +
+    "step nobody stated (however the funnel makes it READ) is a 409 code=nothing_stated — both " +
+    "distinguishable from a 500 by their code. Idempotent: withdrawing what is already withdrawn answers " +
+    "200 with alreadyWithdrawn=true and writes nothing.",
+  request: {
+    params: LeadRowIdPathParam.extend({
+      step: z.enum(STEP_ENUM).openapi({
+        param: { name: "step", in: "path" },
+        description:
+          "The funnel step whose statement is being withdrawn. The legacy spelling \"purchase\" folds to \"sale\"; anything else is a 400.",
+        example: "meeting_booked",
+      }),
+    }),
+  },
+  parameters: StepStatementOrgHeaders,
+  responses: {
+    200: {
+      description:
+        "The statement was withdrawn (or was already withdrawn), with every step re-derived",
+      content: { "application/json": { schema: StepStatementWithdrawalResponseSchema } },
+    },
+    400: { description: "id is not a uuid, or step is not one of the funnel steps" },
+    401: { description: "Unauthorized" },
+    404: { description: "No such lead row for this org (or for the requested brand scope)" },
+    409: {
+      description:
+        "Nothing a person stated to withdraw: the step was reported by the tracker or measured by the delivery layer (code not_a_statement), or nobody stated it and it only READS as reached or dead because the funnel implies it from a statement on another step (code nothing_stated). Also the campaign stating no sales funnel (code funnel_unstated / campaign_unknown).",
+    },
+    500: { description: "Internal server error" },
+    502: {
+      description:
+        "campaign-service could not say which funnel the campaign sells through (code campaign_service_unavailable), or email-gateway could not say whether the visit was already measured",
     },
   },
 });

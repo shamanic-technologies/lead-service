@@ -132,3 +132,47 @@ export function stepAndEarlier(
   const i = stepIndexOf(funnelSteps, step);
   return i < 0 ? [step] : [...funnelSteps.slice(0, i + 1)];
 }
+
+/**
+ * HOW a lead gets ONTO a funnel, and whether this service can observe it.
+ *
+ * A funnel's first STATABLE step is not always its first step: `sales_meetings_from_conversation`
+ * runs reply -> booked -> attended -> paid, and the reply is not a conversion outcome here, so
+ * `FUNNEL_STEPS` starts it at `meeting_booked`. The entry is what the campaign is actually selling
+ * its way into, and it is what decides whether a signal means buying intent ON THIS CAMPAIGN:
+ *
+ *   - a visit-led funnel is entered by LANDING ON the site, which the delivery layer measures as a
+ *     CLICK on the email we sent (`delivery_click`).
+ *   - a conversation-led funnel is entered by the person REPLYING with interest, which the
+ *     delivery layer classifies (`positive_reply`).
+ *   - an ads-led funnel is entered by a click on an AD, which no signal this service holds can
+ *     observe (`null`). Not a gap to paper over: it is stated as unresolved rather than guessed.
+ *
+ * This is why the same click means different things on different campaigns. On `form_magnet` it is
+ * the funnel's own first step. On `sales_meetings_from_conversation` it is a person visiting a site
+ * the campaign does not price a visit to, so it is engagement and nothing more.
+ */
+export type FunnelEntryMeasure = "delivery_click" | "positive_reply";
+
+export interface FunnelEntry {
+  /** The step somebody takes to get onto the funnel, in brand-service's funnel vocabulary. */
+  step: string;
+  /** The signal this service reads it off, or null when it holds no signal for it. */
+  measure: FunnelEntryMeasure | null;
+}
+
+export const FUNNEL_ENTRY: Readonly<Record<FunnelKey, FunnelEntry>> = {
+  sales_meetings_from_conversation: { step: "conversation_reply", measure: "positive_reply" },
+  sales_meetings_from_website: { step: "website_visit", measure: "delivery_click" },
+  website_purchases: { step: "website_visit", measure: "delivery_click" },
+  form_magnet: { step: "website_visit", measure: "delivery_click" },
+  sales_from_conversation: { step: "conversation_reply", measure: "positive_reply" },
+  sales_meetings_from_ads: { step: "ad_click", measure: null },
+  lead_forms_from_ads: { step: "ad_click", measure: null },
+};
+
+/** How a funnel key's funnel is entered, or null when it names no funnel this service knows. */
+export function entryForFunnelKey(value: unknown): FunnelEntry | null {
+  const key = canonicalizeFunnelKey(value);
+  return key ? FUNNEL_ENTRY[key] : null;
+}
