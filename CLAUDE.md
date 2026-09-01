@@ -1,5 +1,7 @@
 # Project: lead-service
 
+**The GitHub repo is `sales-lead-service`; the Hetzner box clones it as `/root/distribute/repos/lead-service`** (and the container is `distribute-lead-service-1`, the env file `env/lead-service.env`). A post-deploy poll built on the repo name reads a path that does not exist, which looks exactly like a deploy that has not landed — cost a 10-minute exhausted poll on v0.65.1 while `deploy.log` already said `lead-service: healthy on 28307cd1`.
+
 Apollo/sales-lead service — buffering, deduplication, enrichment caching, and lead retrieval. All journalist functionality has been moved to journalists-service.
 
 ## Commands
