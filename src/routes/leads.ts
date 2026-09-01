@@ -28,6 +28,12 @@ import {
 } from "../lib/lead-list-query.js";
 import { resolveAudiencesForBrand, type AudienceCard, type AudienceResolveContext } from "../lib/audience-client.js";
 import { createOfferCardResolver, type OfferCard } from "../lib/offer-card-client.js";
+import {
+  createLeadStandingResolver,
+  type LeadStandingResolver,
+  type StandingRow,
+} from "../lib/lead-standing-resolver.js";
+import type { LeadStanding, LeadStandingDelivery } from "../lib/lead-standing.js";
 
 const router = Router();
 
@@ -500,6 +506,7 @@ function serializeLeadItem(
   audience: AudienceCard | null,
   offer: OfferCard | null,
   deliveryStatus: FlattenedStatus,
+  standing: LeadStanding,
 ) {
   return {
     id: row.id,
@@ -530,6 +537,9 @@ function serializeLeadItem(
     lead: fullLead,
     statusReason: row.statusReason ?? null,
     statusDetails: row.statusDetails ?? null,
+    // Where this person stands on THIS campaign — the served answer, so a consumer renders it
+    // rather than deriving one of its own from the raw flags below. See lib/lead-standing.ts.
+    standing,
     ...deliveryStatus,
   };
 }
@@ -551,6 +561,62 @@ function nextCursorFor(
   if (page.limit === null || last === null) return null;
   if (rowCount < page.limit) return null;
   return encodeLeadCursor(last);
+}
+
+
+/**
+ * The delivery half of a standing, read off the overlay this row already carries. No second
+ * source: whatever scope the engagement fields answer for, the standing answers for.
+ */
+function standingDelivery(status: FlattenedStatus): LeadStandingDelivery {
+  return {
+    contacted: status.contacted,
+    opened: status.opened,
+    clicked: status.clicked,
+    replied: status.replied,
+    replyClassification: status.replyClassification,
+    bounced: status.bounced,
+    unsubscribed: status.unsubscribed,
+    globalBounced: status.global.bounced,
+    globalUnsubscribed: status.global.unsubscribed,
+  };
+}
+
+/**
+ * The standing of every row in one chunk. A resolver failure is NOT allowed to take the walk down:
+ * the standing of a lead whose funnel or statements could not be read is stated as unresolved, and
+ * the raw delivery facts beside it are unaffected. Anything else would fail a 57k-row list read
+ * over one derived field.
+ */
+async function resolveStandings(
+  resolver: LeadStandingResolver,
+  rows: StandingRow[],
+): Promise<Map<string, LeadStanding>> {
+  try {
+    return await resolver.resolve(rows);
+  } catch (error) {
+    console.error(
+      "[lead-service] lead standing could not be resolved for this chunk; every row in it reads " +
+        `as unresolved rather than as a guess: ${(error as Error).message}`,
+    );
+    return new Map();
+  }
+}
+
+/** What a row reads as when its standing could not be resolved at all. Never a plausible default. */
+function unresolvedStanding(): LeadStanding {
+  return {
+    state: "unresolved",
+    signal: "none",
+    origin: null,
+    reason: "statements_unreadable",
+    funnelKey: null,
+    entryStep: null,
+    entryMeasure: null,
+    reachedEntryStep: null,
+    deepestStep: null,
+    at: null,
+  };
 }
 
 router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedRequest, res) => {
@@ -687,6 +753,16 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       runId: req.runId ?? null,
       brandId: brandIdStr ?? null,
     });
+    // Likewise ONE standing resolver for the whole response: the org's campaign -> funnel map is
+    // read once and reused by every chunk, so naming the standing on fifty thousand rows costs the
+    // same single campaign-service call as naming it on one.
+    const standingResolver = createLeadStandingResolver({
+      orgId: req.orgId!,
+      userId: req.userId ?? null,
+      runId: req.runId ?? null,
+      brandId: brandIdStr ?? null,
+      deliveryQueried: hasScopeForStatus,
+    });
     // `?view=basic` => slim per-lead payload. Anything else (incl. absent) => full
     // FullLead, the existing default. No Zod default: a missing param is full.
     const slim = req.query.view === "basic";
@@ -724,13 +800,35 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
 
         const offerMap = await offerResolver.resolve(basicRows.map((r) => r.campaignId));
 
+        // The overlay is resolved for the whole chunk BEFORE the standing, because the standing
+        // reads it: the click that means "reached the step this campaign sells" is the same click
+        // the row already carries, never a second lookup.
+        const deliveryByRow = new Map<string, FlattenedStatus>();
+        for (const r of basicRows) {
+          const statusResult = statusMap.get(r.email?.value ?? "");
+          deliveryByRow.set(
+            r.id,
+            hasScopeForStatus && r.status === "served"
+              ? (statusResult ? flatten(statusResult) : DEFAULT_STATUS)
+              : DEFAULT_STATUS,
+          );
+        }
+        const standingMap = await resolveStandings(
+          standingResolver,
+          basicRows.map((r) => ({
+            id: r.id,
+            leadId: r.leadId,
+            campaignId: r.campaignId,
+            brandIds: r.brandIds,
+            status: r.status,
+            delivery: standingDelivery(deliveryByRow.get(r.id)!),
+          })),
+        );
+
         for (const r of basicRows) {
           const emailValue = r.email?.value ?? "";
           const emailStatus = r.email?.status ?? null;
-          const statusResult = statusMap.get(emailValue);
-          const deliveryStatus = hasScopeForStatus && r.status === "served"
-            ? (statusResult ? flatten(statusResult) : DEFAULT_STATUS)
-            : DEFAULT_STATUS;
+          const deliveryStatus = deliveryByRow.get(r.id)!;
 
           // The slim path's `lead` is the basic projection, not a FullLead — that is the whole
           // point of `?view=basic`, so it is passed through as-is rather than through the shared
@@ -763,6 +861,9 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
             lead: r.lead,
             statusReason: r.statusReason ?? null,
             statusDetails: r.statusDetails ?? null,
+            // Same field, same policy, same resolver as the full path — a slim row and a full row
+            // for the same lead must not disagree about where that person stands.
+            standing: standingMap.get(r.id) ?? unresolvedStanding(),
             ...deliveryStatus,
           };
 
@@ -843,14 +944,35 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
         );
       }
 
+      // Resolved for the whole chunk before anything is written, because the standing reads the
+      // overlay: the click that means "reached the step this campaign sells" is the same click the
+      // row already carries.
+      const deliveryByRow = new Map<string, FlattenedStatus>();
+      for (const row of chunkRows) {
+        const statusResult = statusMap.get(primaryEmail(fullLeadByLeadId.get(row.leadId))?.value ?? "");
+        deliveryByRow.set(
+          row.id,
+          hasScopeForStatus && row.status === "served"
+            ? (statusResult ? flatten(statusResult) : DEFAULT_STATUS)
+            : DEFAULT_STATUS,
+        );
+      }
+      const standingMap = await resolveStandings(
+        standingResolver,
+        chunkRows.map((row) => ({
+          id: row.id,
+          leadId: row.leadId,
+          campaignId: row.campaignId,
+          brandIds: row.brandIds,
+          status: row.status,
+          delivery: standingDelivery(deliveryByRow.get(row.id)!),
+        })),
+      );
+
       for (const row of chunkRows) {
         const fullLead = fullLeadByLeadId.get(row.leadId) ?? null;
         const email = primaryEmail(fullLead ?? undefined);
-        const emailValue = email?.value ?? "";
-        const statusResult = statusMap.get(emailValue);
-        const deliveryStatus = hasScopeForStatus && row.status === "served"
-          ? (statusResult ? flatten(statusResult) : DEFAULT_STATUS)
-          : DEFAULT_STATUS;
+        const deliveryStatus = deliveryByRow.get(row.id)!;
 
         const leadOut = serializeLeadItem(
           row,
@@ -859,6 +981,7 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
           audienceMap.get(row.leadId) ?? null,
           offerMap.get(row.campaignId) ?? null,
           deliveryStatus,
+          standingMap.get(row.id) ?? unresolvedStanding(),
         );
 
         res.write((wroteFirst ? "," : "") + JSON.stringify(leadOut));
@@ -986,6 +1109,28 @@ router.get("/orgs/leads/:id", apiKeyAuth, requireOrgId, async (req: Authenticate
       deliveryStatus = result ? flatten(result) : DEFAULT_STATUS;
     }
 
+    // One row, so nothing is memoized — the resolver exists here so the panel reads the SAME
+    // standing, resolved the same way, as the list element for the same row.
+    const standingMap = await resolveStandings(
+      createLeadStandingResolver({
+        orgId: req.orgId!,
+        userId: req.userId ?? null,
+        runId: req.runId ?? null,
+        brandId: brandIdStr ?? null,
+        deliveryQueried: !!(brandIdStr || campaignIdStr),
+      }),
+      [
+        {
+          id: row.id,
+          leadId: row.leadId,
+          campaignId: row.campaignId,
+          brandIds: row.brandIds,
+          status: row.status,
+          delivery: standingDelivery(deliveryStatus),
+        },
+      ],
+    );
+
     return res.json({
       leadDetail: serializeLeadItem(
         row,
@@ -994,6 +1139,7 @@ router.get("/orgs/leads/:id", apiKeyAuth, requireOrgId, async (req: Authenticate
         audienceMap.get(row.leadId) ?? null,
         offerMap.get(row.campaignId) ?? null,
         deliveryStatus,
+        standingMap.get(row.id) ?? unresolvedStanding(),
       ),
     });
   } catch (error) {

@@ -211,7 +211,7 @@ describe("a lead row carries its offer", () => {
   });
 
   // AC5 — the resolution is per REQUEST. A per-row implementation fails this outright.
-  it("resolves the whole response with two calls, whatever the row count", async () => {
+  it("resolves the whole response with a constant number of calls, whatever the row count", async () => {
     // 1,200 rows over three chunks, both campaigns represented.
     mockRows = Array.from({ length: 1200 }, (_, i) =>
       rawRow(i, i % 2 === 0 ? SELLING_CAMPAIGN : OFFERLESS_CAMPAIGN),
@@ -223,19 +223,21 @@ describe("a lead row carries its offer", () => {
     expect(res.body.leads[0].offer).toEqual({ id: OFFER, name: "Fractional CFO retainer" });
     expect(res.body.leads[1].offer).toBeNull();
 
-    // One campaign-service read, one brand-service read — for 1,200 rows across several chunks.
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-    expect(fetchSpy.mock.calls.filter(([url]) => url === CAMPAIGNS_URL)).toHaveLength(1);
+    // Two campaign-service reads (one for the offer each campaign sells, one for the sales funnel
+    // it sells through — the standing needs the funnel) and one brand-service read, for 1,200 rows
+    // across several chunks. Constant in the row count, which is what this asserts.
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    expect(fetchSpy.mock.calls.filter(([url]) => url === CAMPAIGNS_URL)).toHaveLength(2);
     expect(fetchSpy.mock.calls.filter(([url]) => url === OFFERS_URL)).toHaveLength(1);
   });
 
-  it("holds the same two calls on the full view's chunked walk", async () => {
+  it("holds the same constant call count on the full view's chunked walk", async () => {
     mockRows = Array.from({ length: 1200 }, (_, i) => rawRow(i, SELLING_CAMPAIGN));
 
     const res = await get(app, `/orgs/leads?brandId=${BRAND}`);
 
     expect(res.body.leads).toHaveLength(1200);
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
   });
 
   // Unresolvable is ABSENT, and the list a consumer reads today still answers.
