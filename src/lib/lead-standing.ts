@@ -38,11 +38,16 @@
  *   7. the funnel's last step "never"  -> disqualified. Somebody stated they will not buy, and
  *                                        a "never" propagates forward, so it lands on the last
  *                                        step whichever step it was made on.
- *   8. bounced               -> disqualified. The mail never arrived and never will.
- *   9. entry step reached    -> sales_interest. The measured half: a click on a visit-led funnel,
+ *   8. entry step reached    -> sales_interest. The measured half: a click on a visit-led funnel,
  *                              a positive reply on a conversation-led one.
- *  10. negative reply        -> disqualified.
- *  11. replied / clicked / opened -> engaged. Something happened; it is not the step being sold.
+ *   9. negative reply        -> disqualified.
+ *  10. replied / clicked / opened -> engaged. Something happened; it is not the step being sold.
+ *  11. bounced              -> contacted, carrying `signal: "bounced"`. A failure of DELIVERY is
+ *                             not an opinion: a bad address says nothing about whether the person
+ *                             behind it would buy, so they stay in play and the bounce is named
+ *                             as the evidence rather than used as a verdict. It sits below the
+ *                             signals above so a lead who reached the funnel, or who said no, is
+ *                             not demoted by a later bounce on a follow-up.
  *  12. contacted            -> contacted.
  *  13. otherwise            -> not_contacted.
  *
@@ -291,11 +296,6 @@ export function resolveLeadStanding(input: LeadStandingInput): LeadStanding {
     };
   }
 
-  // 8. The mail never arrived and never will.
-  if (delivery.bounced || delivery.globalBounced) {
-    return { ...shared, state: "disqualified", signal: "bounced", origin: "measured", reason: null };
-  }
-
   // 9. The measured half of the entry step: a click on a visit-led funnel, a positive reply on a
   //    conversation-led one. This is what a click on the campaign that sells a visit means.
   if (reachedEntryStep === true) {
@@ -328,6 +328,19 @@ export function resolveLeadStanding(input: LeadStandingInput): LeadStanding {
   }
   if (delivery.opened) {
     return { ...shared, state: "engaged", signal: "open", origin: "measured", reason: null };
+  }
+
+  // 12. The mail did not arrive. That is a failure of DELIVERY, not an opinion: a bad address
+  //     says nothing about whether the person behind it would buy, so they stay in play and the
+  //     bounce is named as the evidence rather than used as a verdict. It sits HERE rather than
+  //     above, so a lead who did reach the funnel — or who said no — is not demoted to it by a
+  //     later bounce on a follow-up.
+  //
+  //     Deliberately NOT `engaged`: that state means the PERSON did something, and a bounce is
+  //     the mail server. An address to repair is what this is, and the consumer reads `signal` to
+  //     say so.
+  if (delivery.bounced || delivery.globalBounced) {
+    return { ...shared, state: "contacted", signal: "bounced", origin: "measured", reason: null };
   }
 
   if (delivery.contacted) {

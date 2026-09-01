@@ -204,10 +204,39 @@ describe("where a lead stands on the campaign it was served under", () => {
       expect(s.signal).toBe("negative_reply");
     });
 
-    it("disqualifies a bounce, which no engagement can follow", () => {
+    it("does NOT disqualify a bounce — it names it and leaves the person in play", () => {
+      // A bad address says nothing about whether the human behind it would buy. It is a
+      // failure of DELIVERY, so the lead stays contacted and the bounce is the evidence
+      // rather than the verdict; the address is the thing to repair.
       const s = stand({ delivery: { contacted: true, bounced: true } });
-      expect(s.state).toBe("disqualified");
+      expect(s.state).toBe("contacted");
       expect(s.signal).toBe("bounced");
+      // A global bounce reads the same way — it is the same fact about the address.
+      const g = stand({ delivery: { contacted: true, globalBounced: true } });
+      expect(g.state).toBe("contacted");
+      expect(g.signal).toBe("bounced");
+    });
+
+    it("lets every signal above it outrank a bounce, so a later one cannot demote a lead", () => {
+      // A bounce on a follow-up must not take back a visit the person already made, nor
+      // a "no" they already said.
+      const reached = stand({
+        funnel: funnel("form_magnet"),
+        delivery: { contacted: true, clicked: true, bounced: true },
+      });
+      expect(reached.state).toBe("sales_interest");
+      const said = stand({
+        funnel: funnel("form_magnet"),
+        delivery: { contacted: true, replied: true, replyClassification: "negative", bounced: true },
+      });
+      expect(said.state).toBe("disqualified");
+      expect(said.signal).toBe("negative_reply");
+    });
+
+    it("still disqualifies an OPT-OUT, which is the prospect's own binding act", () => {
+      const s = stand({ delivery: { contacted: true, unsubscribed: true, bounced: true } });
+      expect(s.state).toBe("disqualified");
+      expect(s.signal).toBe("unsubscribed");
     });
 
     it("walks down through engaged and contacted", () => {
