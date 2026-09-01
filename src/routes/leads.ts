@@ -47,6 +47,11 @@ interface FlattenedStatus {
   unsubscribed: boolean;
   replied: boolean;
   replyClassification: "positive" | "negative" | "neutral" | null;
+  // Tri-state, deliberately: true = the provider reports this person as permanently out (the
+  // wrong contact, or gone from the role); false = it looked and says no; undefined = nobody can
+  // tell us (a provider without reply tracking, or a payload older than the field). Never
+  // collapsed to a boolean — see `resolveLeadStanding`.
+  disqualified?: boolean;
   sentCount: number;
   lastDeliveredAt: string | null;
   firstContactedAt: string | null;
@@ -78,6 +83,7 @@ function pickScoped(s: ScopedStatus | null | undefined) {
     unsubscribed: !!s?.unsubscribed,
     replied: !!s?.replied,
     replyClassification: s?.replyClassification ?? null,
+    disqualified: s?.disqualified,
     sentCount: s?.sentCount ?? 0,
     lastDeliveredAt: s?.lastDeliveredAt ?? null,
     firstContactedAt: s?.firstContactedAt ?? null,
@@ -98,6 +104,20 @@ function mergeGlobal(bc?: GlobalStatus | null, tx?: GlobalStatus | null) {
   };
 }
 
+/**
+ * OR across providers, but only over the providers that ANSWERED. A `true` from either one wins;
+ * a `false` needs at least one provider to have looked; when neither serves the reading at all the
+ * merge stays `undefined`, because "nobody can tell us" is not the same fact as "no".
+ */
+function mergeDisqualified(
+  a: boolean | undefined,
+  b: boolean | undefined,
+): boolean | undefined {
+  if (a === true || b === true) return true;
+  if (a === false || b === false) return false;
+  return undefined;
+}
+
 function mergeProviders(
   bcScope: ReturnType<typeof pickScoped>,
   txScope: ReturnType<typeof pickScoped>,
@@ -112,6 +132,7 @@ function mergeProviders(
     unsubscribed: bcScope.unsubscribed || txScope.unsubscribed,
     replied: bcScope.replied || txScope.replied,
     replyClassification: bcScope.replyClassification ?? txScope.replyClassification ?? null,
+    disqualified: mergeDisqualified(bcScope.disqualified, txScope.disqualified),
     // Broadcast (Instantly) and transactional (Postmark) are disjoint sending
     // channels, so the total emails sent to this lead = sum across providers.
     sentCount: bcScope.sentCount + txScope.sentCount,
@@ -185,6 +206,7 @@ function aggregateFamilyScope(
       clicked: acc.clicked || s.clicked,
       replied: acc.replied || s.replied,
       replyClassification,
+      disqualified: mergeDisqualified(acc.disqualified, s.disqualified),
       bounced: acc.bounced || s.bounced,
       unsubscribed: acc.unsubscribed || s.unsubscribed,
       sentCount: (acc.sentCount ?? 0) + (s.sentCount ?? 0),
@@ -575,6 +597,7 @@ function standingDelivery(status: FlattenedStatus): LeadStandingDelivery {
     clicked: status.clicked,
     replied: status.replied,
     replyClassification: status.replyClassification,
+    disqualified: status.disqualified,
     bounced: status.bounced,
     unsubscribed: status.unsubscribed,
     globalBounced: status.global.bounced,
