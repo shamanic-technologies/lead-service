@@ -195,13 +195,96 @@ describe("where a lead stands on the campaign it was served under", () => {
       expect(s.signal).toBe("measured_visit");
     });
 
-    it("disqualifies a negative reply when the funnel's entry step was not reached", () => {
+    // Disqualified means ONE thing: we realised this person is not our target — the wrong
+    // contact, or gone from the role. It is ordinary sales qualification, and it is the only
+    // reading of a reply that takes a lead out of play.
+    it("disqualifies a reply the provider reads as permanently about the PERSON", () => {
+      const s = stand({
+        funnel: funnel("form_magnet"),
+        delivery: {
+          contacted: true,
+          replied: true,
+          replyClassification: "negative",
+          disqualified: true,
+        },
+      });
+      expect(s.state).toBe("disqualified");
+      expect(s.signal).toBe("disqualifying_reply");
+      expect(s.origin).toBe("measured");
+    });
+
+    // A decline is a judgement about the MOMENT. The person is still reachable and the lead is
+    // still recyclable, so they stay in play and the "no" is named rather than used as a verdict.
+    it("does NOT disqualify a decline about the moment — it stays in play", () => {
+      const s = stand({
+        funnel: funnel("form_magnet"),
+        delivery: {
+          contacted: true,
+          replied: true,
+          replyClassification: "negative",
+          disqualified: false,
+        },
+      });
+      expect(s.state).toBe("engaged");
+      expect(s.signal).toBe("negative_reply");
+    });
+
+    // Absent is a third state and it is neither of the other two: "no" would be a claim this
+    // service makes on the provider's behalf, "yes" is the bug this closes.
+    it("states that it cannot tell when the provider serves no disqualification reading", () => {
       const s = stand({
         funnel: funnel("form_magnet"),
         delivery: { contacted: true, replied: true, replyClassification: "negative" },
       });
-      expect(s.state).toBe("disqualified");
+      expect(s.state).toBe("unresolved");
+      expect(s.reason).toBe("reply_disqualification_unknown");
       expect(s.signal).toBe("negative_reply");
+      expect(s.origin).toBeNull();
+    });
+
+    // A disqualifying reply is still a machine reading, so it sits exactly where the negative
+    // reply always sat: below a human statement, and below the funnel's own entry step.
+    it("keeps a permanent disqualification below a human statement and below the entry step", () => {
+      const stated = stand({
+        delivery: {
+          contacted: true,
+          replied: true,
+          replyClassification: "negative",
+          disqualified: true,
+        },
+        outcomes: { form_submission: "manual" },
+      });
+      expect(stated.state).toBe("sales_interest");
+      expect(stated.signal).toBe("stated_outcome");
+
+      const clicked = stand({
+        funnel: funnel("form_magnet"),
+        delivery: {
+          contacted: true,
+          clicked: true,
+          replied: true,
+          replyClassification: "negative",
+          disqualified: true,
+        },
+      });
+      expect(clicked.state).toBe("sales_interest");
+      expect(clicked.signal).toBe("measured_visit");
+    });
+
+    // The opt-out column is drawn off `signal`, so being out of play by our judgement and being
+    // out of play by the prospect's own act must never collapse into one answer.
+    it("keeps an opt-out distinguishable from a disqualification", () => {
+      const out = stand({
+        delivery: {
+          contacted: true,
+          unsubscribed: true,
+          replied: true,
+          replyClassification: "negative",
+          disqualified: true,
+        },
+      });
+      expect(out.state).toBe("disqualified");
+      expect(out.signal).toBe("unsubscribed");
     });
 
     it("does NOT disqualify a bounce — it names it and leaves the person in play", () => {
@@ -227,10 +310,16 @@ describe("where a lead stands on the campaign it was served under", () => {
       expect(reached.state).toBe("sales_interest");
       const said = stand({
         funnel: funnel("form_magnet"),
-        delivery: { contacted: true, replied: true, replyClassification: "negative", bounced: true },
+        delivery: {
+          contacted: true,
+          replied: true,
+          replyClassification: "negative",
+          disqualified: true,
+          bounced: true,
+        },
       });
       expect(said.state).toBe("disqualified");
-      expect(said.signal).toBe("negative_reply");
+      expect(said.signal).toBe("disqualifying_reply");
     });
 
     it("still disqualifies an OPT-OUT, which is the prospect's own binding act", () => {
