@@ -1,0 +1,339 @@
+/**
+ * Where ONE lead stands on the campaign it was served under — one served answer, so a consumer
+ * renders a value instead of deriving one.
+ *
+ * "Is this person still a live prospect" is COMMERCIAL POLICY, and it was decided in three
+ * independent places from two different sources with no owner: the dashboard computed it per lead
+ * off the reply signals, features-service counted an aggregate for the campaign's stat card, and
+ * instantly-service froze a coarse classification at write time that fed both. That split has
+ * already produced a customer-visible contradiction (a referral read as interest on one surface
+ * and not on the other for months). This service is the only one holding BOTH halves — the
+ * delivery evidence it already joins onto the membership row, and the hand-stated step statements
+ * it already owns — so the policy is authored here, once, and everything else reads it.
+ *
+ * FUNNEL-AWARE, deliberately. The alternative — "a click is buying intent everywhere" — makes a
+ * click mean interest on a campaign that prices no click. A campaign selling `form_magnet` is
+ * selling `visit -> form -> paid`, so somebody landing on the site has reached the step it sells;
+ * a campaign selling meetings off a conversation prices a positive REPLY, and the same person
+ * visiting the site has done something the campaign does not price. The grain makes that
+ * expressible: the row is `(lead, campaign)`, so the same person can legitimately stand at
+ * `sales_interest` under one campaign and `engaged` under another, which is what is true.
+ *
+ * The ladder, and why it is in this order:
+ *
+ *   1. never served          -> not_contacted. Nobody was written to; there is nothing to judge,
+ *                              and inventing a standing for a lead nobody contacted is exactly
+ *                              the fabrication this must not do.
+ *   2. unsubscribed          -> disqualified. A hard opt-out, and NOTHING overrides it — not a
+ *                              click, not a sale, not a hand statement. It is a decision the
+ *                              person made about being contacted at all.
+ *   3. no delivery evidence  -> unresolved. The read was not scoped to a brand or a campaign, so
+ *                              nothing was ever asked of the delivery layer. Stated, never
+ *                              defaulted to "nothing happened".
+ *   4. no funnel             -> unresolved. Without the campaign's funnel there is no way to know
+ *                              whether a click is the step being sold or an unrelated visit, so
+ *                              the question has no answer here rather than a plausible one.
+ *   5. the funnel's last step reached  -> customer.
+ *   6. any funnel step reached         -> sales_interest.
+ *   7. the funnel's last step "never"  -> disqualified. Somebody stated they will not buy, and
+ *                                        a "never" propagates forward, so it lands on the last
+ *                                        step whichever step it was made on.
+ *   8. bounced               -> disqualified. The mail never arrived and never will.
+ *   9. entry step reached    -> sales_interest. The measured half: a click on a visit-led funnel,
+ *                              a positive reply on a conversation-led one.
+ *  10. negative reply        -> disqualified.
+ *  11. replied / clicked / opened -> engaged. Something happened; it is not the step being sold.
+ *  12. contacted            -> contacted.
+ *  13. otherwise            -> not_contacted.
+ *
+ * Precedence between the two kinds of evidence is: a HUMAN statement (5-7) beats a machine one
+ * (8-11), because a person looking at the lead knows things the delivery layer cannot see. Within
+ * the machine signals, reaching the funnel's own entry step beats a reply CLASSIFICATION — a
+ * classification is a judgement about a message, reaching the step is a fact about the funnel. So
+ * a lead who clicked through on a `form_magnet` campaign AND replied negatively stands at
+ * `sales_interest`: they went to the site, which is what that campaign sells.
+ *
+ * `reachedEntryStep` is answered separately from `state`, because they are different questions and
+ * both can be true at once: somebody who clicked and then unsubscribed reached the entry step
+ * (true) and is disqualified (state). It is `null` — never false — when the entry signal cannot be
+ * resolved at all, which is every ads-led funnel (nothing here observes an ad click) and every read
+ * where the funnel or the delivery evidence is missing.
+ *
+ * The raw delivery facts (`contacted`, `clicked`, `replied`, `replyClassification`, …) stay on the
+ * wire beside this, untouched. They are what let the policy change later; this is the policy.
+ */
+import type { FunnelEntry, FunnelEntryMeasure, FunnelKey } from "./funnel-steps.js";
+import type { StepReadState } from "./step-funnel-state.js";
+import type { LeadStepOutcomeName } from "./step-statements.js";
+
+export const LEAD_STANDING_STATES = [
+  "unresolved",
+  "not_contacted",
+  "contacted",
+  "engaged",
+  "sales_interest",
+  "customer",
+  "disqualified",
+] as const;
+export type LeadStandingState = (typeof LEAD_STANDING_STATES)[number];
+
+export const LEAD_STANDING_SIGNALS = [
+  "none",
+  "not_served",
+  "contacted",
+  "open",
+  "click",
+  "reply",
+  "negative_reply",
+  "positive_reply",
+  "measured_visit",
+  "stated_outcome",
+  "stated_never",
+  "bounced",
+  "unsubscribed",
+] as const;
+export type LeadStandingSignal = (typeof LEAD_STANDING_SIGNALS)[number];
+
+export const LEAD_STANDING_UNRESOLVED_REASONS = [
+  "delivery_not_queried",
+  "campaign_service_unavailable",
+  "campaign_unknown",
+  "funnel_unstated",
+  "statements_unreadable",
+] as const;
+export type LeadStandingUnresolvedReason = (typeof LEAD_STANDING_UNRESOLVED_REASONS)[number];
+
+/** Who said it: a person, the funnel's own rules, or a machine that measured it. */
+export type LeadStandingOrigin = "stated" | "implied" | "measured";
+
+export interface LeadStanding {
+  state: LeadStandingState;
+  signal: LeadStandingSignal;
+  origin: LeadStandingOrigin | null;
+  /** Why the standing is `unresolved`, and null for every other state. */
+  reason: LeadStandingUnresolvedReason | null;
+  funnelKey: FunnelKey | null;
+  /** How this campaign's funnel is entered, in brand-service's funnel vocabulary. */
+  entryStep: string | null;
+  entryMeasure: FunnelEntryMeasure | null;
+  /** Whether the person got onto the funnel. null = the signal for it cannot be resolved. */
+  reachedEntryStep: boolean | null;
+  /** The deepest step of this campaign's funnel known to have been reached, or null. */
+  deepestStep: LeadStepOutcomeName | null;
+  /** When the deciding statement was made, when a statement decided it. */
+  at: string | null;
+}
+
+export interface LeadStandingDelivery {
+  contacted: boolean;
+  opened: boolean;
+  clicked: boolean;
+  replied: boolean;
+  replyClassification: "positive" | "negative" | "neutral" | null;
+  bounced: boolean;
+  unsubscribed: boolean;
+  globalBounced: boolean;
+  globalUnsubscribed: boolean;
+}
+
+export interface ResolvedLeadFunnel {
+  key: FunnelKey;
+  steps: readonly LeadStepOutcomeName[];
+  entry: FunnelEntry;
+}
+
+export interface LeadStandingInput {
+  /** `leads_campaigns.status`. Only a served row was ever written to. */
+  lifecycleStatus: string;
+  /** Whether the delivery layer was asked at all — false on an unscoped read. */
+  deliveryQueried: boolean;
+  delivery: LeadStandingDelivery;
+  /** The campaign's funnel, or null when it could not be resolved. */
+  funnel: ResolvedLeadFunnel | null;
+  /** Why the funnel is null. Required exactly when `funnel` is null. */
+  funnelUnresolvedReason: LeadStandingUnresolvedReason | null;
+  /**
+   * Every step's read state, with the funnel's two rules already applied (`resolveStepStates`).
+   * A measured website visit is folded in by the caller exactly as the panel folds it in, so the
+   * two surfaces cannot disagree about the same lead.
+   */
+  steps: readonly StepReadState[];
+}
+
+function base(input: LeadStandingInput): Omit<LeadStanding, "state" | "signal" | "origin" | "reason"> {
+  return {
+    funnelKey: input.funnel?.key ?? null,
+    entryStep: input.funnel?.entry.step ?? null,
+    entryMeasure: input.funnel?.entry.measure ?? null,
+    reachedEntryStep: null,
+    deepestStep: null,
+    at: null,
+  };
+}
+
+/**
+ * Did this person get ONTO the funnel?
+ *
+ * `null` is a real answer and the only honest one for an ads-led funnel: nothing this service
+ * holds observes an ad click, so "no" would be a claim it cannot make. A funnel step reached
+ * answers `true` whatever the entry measure is — a lead who booked a meeting necessarily got onto
+ * the funnel that leads to booking one.
+ */
+function resolveEntryReached(
+  input: LeadStandingInput,
+  funnelOutcomeIndex: number,
+): boolean | null {
+  if (funnelOutcomeIndex >= 0) return true;
+  if (!input.funnel) return null;
+  const { measure } = input.funnel.entry;
+  if (measure === null) return null;
+  if (!input.deliveryQueried) return null;
+  if (measure === "delivery_click") return input.delivery.clicked;
+  return input.delivery.replyClassification === "positive";
+}
+
+export function resolveLeadStanding(input: LeadStandingInput): LeadStanding {
+  const { delivery, funnel } = input;
+  const funnelSteps = funnel?.steps ?? [];
+  const byStep = new Map(input.steps.map((s) => [s.step, s]));
+
+  // The deepest step of the funnel that reads as reached, and whether the funnel's last step is
+  // dead. Both come straight out of the funnel's own rules — nothing is re-derived here.
+  let funnelOutcomeIndex = -1;
+  for (let i = 0; i < funnelSteps.length; i++) {
+    if (byStep.get(funnelSteps[i])?.state === "outcome") funnelOutcomeIndex = i;
+  }
+  const lastStep = funnelSteps.length > 0 ? funnelSteps[funnelSteps.length - 1] : null;
+  const lastState = lastStep ? byStep.get(lastStep) : undefined;
+
+  const reachedEntryStep = resolveEntryReached(input, funnelOutcomeIndex);
+  const deepestStep = funnelOutcomeIndex >= 0 ? funnelSteps[funnelOutcomeIndex] : null;
+  const shared = { ...base(input), reachedEntryStep, deepestStep };
+
+  // 1. Nobody was written to. There is nothing to judge, and judging it anyway would be inventing
+  //    a standing for a lead that was never contacted.
+  if (input.lifecycleStatus !== "served") {
+    return { ...shared, state: "not_contacted", signal: "not_served", origin: null, reason: null };
+  }
+
+  // 2. A hard opt-out outranks every positive signal there is, including a stated sale.
+  if (delivery.unsubscribed || delivery.globalUnsubscribed) {
+    return {
+      ...shared,
+      state: "disqualified",
+      signal: "unsubscribed",
+      origin: "measured",
+      reason: null,
+    };
+  }
+
+  // 3. Nothing was ever asked of the delivery layer, so "nothing happened" is not something this
+  //    read knows. A stated funnel outcome still answers — it needs no delivery evidence.
+  if (!input.deliveryQueried && funnelOutcomeIndex < 0) {
+    return {
+      ...shared,
+      state: "unresolved",
+      signal: "none",
+      origin: null,
+      reason: "delivery_not_queried",
+    };
+  }
+
+  // 4. Without the funnel there is no telling whether a click is the step being sold.
+  if (!funnel) {
+    return {
+      ...shared,
+      state: "unresolved",
+      signal: "none",
+      origin: null,
+      reason: input.funnelUnresolvedReason,
+    };
+  }
+
+  const deepest = deepestStep ? byStep.get(deepestStep) : undefined;
+  const statementOrigin = (s: StepReadState | undefined): LeadStandingOrigin =>
+    s?.origin === "implied" ? "implied" : s?.source === "tracker" && s.step === "website_visit" ? "measured" : "stated";
+  const statementSignal = (s: StepReadState | undefined): LeadStandingSignal =>
+    s?.source === "tracker" && s.step === "website_visit" ? "measured_visit" : "stated_outcome";
+
+  // 5-6. What somebody (or the funnel) says already happened. A fact beats every machine signal.
+  if (funnelOutcomeIndex >= 0 && funnelOutcomeIndex === funnelSteps.length - 1) {
+    return {
+      ...shared,
+      state: "customer",
+      signal: statementSignal(deepest),
+      origin: statementOrigin(deepest),
+      reason: null,
+      at: deepest?.at ?? null,
+    };
+  }
+  if (funnelOutcomeIndex >= 0) {
+    return {
+      ...shared,
+      state: "sales_interest",
+      signal: statementSignal(deepest),
+      origin: statementOrigin(deepest),
+      reason: null,
+      at: deepest?.at ?? null,
+    };
+  }
+
+  // 7. A "never" propagates forward, so it lands on the funnel's last step whichever step it was
+  //    stated on: this person will not buy.
+  if (lastState?.state === "never") {
+    return {
+      ...shared,
+      state: "disqualified",
+      signal: "stated_never",
+      origin: lastState.origin === "implied" ? "implied" : "stated",
+      reason: null,
+      at: lastState.at ?? null,
+    };
+  }
+
+  // 8. The mail never arrived and never will.
+  if (delivery.bounced || delivery.globalBounced) {
+    return { ...shared, state: "disqualified", signal: "bounced", origin: "measured", reason: null };
+  }
+
+  // 9. The measured half of the entry step: a click on a visit-led funnel, a positive reply on a
+  //    conversation-led one. This is what a click on the campaign that sells a visit means.
+  if (reachedEntryStep === true) {
+    return {
+      ...shared,
+      state: "sales_interest",
+      signal: funnel.entry.measure === "delivery_click" ? "measured_visit" : "positive_reply",
+      origin: "measured",
+      reason: null,
+    };
+  }
+
+  // 10. They said no, in a message, and the funnel's own entry step was not reached.
+  if (delivery.replyClassification === "negative") {
+    return {
+      ...shared,
+      state: "disqualified",
+      signal: "negative_reply",
+      origin: "measured",
+      reason: null,
+    };
+  }
+
+  // 11. Something happened. It is not the step this campaign sells.
+  if (delivery.replied) {
+    return { ...shared, state: "engaged", signal: "reply", origin: "measured", reason: null };
+  }
+  if (delivery.clicked) {
+    return { ...shared, state: "engaged", signal: "click", origin: "measured", reason: null };
+  }
+  if (delivery.opened) {
+    return { ...shared, state: "engaged", signal: "open", origin: "measured", reason: null };
+  }
+
+  if (delivery.contacted) {
+    return { ...shared, state: "contacted", signal: "contacted", origin: "measured", reason: null };
+  }
+
+  // Served, in scope, and the delivery layer has no event for them yet.
+  return { ...shared, state: "not_contacted", signal: "none", origin: null, reason: null };
+}

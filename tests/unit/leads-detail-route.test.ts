@@ -223,7 +223,7 @@ describe("GET /orgs/leads/:id — one lead's full record", () => {
         "featureSlug", "firstBouncedAt", "firstClickedAt", "firstContactedAt", "firstDeliveredAt",
         "firstOpenedAt", "firstRepliedAt", "firstSentAt", "firstUnsubscribedAt", "global", "goal",
         "id", "lastDeliveredAt", "lead", "leadId", "namespace", "offer", "opened", "orgId", "parentRunId",
-        "replied", "replyClassification", "runId", "sent", "sentCount", "servedAt", "status",
+        "replied", "replyClassification", "runId", "sent", "sentCount", "servedAt", "standing", "status",
         "statusDetails", "statusReason", "unsubscribed", "userId", "workflowSlug",
       ].sort(),
     );

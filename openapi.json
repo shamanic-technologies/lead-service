@@ -1368,6 +1368,9 @@
               }
             ]
           },
+          "standing": {
+            "$ref": "#/components/schemas/LeadStanding"
+          },
           "contacted": {
             "type": "boolean",
             "description": "Lead has been contacted at least once in this scope (campaign or brand depending on query).",
@@ -1522,6 +1525,7 @@
           "apolloPersonId",
           "emailStatus",
           "lead",
+          "standing",
           "contacted",
           "sent",
           "sentCount",
@@ -1544,6 +1548,135 @@
           "global"
         ],
         "description": "One leads_campaigns row enriched with the full canonical lead payload (FullLead) and delivery status from email-gateway."
+      },
+      "LeadStanding": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "unresolved",
+              "not_contacted",
+              "contacted",
+              "engaged",
+              "sales_interest",
+              "customer",
+              "disqualified"
+            ],
+            "description": "Where this person stands on THIS campaign, decided by lead-service and by nobody else. `sales_interest` = they reached the step this campaign's sales funnel is entered by (a visit on a visit-led funnel, a positive reply on a conversation-led one) or a later step of it. `customer` = the funnel's last step (the sale) is reached. `disqualified` = they opted out, bounced, said no, or somebody stated they never will. `engaged` = something happened that is not the step this campaign sells. `contacted` = written to, nothing since. `not_contacted` = never written to. `unresolved` = a signal could not be resolved and is stated as such rather than defaulted — read `reason`. A consumer needs to know none of the reply kinds or funnel step names to use this.",
+            "example": "sales_interest"
+          },
+          "signal": {
+            "type": "string",
+            "enum": [
+              "none",
+              "not_served",
+              "contacted",
+              "open",
+              "click",
+              "reply",
+              "negative_reply",
+              "positive_reply",
+              "measured_visit",
+              "stated_outcome",
+              "stated_never",
+              "bounced",
+              "unsubscribed"
+            ],
+            "description": "Which single piece of evidence decided the state.",
+            "example": "measured_visit"
+          },
+          "origin": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "stated",
+              "implied",
+              "measured",
+              null
+            ],
+            "description": "Who said it: `stated` = a person stated it (or the website tracker reported it), `implied` = the campaign's funnel implies it from another statement, `measured` = the delivery layer measured it. null when nothing decided the state.",
+            "example": "measured"
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "delivery_not_queried",
+              "campaign_service_unavailable",
+              "campaign_unknown",
+              "funnel_unstated",
+              "statements_unreadable",
+              null
+            ],
+            "description": "Why the state is `unresolved`, and null for every other state. `delivery_not_queried` = the read named no brand or campaign, so the delivery layer was never asked. `campaign_service_unavailable` / `campaign_unknown` / `funnel_unstated` = the campaign's sales funnel could not be resolved, so there is no telling whether a click is the step it sells. `statements_unreadable` = the hand-stated statements could not be read. Never a plausible default.",
+            "example": null
+          },
+          "funnelKey": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "sales_meetings_from_conversation",
+              "sales_meetings_from_website",
+              "website_purchases",
+              "form_magnet",
+              "sales_from_conversation",
+              "sales_meetings_from_ads",
+              "lead_forms_from_ads",
+              null
+            ],
+            "description": "The sales funnel this campaign sells, as campaign-service states it. Never inferred from the brand or from a goal; null when it could not be resolved.",
+            "example": "form_magnet"
+          },
+          "entryStep": {
+            "type": "string",
+            "nullable": true,
+            "description": "The step somebody takes to get ONTO this campaign's funnel, in the funnel vocabulary brand-service publishes: `website_visit`, `conversation_reply` or `ad_click`. This is what `sales_interest` means for this campaign.",
+            "example": "website_visit"
+          },
+          "entryMeasure": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "delivery_click",
+              "positive_reply",
+              null
+            ],
+            "description": "Which signal that entry step is read off: `delivery_click` = a click on the email we sent, `positive_reply` = a reply the delivery layer classified as positive. null when this service holds no signal for it at all (an ad click), which is why `reachedEntryStep` is null on ads-led funnels rather than false.",
+            "example": "delivery_click"
+          },
+          "reachedEntryStep": {
+            "type": "boolean",
+            "nullable": true,
+            "description": "Whether this person got onto the campaign's funnel. Answered separately from `state` because both can be true at once: somebody who clicked and then unsubscribed reached the entry step AND is disqualified. null — never false — when the signal for it cannot be resolved.",
+            "example": true
+          },
+          "deepestStep": {
+            "type": "string",
+            "nullable": true,
+            "description": "The deepest step of this campaign's funnel known to have been reached, in this service's outcome vocabulary. null when no step is known reached.",
+            "example": null
+          },
+          "at": {
+            "type": "string",
+            "nullable": true,
+            "description": "When the deciding statement was made, when a statement decided the state.",
+            "example": null
+          }
+        },
+        "required": [
+          "state",
+          "signal",
+          "origin",
+          "reason",
+          "funnelKey",
+          "entryStep",
+          "entryMeasure",
+          "reachedEntryStep",
+          "deepestStep",
+          "at"
+        ],
+        "description": "Where this lead stands on the campaign it was served under, decided here so that two surfaces cannot say different things about the same person. Derived on read from the delivery evidence below plus the hand-stated step statements this service owns; nothing is stored, so a retracted or withdrawn statement moves it with no write."
       },
       "LeadDetailResponse": {
         "type": "object",
