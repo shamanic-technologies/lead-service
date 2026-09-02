@@ -201,6 +201,28 @@ export const leadsCampaigns = pgTable(
     sentAt: timestamp("sent_at", { withTimezone: true }),
     retryClaimedAt: timestamp("retry_claimed_at", { withTimezone: true }),
     retryCount: integer("retry_count").notNull().default(0),
+    // --- Follow-up queue (src/lib/followup-queue.ts) ---
+    // What we owe this person NEXT, and when. Once somebody shows a sales interest we owe them an
+    // answer now and, if they go quiet, further answers at growing intervals, indefinitely, until
+    // they book, opt out, or answer again. The debt belongs to the (lead, campaign) pair, which is
+    // this row. None of it changes what `status` means.
+    //
+    // followup_due_at         — when we next owe an action. NULL = nothing owed right now. The
+    //                           queue's ordering key: oldest due first, so a backlog cannot starve
+    //                           the people who have waited longest.
+    // followup_claimed_at     — the claim lease. The conditional UPDATE that writes it is what
+    //                           stops two concurrent workers answering the same prospect twice. It
+    //                           expires, so a worker that dies mid-answer strands nobody.
+    // followup_count          — how many follow-ups we have taken. Recorded, never a cap: there is
+    //                           no ceiling on follow-ups, the growing intervals are the limit, and
+    //                           the interval is the worker's per-lead choice, not a ladder here.
+    // followup_last_action_at — when we last acted.
+    // followup_stopped_reason — why the schedule is empty, when it is. Stated by the caller.
+    followupDueAt: timestamp("followup_due_at", { withTimezone: true }),
+    followupClaimedAt: timestamp("followup_claimed_at", { withTimezone: true }),
+    followupCount: integer("followup_count").notNull().default(0),
+    followupLastActionAt: timestamp("followup_last_action_at", { withTimezone: true }),
+    followupStoppedReason: text("followup_stopped_reason"),
     servedAt: timestamp("served_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -214,6 +236,8 @@ export const leadsCampaigns = pgTable(
     index("idx_lc_user").on(table.userId),
     // The retry pool's only read: this campaign's non-terminal serves, oldest first.
     index("idx_lc_retry_pool").on(table.orgId, table.campaignId, table.retryClaimedAt),
+    // The follow-up queue's only read: this campaign's due rows, oldest due first.
+    index("idx_lc_followup_queue").on(table.orgId, table.campaignId, table.followupDueAt),
     index("idx_lc_persona_attribution").on(
       table.orgId,
       table.featureSlug,

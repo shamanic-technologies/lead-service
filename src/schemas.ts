@@ -3499,3 +3499,227 @@ registry.registerPath({
     },
   },
 });
+
+// --- Follow-up queue ---
+//
+// Who is owed our next message, and when. Once a prospect shows a sales interest we owe them an
+// answer now and, if they go quiet, further answers at growing intervals, indefinitely, until they
+// book, opt out, or answer again. See src/lib/followup-queue.ts.
+
+const FollowupOrgHeaders = [
+  {
+    in: "header" as const,
+    name: "x-api-key",
+    required: true,
+    schema: { type: "string" as const },
+    description: "API key for authenticating requests",
+  },
+  {
+    in: "header" as const,
+    name: "x-org-id",
+    required: true,
+    schema: { type: "string" as const },
+    description: "Internal organization UUID from client-service",
+  },
+  {
+    in: "header" as const,
+    name: "x-run-id",
+    required: false,
+    schema: { type: "string" as const },
+    description: "Run the claim belongs to, forwarded to the delivery layer for tracing.",
+  },
+];
+
+const FollowupStateSchema = z
+  .object({
+    id: z.string().openapi({
+      description:
+        "The leads_campaigns row the debt belongs to — the same id a list row already carries.",
+      example: "40000000-0000-0000-0000-000000000001",
+    }),
+    leadId: z.string().openapi({ description: "The person.", example: "50000000-0000-0000-0000-000000000002" }),
+    campaignId: z.string().openapi({ description: "The campaign the debt was stated on.", example: "camp-1" }),
+    dueAt: z.string().nullable().openapi({
+      description:
+        "When we next owe this person an action. NULL means we owe them nothing right now: never scheduled, answered and not yet re-scheduled, or stopped. This is the queue's ordering key — oldest due first, so a backlog cannot starve whoever has waited longest.",
+      example: "2026-09-05T09:00:00.000Z",
+    }),
+    claimedAt: z.string().nullable().openapi({
+      description:
+        "When a worker took this row. The claim is what stops two workers answering the same prospect; it expires after an hour so a worker that dies mid-answer strands nobody.",
+      example: null,
+    }),
+    followupCount: z.number().int().openapi({
+      description:
+        "How many follow-ups we have taken toward this person. Recorded, never a cap — there is deliberately no ceiling on the number of follow-ups; the growing intervals are the limit.",
+      example: 3,
+    }),
+    lastActionAt: z.string().nullable().openapi({
+      description: "When we last acted, so how long they have been quiet is readable.",
+      example: "2026-08-29T09:00:00.000Z",
+    }),
+    stoppedReason: z.string().nullable().openapi({
+      description:
+        "Why the schedule is currently empty, when it is. Stated by whoever stopped it (\"opted_out\" is written by this service when the delivery layer reports an unsubscribe at claim time). NULL while a due date stands.",
+      example: "answered_again",
+    }),
+  })
+  .openapi("FollowupState", {
+    description: "What we owe one person on one campaign, and when.",
+    example: {
+      id: "40000000-0000-0000-0000-000000000001",
+      leadId: "50000000-0000-0000-0000-000000000002",
+      campaignId: "camp-1",
+      dueAt: "2026-09-05T09:00:00.000Z",
+      claimedAt: null,
+      followupCount: 3,
+      lastActionAt: "2026-08-29T09:00:00.000Z",
+      stoppedReason: null,
+    },
+  });
+
+const FollowupClaimSchema = z
+  .object({
+    found: z.boolean().openapi({
+      description: "Whether a person was claimed. At most one per call, and exactly once.",
+      example: true,
+    }),
+    reason: z.enum(["nothing_due", "all_claimed"]).optional().openapi({
+      description:
+        "Why nobody came back, present only when found=false. nothing_due — no row of this campaign is due right now. all_claimed — every due row is held by another worker, or was stopped during this call (an opt-out). Named rather than a silent empty, so a caller never has to guess whether the queue is drained or contended.",
+      example: "nothing_due",
+    }),
+    followup: z
+      .object({
+        id: z.string().openapi({ description: "The leads_campaigns row to answer for." }),
+        leadId: z.string().openapi({ description: "The person." }),
+        campaignId: z.string().openapi({ description: "The campaign." }),
+        brandId: z.string().openapi({ description: "The brand the delivery evidence was read for." }),
+        email: z.string().openapi({ description: "The person's canonical email." }),
+        audienceId: z.string().nullable().openapi({ description: "The audience the row carries, if any." }),
+        dueAt: z.string().nullable().openapi({ description: "When this action became owed." }),
+        followupCount: z.number().int().openapi({ description: "Follow-ups taken so far." }),
+        lastActionAt: z.string().nullable().openapi({ description: "When we last acted." }),
+      })
+      .optional()
+      .openapi({ description: "The claimed person, present only when found=true." }),
+  })
+  .openapi("FollowupClaim", { description: "The next person due on a campaign, or nobody and why." });
+
+registry.registerPath({
+  method: "post",
+  path: "/orgs/campaigns/{campaignId}/followups/claim-next",
+  summary: "Claim the next person due for a follow-up on this campaign",
+  description:
+    "Returns AT MOST ONE person, EXACTLY ONCE. The claim is an atomic conditional UPDATE, so two " +
+    "workers polling in the same instant receive different people or one receives nobody — never " +
+    "the same person twice, which is the failure this queue exists to prevent (a double email to a " +
+    "prospect cannot be taken back). The order is oldest-due-first, so a backlog cannot starve the " +
+    "people who have waited longest. Three stops are honoured and none of them is guessed: a person " +
+    "who OPTED OUT is never returned (read from the delivery layer at claim time and their schedule " +
+    "cleared for good), a person with a BOOKED MEETING on record is never returned (a stated or " +
+    "tracker-reported meeting_booked, meeting_attended or sale — the last two entail the booking), " +
+    "and a person who ANSWERED AGAIN is never returned (whoever observes the reply stops their " +
+    "schedule, and qualification re-decides what we owe). The claim expires after an hour, so a " +
+    "worker that dies mid-answer strands nobody. The scope is the campaign id named, not its " +
+    "identity family: this hands out a single row whose due date a worker wrote while naming that " +
+    "exact campaign, rather than totalling a population.",
+  request: {
+    params: z.object({
+      campaignId: z.string().openapi({
+        param: { name: "campaignId", in: "path" },
+        description: "The campaign whose queue is being drained.",
+        example: "camp-1",
+      }),
+    }),
+  },
+  parameters: FollowupOrgHeaders,
+  responses: {
+    200: {
+      description: "The claimed person, or nobody with a named reason",
+      content: { "application/json": { schema: FollowupClaimSchema } },
+    },
+    400: { description: "Missing campaignId or x-org-id" },
+    401: { description: "Unauthorized" },
+    500: { description: "Internal server error" },
+    502: {
+      description:
+        "The delivery layer could not say who opted out (code opt_out_lookup_unavailable). Nobody is claimed rather than somebody answered on a guess: a wasted poll is recoverable, an email to somebody who asked us to stop is not.",
+    },
+  },
+});
+
+const FollowupStatementRequestSchema = z
+  .object({
+    kind: z.enum(["scheduled", "acted", "stopped"]).openapi({
+      description:
+        "scheduled — we owe this person an action at dueAt (the first enqueue after qualification, and the re-enqueue after a fresh reply has been re-qualified); it is not an action, so the count does not move. acted — a worker answered them, and nextDueAt says when the next answer is owed; this is the only kind that increments the count. stopped — nothing is owed right now, and reason says why; NOT a tombstone, a later scheduled re-enters the person, which is exactly how \"they answered again\" is expressed.",
+      example: "acted",
+    }),
+    dueAt: z.string().optional().openapi({
+      description:
+        "ISO-8601 timestamp, REQUIRED on kind=scheduled. Bounded, never clamped: a date in the past or further out than a year is a 400 carrying the accepted range, because silently answering a request nobody made would leave the caller believing its date was honoured.",
+      example: "2026-09-02T12:00:00.000Z",
+    }),
+    nextDueAt: z.string().optional().openapi({
+      description:
+        "ISO-8601 timestamp, REQUIRED on kind=acted: when the NEXT action is owed. This service does not compute it. The interval is chosen per lead by the worker — a prospect who writes \"recontact me in January\" must be honoured — so it is stored data, not a ladder, and the growing intervals are what limit the sequence rather than a cap on the number of follow-ups (there is none).",
+      example: "2026-09-09T09:00:00.000Z",
+    }),
+    reason: z.string().optional().openapi({
+      description:
+        "REQUIRED on kind=stopped: why nothing is owed right now, stated by the caller and stored verbatim (\"answered_again\", \"meeting_booked\", \"not_interested\"). Absent is a 400, never an empty string.",
+      example: "answered_again",
+    }),
+  })
+  .openapi("FollowupStatementRequest", {
+    description: "What we owe one person on one campaign next.",
+  });
+
+registry.registerPath({
+  method: "post",
+  path: "/orgs/leads/{id}/followups",
+  summary: "Record what was done for this person and when the next action is due",
+  description:
+    "The lead is named by the `id` a list row already carries, so nothing about the person is " +
+    "re-supplied. The write releases any claim, so recording is what returns a person to the queue " +
+    "(or removes them from it) rather than waiting out the lease. The response IS the resulting " +
+    "state, so a caller never has to ask what its write did.",
+  request: {
+    params: LeadRowIdPathParam,
+    body: { content: { "application/json": { schema: FollowupStatementRequestSchema } } },
+  },
+  parameters: FollowupOrgHeaders,
+  responses: {
+    200: {
+      description: "The resulting follow-up state",
+      content: { "application/json": { schema: z.object({ followup: FollowupStateSchema }) } },
+    },
+    400: {
+      description:
+        "Invalid id or kind; a missing reason on kind=stopped (code reason_required); an unparseable due date (code due_date_unparseable); or one outside the accepted range (code due_date_out_of_bounds, with the bounds)",
+    },
+    401: { description: "Unauthorized" },
+    404: { description: "No such lead row for this org" },
+    500: { description: "Internal server error" },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/orgs/leads/{id}/followups",
+  summary: "Read one person's follow-up state",
+  description: "What we owe this person, when, how many follow-ups have gone out, and why the schedule is empty when it is.",
+  request: { params: LeadRowIdPathParam },
+  parameters: FollowupOrgHeaders,
+  responses: {
+    200: {
+      description: "The follow-up state",
+      content: { "application/json": { schema: z.object({ followup: FollowupStateSchema }) } },
+    },
+    400: { description: "Invalid id" },
+    401: { description: "Unauthorized" },
+    404: { description: "No such lead row for this org" },
+    500: { description: "Internal server error" },
+  },
+});
