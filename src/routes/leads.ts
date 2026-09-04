@@ -29,6 +29,11 @@ import {
 import { resolveAudiencesForBrand, type AudienceCard, type AudienceResolveContext } from "../lib/audience-client.js";
 import { createOfferCardResolver, type OfferCard } from "../lib/offer-card-client.js";
 import {
+  createCampaignBreakdownResolver,
+  type CampaignBreakdownResolver,
+  type LeadCampaignEvidence,
+} from "../lib/campaign-breakdown.js";
+import {
   createLeadStandingResolver,
   type LeadStandingResolver,
   type StandingRow,
@@ -36,228 +41,18 @@ import {
 import type { LeadStanding, LeadStandingDelivery } from "../lib/lead-standing.js";
 
 const router = Router();
+import {
+  DEFAULT_STATUS,
+  earliestIso,
+  flattenBrandStatus,
+  flattenCampaignStatus,
+  flattenFamilyStatus,
+  type FlattenedStatus,
+} from "../lib/delivery-flatten.js";
 
-interface FlattenedStatus {
-  contacted: boolean;
-  sent: boolean;
-  delivered: boolean;
-  opened: boolean;
-  clicked: boolean;
-  bounced: boolean;
-  unsubscribed: boolean;
-  replied: boolean;
-  replyClassification: "positive" | "negative" | "neutral" | null;
-  // Tri-state, deliberately: true = the provider reports this person as permanently out (the
-  // wrong contact, or gone from the role); false = it looked and says no; undefined = nobody can
-  // tell us (a provider without reply tracking, or a payload older than the field). Never
-  // collapsed to a boolean — see `resolveLeadStanding`.
-  disqualified?: boolean;
-  sentCount: number;
-  lastDeliveredAt: string | null;
-  firstContactedAt: string | null;
-  firstSentAt: string | null;
-  firstDeliveredAt: string | null;
-  firstOpenedAt: string | null;
-  firstClickedAt: string | null;
-  firstRepliedAt: string | null;
-  firstBouncedAt: string | null;
-  firstUnsubscribedAt: string | null;
-  global: { bounced: boolean; unsubscribed: boolean };
-}
+// Re-exported: these used to live in this module and callers/tests may import them from here.
+export { flattenBrandStatus, flattenCampaignStatus, flattenFamilyStatus };
 
-/** First-occurrence (MIN) merge: earliest non-null ISO timestamp across providers. */
-function earliestIso(a: string | null, b: string | null): string | null {
-  if (!a) return b;
-  if (!b) return a;
-  return a <= b ? a : b;
-}
-
-function pickScoped(s: ScopedStatus | null | undefined) {
-  return {
-    contacted: !!s?.contacted,
-    sent: !!s?.sent,
-    delivered: !!s?.delivered,
-    opened: !!s?.opened,
-    clicked: !!s?.clicked,
-    bounced: !!s?.bounced,
-    unsubscribed: !!s?.unsubscribed,
-    replied: !!s?.replied,
-    replyClassification: s?.replyClassification ?? null,
-    disqualified: s?.disqualified,
-    sentCount: s?.sentCount ?? 0,
-    lastDeliveredAt: s?.lastDeliveredAt ?? null,
-    firstContactedAt: s?.firstContactedAt ?? null,
-    firstSentAt: s?.firstSentAt ?? null,
-    firstDeliveredAt: s?.firstDeliveredAt ?? null,
-    firstOpenedAt: s?.firstOpenedAt ?? null,
-    firstClickedAt: s?.firstClickedAt ?? null,
-    firstRepliedAt: s?.firstRepliedAt ?? null,
-    firstBouncedAt: s?.firstBouncedAt ?? null,
-    firstUnsubscribedAt: s?.firstUnsubscribedAt ?? null,
-  };
-}
-
-function mergeGlobal(bc?: GlobalStatus | null, tx?: GlobalStatus | null) {
-  return {
-    bounced: !!(bc?.email?.bounced || tx?.email?.bounced),
-    unsubscribed: !!(bc?.email?.unsubscribed || tx?.email?.unsubscribed),
-  };
-}
-
-/**
- * OR across providers, but only over the providers that ANSWERED. A `true` from either one wins;
- * a `false` needs at least one provider to have looked; when neither serves the reading at all the
- * merge stays `undefined`, because "nobody can tell us" is not the same fact as "no".
- */
-function mergeDisqualified(
-  a: boolean | undefined,
-  b: boolean | undefined,
-): boolean | undefined {
-  if (a === true || b === true) return true;
-  if (a === false || b === false) return false;
-  return undefined;
-}
-
-function mergeProviders(
-  bcScope: ReturnType<typeof pickScoped>,
-  txScope: ReturnType<typeof pickScoped>,
-): Omit<FlattenedStatus, "global"> {
-  return {
-    contacted: bcScope.contacted || txScope.contacted,
-    sent: bcScope.sent || txScope.sent,
-    delivered: bcScope.delivered || txScope.delivered,
-    opened: bcScope.opened || txScope.opened,
-    clicked: bcScope.clicked || txScope.clicked,
-    bounced: bcScope.bounced || txScope.bounced,
-    unsubscribed: bcScope.unsubscribed || txScope.unsubscribed,
-    replied: bcScope.replied || txScope.replied,
-    replyClassification: bcScope.replyClassification ?? txScope.replyClassification ?? null,
-    disqualified: mergeDisqualified(bcScope.disqualified, txScope.disqualified),
-    // Broadcast (Instantly) and transactional (Postmark) are disjoint sending
-    // channels, so the total emails sent to this lead = sum across providers.
-    sentCount: bcScope.sentCount + txScope.sentCount,
-    lastDeliveredAt: bcScope.lastDeliveredAt ?? txScope.lastDeliveredAt ?? null,
-    firstContactedAt: earliestIso(bcScope.firstContactedAt, txScope.firstContactedAt),
-    firstSentAt: earliestIso(bcScope.firstSentAt, txScope.firstSentAt),
-    firstDeliveredAt: earliestIso(bcScope.firstDeliveredAt, txScope.firstDeliveredAt),
-    firstOpenedAt: earliestIso(bcScope.firstOpenedAt, txScope.firstOpenedAt),
-    firstClickedAt: earliestIso(bcScope.firstClickedAt, txScope.firstClickedAt),
-    firstRepliedAt: earliestIso(bcScope.firstRepliedAt, txScope.firstRepliedAt),
-    firstBouncedAt: earliestIso(bcScope.firstBouncedAt, txScope.firstBouncedAt),
-    firstUnsubscribedAt: earliestIso(bcScope.firstUnsubscribedAt, txScope.firstUnsubscribedAt),
-  };
-}
-
-export function flattenCampaignStatus(result: StatusResult): FlattenedStatus {
-  const bc = result.broadcast;
-  const tx = result.transactional;
-  const merged = mergeProviders(pickScoped(bc?.campaign), pickScoped(tx?.campaign));
-  if (bc?.brand?.contacted || tx?.brand?.contacted) merged.contacted = true;
-  return { ...merged, global: mergeGlobal(bc?.global, tx?.global) };
-}
-
-/**
- * Collapse one provider's per-campaign breakdown down to the members of ONE campaign identity.
- *
- * email-gateway keys its evidence on the campaign id that sent the email, so a person served under
- * a stopped ancestor of the identity has no evidence under the LIVE campaign id — asking in
- * campaign mode for that one id answers "never contacted" for a person the customer paid to
- * contact. Brand mode returns `byCampaign`, so the identity's own members are read from it and
- * nothing outside the identity is counted (a brand-scope answer would over-report a brand running
- * several identities). Booleans OR, `sentCount` sums (disjoint campaigns), `first*At` take the
- * earliest, `lastDeliveredAt` the latest, and the reply classification comes from the member that
- * replied most recently.
- */
-function aggregateFamilyScope(
-  provider: ProviderStatus | undefined,
-  family: Set<string>,
-): ScopedStatus | null {
-  const byCampaign = provider?.byCampaign;
-  if (!byCampaign) return null;
-
-  const scopes = Object.entries(byCampaign)
-    .filter(([campaignId]) => family.has(campaignId))
-    .map(([, scope]) => scope)
-    .filter((scope): scope is ScopedStatus => !!scope);
-  if (scopes.length === 0) return null;
-
-  const latestIso = (a: string | null, b: string | null): string | null => {
-    if (!a) return b;
-    if (!b) return a;
-    return a >= b ? a : b;
-  };
-
-  let repliedAt: string | null = null;
-  let replyClassification: ScopedStatus["replyClassification"] = null;
-  for (const scope of scopes) {
-    if (!scope.replyClassification) continue;
-    if (repliedAt === null || (scope.firstRepliedAt ?? "") >= repliedAt) {
-      repliedAt = scope.firstRepliedAt ?? "";
-      replyClassification = scope.replyClassification;
-    }
-  }
-
-  return scopes.reduce<ScopedStatus>(
-    (acc, s) => ({
-      contacted: acc.contacted || s.contacted,
-      sent: acc.sent || s.sent,
-      delivered: acc.delivered || s.delivered,
-      opened: acc.opened || s.opened,
-      clicked: acc.clicked || s.clicked,
-      replied: acc.replied || s.replied,
-      replyClassification,
-      disqualified: mergeDisqualified(acc.disqualified, s.disqualified),
-      bounced: acc.bounced || s.bounced,
-      unsubscribed: acc.unsubscribed || s.unsubscribed,
-      sentCount: (acc.sentCount ?? 0) + (s.sentCount ?? 0),
-      lastDeliveredAt: latestIso(acc.lastDeliveredAt, s.lastDeliveredAt),
-      firstContactedAt: earliestIso(acc.firstContactedAt, s.firstContactedAt),
-      firstSentAt: earliestIso(acc.firstSentAt, s.firstSentAt),
-      firstDeliveredAt: earliestIso(acc.firstDeliveredAt, s.firstDeliveredAt),
-      firstOpenedAt: earliestIso(acc.firstOpenedAt, s.firstOpenedAt),
-      firstClickedAt: earliestIso(acc.firstClickedAt, s.firstClickedAt),
-      firstRepliedAt: earliestIso(acc.firstRepliedAt, s.firstRepliedAt),
-      firstBouncedAt: earliestIso(acc.firstBouncedAt, s.firstBouncedAt),
-      firstUnsubscribedAt: earliestIso(acc.firstUnsubscribedAt, s.firstUnsubscribedAt),
-    }),
-    {
-      contacted: false, sent: false, delivered: false, opened: false, clicked: false,
-      replied: false, replyClassification, bounced: false, unsubscribed: false, sentCount: 0,
-      lastDeliveredAt: null, firstContactedAt: null, firstSentAt: null, firstDeliveredAt: null,
-      firstOpenedAt: null, firstClickedAt: null, firstRepliedAt: null, firstBouncedAt: null,
-      firstUnsubscribedAt: null,
-    },
-  );
-}
-
-/** The campaign-scope flatten for a campaign identity that spans several stored campaign rows. */
-export function flattenFamilyStatus(result: StatusResult, family: Set<string>): FlattenedStatus {
-  const bc = result.broadcast;
-  const tx = result.transactional;
-  const merged = mergeProviders(
-    pickScoped(aggregateFamilyScope(bc, family)),
-    pickScoped(aggregateFamilyScope(tx, family)),
-  );
-  // Same widening the single-campaign flatten applies: a person contacted anywhere for the brand
-  // reads as contacted, so the campaign page never claims an untouched person we did reach.
-  if (bc?.brand?.contacted || tx?.brand?.contacted) merged.contacted = true;
-  return { ...merged, global: mergeGlobal(bc?.global, tx?.global) };
-}
-
-export function flattenBrandStatus(result: StatusResult): FlattenedStatus {
-  const bc = result.broadcast;
-  const tx = result.transactional;
-  const merged = mergeProviders(pickScoped(bc?.brand), pickScoped(tx?.brand));
-  return { ...merged, global: mergeGlobal(bc?.global, tx?.global) };
-}
-
-const DEFAULT_STATUS: FlattenedStatus = {
-  contacted: false, sent: false, delivered: false, opened: false, clicked: false,
-  bounced: false, unsubscribed: false, replied: false, replyClassification: null, sentCount: 0, lastDeliveredAt: null,
-  firstContactedAt: null, firstSentAt: null, firstDeliveredAt: null, firstOpenedAt: null,
-  firstClickedAt: null, firstRepliedAt: null, firstBouncedAt: null, firstUnsubscribedAt: null,
-  global: { bounced: false, unsubscribed: false },
-};
 
 // A single brand can carry 50k+ leads_campaigns rows. Loading every row before
 // streaming still OOMs even if hydration/JSON writes are chunked. Read, hydrate,
@@ -529,6 +324,7 @@ function serializeLeadItem(
   offer: OfferCard | null,
   deliveryStatus: FlattenedStatus,
   standing: LeadStanding,
+  campaigns: LeadCampaignEvidence[] | null,
 ) {
   return {
     id: row.id,
@@ -562,6 +358,10 @@ function serializeLeadItem(
     // Where this person stands on THIS campaign — the served answer, so a consumer renders it
     // rather than deriving one of its own from the raw flags below. See lib/lead-standing.ts.
     standing,
+    // The person's campaigns of this brand, each stating what happened IN THAT CAMPAIGN — present
+    // only when the caller asked for it with `?include=campaigns`. Every field above stays exactly
+    // what it was: the brand-wide roll-up several dashboard surfaces already read.
+    ...(campaigns ? { campaigns } : {}),
     ...deliveryStatus,
   };
 }
@@ -656,6 +456,27 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
     const queryOrgIdStr = typeof queryOrgId === "string" ? queryOrgId : undefined;
     const userIdStr = typeof userId === "string" ? userId : undefined;
     const workflowSlugStr = typeof workflowSlug === "string" ? workflowSlug : undefined;
+
+    // What the caller wants BESIDE the row. `include=campaigns` nests this person's campaigns of
+    // this brand under the row, each card stating what happened in that campaign alone. Absent
+    // means today's response, byte for byte; an unknown value is a 400, never ignored — a silently
+    // dropped include is a consumer rendering an empty panel with nothing anywhere going red.
+    let includeCampaigns = false;
+    {
+      const include = req.query.include;
+      const raw = typeof include === "string" ? include : undefined;
+      if (raw !== undefined) {
+        const parts = raw.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
+        for (const part of parts) {
+          if (part !== "campaigns") {
+            return res.status(400).json({
+              error: `include must be a comma-separated list of: campaigns (got '${part}')`,
+            });
+          }
+        }
+        includeCampaigns = parts.includes("campaigns");
+      }
+    }
 
     // Which lifecycle statuses this read answers for. Absent means the actionable population
     // (DEFAULT_LEAD_LIST_STATUSES — everything but `skipped`); `?status=all` or an explicit list
@@ -786,6 +607,21 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       brandId: brandIdStr ?? null,
       deliveryQueried: hasScopeForStatus,
     });
+    // The nested campaign cards, when asked for. ONE resolver for the whole response: the org's
+    // campaign identities and its campaign -> offer map are read once and reused by every chunk.
+    const breakdownResolver: CampaignBreakdownResolver | null = includeCampaigns
+      ? createCampaignBreakdownResolver({
+          scope,
+          orgId: req.orgId!,
+          userId: req.userId ?? null,
+          runId: req.runId ?? null,
+          brandId: brandIdStr ?? null,
+          deliveryQueried: hasScopeForStatus,
+          offerResolver,
+          singleCampaignScopeId: statusCampaignIdStr ?? null,
+        })
+      : null;
+
     // `?view=basic` => slim per-lead payload. Anything else (incl. absent) => full
     // FullLead, the existing default. No Zod default: a missing param is full.
     const slim = req.query.view === "basic";
@@ -848,6 +684,18 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
           })),
         );
 
+        const breakdownMap = breakdownResolver
+          ? await breakdownResolver.resolve(
+              basicRows.map((r) => ({
+                id: r.id,
+                leadId: r.leadId,
+                email: r.email?.value ?? null,
+                delivery: deliveryByRow.get(r.id) ?? null,
+              })),
+              statusMap,
+            )
+          : null;
+
         for (const r of basicRows) {
           const emailValue = r.email?.value ?? "";
           const emailStatus = r.email?.status ?? null;
@@ -887,6 +735,8 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
             // Same field, same policy, same resolver as the full path — a slim row and a full row
             // for the same lead must not disagree about where that person stands.
             standing: standingMap.get(r.id) ?? unresolvedStanding(),
+            // Same field, same resolver as the full path — see serializeLeadItem.
+            ...(breakdownMap ? { campaigns: breakdownMap.get(r.id) ?? [] } : {}),
             ...deliveryStatus,
           };
 
@@ -992,6 +842,18 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
         })),
       );
 
+      const breakdownMap = breakdownResolver
+        ? await breakdownResolver.resolve(
+            chunkRows.map((row) => ({
+              id: row.id,
+              leadId: row.leadId,
+              email: primaryEmail(fullLeadByLeadId.get(row.leadId))?.value ?? null,
+              delivery: deliveryByRow.get(row.id) ?? null,
+            })),
+            statusMap,
+          )
+        : null;
+
       for (const row of chunkRows) {
         const fullLead = fullLeadByLeadId.get(row.leadId) ?? null;
         const email = primaryEmail(fullLead ?? undefined);
@@ -1005,6 +867,7 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
           offerMap.get(row.campaignId) ?? null,
           deliveryStatus,
           standingMap.get(row.id) ?? unresolvedStanding(),
+          breakdownMap ? (breakdownMap.get(row.id) ?? []) : null,
         );
 
         res.write((wroteFirst ? "," : "") + JSON.stringify(leadOut));
@@ -1073,6 +936,26 @@ router.get("/orgs/leads/:id", apiKeyAuth, requireOrgId, async (req: Authenticate
     const brandIdStr = typeof brandId === "string" ? brandId : undefined;
     const campaignIdStr = typeof campaignId === "string" ? campaignId : undefined;
 
+    // Same `include` the list takes, meaning the same thing: nest this person's campaigns of this
+    // brand under the record, each card stating what happened in that campaign alone. A panel
+    // rendered from the detail read and one rendered from a list row must not differ.
+    let includeCampaigns = false;
+    {
+      const include = req.query.include;
+      const raw = typeof include === "string" ? include : undefined;
+      if (raw !== undefined) {
+        const parts = raw.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
+        for (const part of parts) {
+          if (part !== "campaigns") {
+            return res.status(400).json({
+              error: `include must be a comma-separated list of: campaigns (got '${part}')`,
+            });
+          }
+        }
+        includeCampaigns = parts.includes("campaigns");
+      }
+    }
+
     // A brand scope the row is not part of names a lead this caller is not reading in that scope;
     // answer exactly as if it did not exist rather than leaking its existence.
     if (brandIdStr && !row.brandIds.includes(brandIdStr)) {
@@ -1121,6 +1004,7 @@ router.get("/orgs/leads/:id", apiKeyAuth, requireOrgId, async (req: Authenticate
     // Same rule as the list: evidence is only fetched for a served row in a named scope, so an
     // unserved row (or an unscoped read) carries the same all-false overlay it does there.
     let deliveryStatus: FlattenedStatus = DEFAULT_STATUS;
+    let statusResult: StatusResult | null = null;
     if ((brandIdStr || campaignIdStr) && row.status === "served" && email?.value) {
       const response = await checkDeliveryStatus(
         row.brandIds[0] ?? "unknown",
@@ -1128,8 +1012,8 @@ router.get("/orgs/leads/:id", apiKeyAuth, requireOrgId, async (req: Authenticate
         [{ email: email.value }],
         getServiceContext(req),
       );
-      const result = response.results.find((r) => r.email === email.value);
-      deliveryStatus = result ? flatten(result) : DEFAULT_STATUS;
+      statusResult = response.results.find((r) => r.email === email.value) ?? null;
+      deliveryStatus = statusResult ? flatten(statusResult) : DEFAULT_STATUS;
     }
 
     // One row, so nothing is memoized — the resolver exists here so the panel reads the SAME
@@ -1154,6 +1038,36 @@ router.get("/orgs/leads/:id", apiKeyAuth, requireOrgId, async (req: Authenticate
       ],
     );
 
+    // The nested campaign cards. Built from the SAME gateway answer the row above was flattened
+    // from — one delivery call, whichever way it is read.
+    const campaigns = includeCampaigns
+      ? ((
+          await createCampaignBreakdownResolver({
+            scope: {
+              orgId: req.orgId!,
+              brandId: brandIdStr,
+              campaignId: campaignIdStr,
+              campaignIds: scopeCampaignIds ?? undefined,
+            },
+            orgId: req.orgId!,
+            userId: req.userId ?? null,
+            runId: req.runId ?? null,
+            brandId: brandIdStr ?? null,
+            deliveryQueried: !!(brandIdStr || campaignIdStr),
+            offerResolver: createOfferCardResolver({
+              orgId: req.orgId!,
+              userId: req.userId ?? null,
+              runId: req.runId ?? null,
+              brandId: brandIdStr ?? null,
+            }),
+            singleCampaignScopeId: statusCampaignId(scopeCampaignIds) ?? null,
+          }).resolve(
+            [{ id: row.id, leadId: row.leadId, email: email?.value ?? null, delivery: deliveryStatus }],
+            statusResult ? new Map([[email!.value, statusResult]]) : new Map(),
+          )
+        ).get(row.id) ?? [])
+      : null;
+
     return res.json({
       leadDetail: serializeLeadItem(
         row,
@@ -1163,6 +1077,7 @@ router.get("/orgs/leads/:id", apiKeyAuth, requireOrgId, async (req: Authenticate
         offerMap.get(row.campaignId) ?? null,
         deliveryStatus,
         standingMap.get(row.id) ?? unresolvedStanding(),
+        campaigns,
       ),
     });
   } catch (error) {
