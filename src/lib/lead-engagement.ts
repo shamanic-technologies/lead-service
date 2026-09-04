@@ -21,6 +21,7 @@ import {
   type LeadBucket,
 } from "./lead-buckets.js";
 import { fetchOutcomesByLead, type LeadIndexRow } from "./lead-index.js";
+import type { LeadStandingState } from "./lead-standing.js";
 import type { LeadStepOutcomeName } from "./step-statements.js";
 
 /** One index row plus everything derived from evidence about that person. */
@@ -28,6 +29,20 @@ export interface EnrichedLeadIndexRow extends LeadIndexRow {
   buckets: Set<LeadBucket>;
   /** Never null — see leadActivityAt. */
   activityAt: string;
+  /**
+   * The delivery overlay this row's buckets were read from, collapsed to the read's scope — the
+   * SAME object a list row serializes. Kept on the row because where a lead STANDS is read from it
+   * too (a click is the measured half of a website visit), and reading it twice would be a second
+   * gateway fan-out answering a question the first one already answered.
+   */
+  delivery: FlattenedStatus;
+  /**
+   * Where this person stands on this campaign, attached AFTER enrichment by the caller that asked
+   * for it (see lead-standing-index.ts). Absent when nothing asked — a standing costs a
+   * campaign-service read and two indexed queries per chunk, and a read that only buckets or
+   * searches must not pay for it.
+   */
+  standing?: LeadStandingState;
 }
 
 /** The identity context email-gateway is called with — the same one the list calls it with. */
@@ -132,6 +147,7 @@ export async function enrichLeadIndex(
     return rows.map((row) => ({
       ...row,
       buckets: new Set<LeadBucket>(),
+      delivery: DEFAULT_STATUS,
       activityAt: leadActivityAt(null, null, row.servedAt, isoCreatedAt(row.createdAtText)),
     }));
   }
@@ -161,6 +177,7 @@ export async function enrichLeadIndex(
     return {
       ...row,
       buckets: bucketsForRow(delivery, outcomes.steps),
+      delivery,
       activityAt: leadActivityAt(delivery, outcomes.latestAt, row.servedAt, isoCreatedAt(row.createdAtText)),
     };
   });

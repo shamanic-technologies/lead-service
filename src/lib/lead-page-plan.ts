@@ -14,6 +14,7 @@
  */
 import { encodeLeadCursor, type LeadListCursor, type LeadListPage } from "./lead-list-query.js";
 import type { LeadBucket } from "./lead-buckets.js";
+import type { LeadStandingState } from "./lead-standing.js";
 import type { EnrichedLeadIndexRow } from "./lead-engagement.js";
 
 export const LEAD_SORT_ORDERS = ["created", "activity"] as const;
@@ -91,7 +92,7 @@ function positionOf(row: EnrichedLeadIndexRow, sort: LeadSortOrder): string {
 /**
  * Filter, order and window the index into the page a caller asked for.
  *
- * `total` is counted AFTER the bucket filter and BEFORE the window, so it is what the caller is
+ * `total` is counted AFTER the bucket/standing filter and BEFORE the window, so it is what the caller is
  * paging through — the number that labels "1-50 of N", not the size of the brand.
  */
 export function planLeadPage(
@@ -99,8 +100,16 @@ export function planLeadPage(
   bucket: LeadBucket | null,
   sort: LeadSortOrder,
   page: LeadListPage,
+  standing: LeadStandingState | null = null,
 ): LeadPagePlan {
-  const matching = bucket ? rows.filter((row) => row.buckets.has(bucket)) : [...rows];
+  // Two independent lenses, deliberately: an engagement bucket asks what HAPPENED to somebody and
+  // is not exclusive, a standing asks where they STAND on this campaign's funnel and is. Naming
+  // both narrows to the rows satisfying both, which is what a board with a search and a tab means.
+  const matching = rows.filter(
+    (row) =>
+      (bucket === null || row.buckets.has(bucket)) &&
+      (standing === null || (row.standing ?? "unresolved") === standing),
+  );
   const total = matching.length;
 
   const ordered = sort === "created" ? matching : matching.sort((a, b) => compareRows(a, b, sort));
