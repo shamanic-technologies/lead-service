@@ -34,6 +34,7 @@ import {
 import { FUNNEL_ENTRY, FUNNEL_STEPS, type FunnelKey } from "./funnel-steps.js";
 import { toIsoTimestamp } from "./basic-leads.js";
 import { resolveStepStates, type StatedNever, type StatedOutcome } from "./step-funnel-state.js";
+import { closedDealFrom, type ClosedDeal } from "./closed-deal.js";
 import {
   canonicalizeStepOutcome,
   LEAD_STEP_OUTCOMES,
@@ -65,6 +66,7 @@ interface OutcomeRow {
   source: string;
   value_cents: number | null;
   cost_cents: number | null;
+  caused_by_outreach: boolean | null;
   note: string | null;
   stated_by_user_id: string | null;
   received_at: Date | string | null;
@@ -80,8 +82,21 @@ interface NeverRow {
   updated_at: Date | string | null;
 }
 
+/**
+ * What one row reads as, derived from the SAME statements in the SAME pass.
+ *
+ * The standing and the closed deal are two answers off one set of facts, so they are resolved
+ * together: reading them apart would mean two queries over the same ledger and two chances for the
+ * row and the panel to disagree about whether somebody bought.
+ */
+export interface ResolvedLeadFacts {
+  standing: LeadStanding;
+  /** The deal on this lead's funnel, or null when nobody has stated one. See closed-deal.ts. */
+  closedDeal: ClosedDeal | null;
+}
+
 export interface LeadStandingResolver {
-  resolve(rows: StandingRow[]): Promise<Map<string, LeadStanding>>;
+  resolve(rows: StandingRow[]): Promise<Map<string, ResolvedLeadFacts>>;
 }
 
 export interface LeadStandingResolverOptions extends CampaignFunnelContext {
@@ -122,8 +137,8 @@ export function createLeadStandingResolver(
   }> | null = null;
 
   return {
-    async resolve(rows: StandingRow[]): Promise<Map<string, LeadStanding>> {
-      const out = new Map<string, LeadStanding>();
+    async resolve(rows: StandingRow[]): Promise<Map<string, ResolvedLeadFacts>> {
+      const out = new Map<string, ResolvedLeadFacts>();
       if (rows.length === 0) return out;
 
       if (!funnels) funnels = loadFunnelKeys(ctx);
@@ -141,7 +156,7 @@ export function createLeadStandingResolver(
           ? []
           : ((await db.execute(sql`
               SELECT lead_campaign_id, matched_lead_id, event, source, value_cents, cost_cents,
-                     note, stated_by_user_id, received_at
+                     caused_by_outreach, note, stated_by_user_id, received_at
               FROM conversion_events
               WHERE brand_id = ANY(${sql.param(brandIds)}::text[])
                 AND matched_lead_id = ANY(${sql.param(leadIds)}::uuid[])
@@ -200,6 +215,7 @@ export function createLeadStandingResolver(
             source: o.source === "manual" ? "manual" : "tracker",
             valueCents: o.value_cents,
             costCents: o.cost_cents,
+            causedByOutreach: o.caused_by_outreach,
             note: o.note,
             statedByUserId: o.stated_by_user_id,
             at: toIsoTimestamp(o.received_at),
@@ -214,6 +230,7 @@ export function createLeadStandingResolver(
             source: "tracker",
             valueCents: null,
             costCents: null,
+            causedByOutreach: null,
             note: null,
             statedByUserId: null,
             at: null,
@@ -239,9 +256,8 @@ export function createLeadStandingResolver(
           nevers,
         });
 
-        out.set(
-          row.id,
-          resolveLeadStanding({
+        out.set(row.id, {
+          standing: resolveLeadStanding({
             lifecycleStatus: row.status,
             deliveryQueried,
             delivery: row.delivery,
@@ -249,7 +265,9 @@ export function createLeadStandingResolver(
             funnelUnresolvedReason: unresolvedReason,
             steps,
           }),
-        );
+          // Off the SAME step states, in the same pass — never a second read of the same ledger.
+          closedDeal: closedDealFrom(steps),
+        });
       }
 
       return out;

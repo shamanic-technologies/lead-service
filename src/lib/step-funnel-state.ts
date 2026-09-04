@@ -33,6 +33,12 @@ export interface StatedOutcome {
   valueCents: number | null;
   /** What the CUSTOMER stated this leg cost them. Null = never asked; 0 = a stated zero. */
   costCents: number | null;
+  /**
+   * WHOSE win it was: true = the customer says our outreach caused this outcome, false = they say
+   * something else of theirs did (a referral, a conference, their own pipeline — still a REAL
+   * outcome), null = nobody was ever asked. Null is never read as either answer.
+   */
+  causedByOutreach: boolean | null;
   note: string | null;
   statedByUserId: string | null;
   at: string | null;
@@ -67,6 +73,13 @@ export interface StepReadState {
    * 0 is a stated zero, and it is not the same thing as null.
    */
   costCents: number | null;
+  /**
+   * WHOSE win it was — `true` our outreach, `false` something else of the customer's, `null` nobody
+   * was asked. Null on a pending step, on an IMPLIED one (nobody stated it, so nobody stated its
+   * cause), on a "never" (nothing happened, so nothing caused it) and on a tracker-reported outcome
+   * (a page-load tag observes a page load and cannot know why somebody bought).
+   */
+  causedByOutreach: boolean | null;
   note: string | null;
   statedByUserId: string | null;
   at: string | null;
@@ -97,6 +110,7 @@ function pending(
     source: null,
     valueCents: null,
     costCents: null,
+    causedByOutreach: null,
     note: null,
     statedByUserId: null,
     at: null,
@@ -138,6 +152,7 @@ export function resolveStepStates(input: ResolveStepStatesInput): StepReadState[
         source: outcome.source,
         valueCents: outcome.valueCents,
         costCents: outcome.costCents,
+        causedByOutreach: outcome.causedByOutreach,
         note: outcome.note,
         statedByUserId: outcome.statedByUserId,
         at: outcome.at,
@@ -158,6 +173,7 @@ export function resolveStepStates(input: ResolveStepStatesInput): StepReadState[
         source: null,
         valueCents: null,
         costCents: null,
+        causedByOutreach: null,
         note: null,
         statedByUserId: null,
         at: null,
@@ -176,6 +192,8 @@ export function resolveStepStates(input: ResolveStepStatesInput): StepReadState[
         source: "manual" as StatementSource,
         valueCents: null,
         costCents: never.costCents,
+        // Nothing happened, so nothing caused it.
+        causedByOutreach: null,
         note: never.note,
         statedByUserId: never.statedByUserId,
         at: never.at,
@@ -194,6 +212,7 @@ export function resolveStepStates(input: ResolveStepStatesInput): StepReadState[
         source: null,
         valueCents: null,
         costCents: null,
+        causedByOutreach: null,
         note: null,
         statedByUserId: null,
         at: null,

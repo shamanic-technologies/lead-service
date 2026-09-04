@@ -55,6 +55,7 @@ const StepStatementBodySchema = z.object({
   kind: z.enum(["outcome", "never"]),
   valueCents: z.number().int().optional(),
   costCents: z.number().int().optional(),
+  causedByOutreach: z.boolean().optional(),
   note: z.string().optional(),
   occurredAt: z.string().optional(),
 });
@@ -248,6 +249,16 @@ router.post(
       return;
     }
 
+    // WHOSE win it was is a fact about something that HAPPENED, so a "never" cannot carry it.
+    // Refused rather than dropped, for the same reason a value is: a silently-ignored answer reads
+    // to the caller as recorded, and nothing would ever show it.
+    if (body.kind === "never" && body.causedByOutreach !== undefined) {
+      res.status(400).json({
+        error: "causedByOutreach is not accepted on a \"never\" statement",
+      });
+      return;
+    }
+
     // A stated SALE must say what it was worth. It is the one place in the whole system where
     // estimating has no excuse: with no value, every downstream money figure — pipeline, ROI,
     // cost per acquisition — prices the deal at the brand's AVERAGE lifetime revenue, a number
@@ -431,6 +442,8 @@ router.post(
           // A "never" has no source: nothing observes it, a person states it. Counted by nothing.
           source: "manual" as StatementSource,
           valueCents: null,
+          // A "never" is not something that happened, so there is nothing for a cause to be about.
+          causedByOutreach: null,
           costCents,
           note: body.note ?? null,
           statedByUserId: statedBy,
@@ -469,18 +482,24 @@ router.post(
     // was established: the caller NAMED the lead, which is as deterministic as identity gets.
     const inserted = (await db.execute(sql`
       INSERT INTO conversion_events (
-        brand_id, org_id, event, dedupe_signature, value_cents, cost_cents, matched_lead_id,
-        match_method, match_confidence, attribution_status, candidate_count, received_at, source,
-        campaign_id, lead_campaign_id, stated_by_user_id, note
+        brand_id, org_id, event, dedupe_signature, value_cents, cost_cents, caused_by_outreach,
+        matched_lead_id, match_method, match_confidence, attribution_status, candidate_count,
+        received_at, source, campaign_id, lead_campaign_id, stated_by_user_id, note
       ) VALUES (
         ${brandId}, ${req.orgId!}, ${step}, ${manualOutcomeSignature(row.id, step)},
-        ${body.valueCents ?? null}, ${costCents}, ${row.lead_id}, 'manual', 'deterministic',
+        ${body.valueCents ?? null}, ${costCents}, ${body.causedByOutreach ?? null},
+        ${row.lead_id}, 'manual', 'deterministic',
         'attributed', 1, ${occurredAtIso ?? nowIso}, 'manual', ${row.campaign_id}, ${row.id},
         ${statedBy}, ${body.note ?? null}
       )
       ON CONFLICT (brand_id, dedupe_signature) WHERE dedupe_signature IS NOT NULL DO UPDATE SET
         value_cents = EXCLUDED.value_cents,
         cost_cents = EXCLUDED.cost_cents,
+        -- A restatement REPLACES the statement, exactly as it replaces the value and the note: it
+        -- is the same person saying the thing again, and what they say now is what stands. So
+        -- restating without naming a cause returns the outcome to "nobody was asked" rather than
+        -- quietly keeping an answer the author did not repeat.
+        caused_by_outreach = EXCLUDED.caused_by_outreach,
         note = EXCLUDED.note,
         received_at = EXCLUDED.received_at,
         stated_by_user_id = EXCLUDED.stated_by_user_id,
@@ -503,6 +522,8 @@ router.post(
         kind: "outcome",
         source: "manual" as StatementSource,
         valueCents: body.valueCents ?? null,
+        // WHOSE win it was, echoed back. null is "nobody was asked", never "not us".
+        causedByOutreach: body.causedByOutreach ?? null,
         costCents,
         note: body.note ?? null,
         statedByUserId: statedBy,
@@ -540,7 +561,8 @@ async function loadStepStates(
   // Outcomes credited to this person for this brand. A hand-stated one is keyed to the row it
   // was stated on; a tracker-reported one knows only the brand, so it is matched on the lead.
   const outcomeRows = (await db.execute(sql`
-    SELECT event, source, value_cents, cost_cents, note, stated_by_user_id, received_at
+    SELECT event, source, value_cents, cost_cents, caused_by_outreach, note, stated_by_user_id,
+           received_at
     FROM conversion_events
     WHERE brand_id = ${brandId}
       AND matched_lead_id = ${row.lead_id}
@@ -553,6 +575,7 @@ async function loadStepStates(
     source: string;
     value_cents: number | null;
     cost_cents: number | null;
+    caused_by_outreach: boolean | null;
     note: string | null;
     stated_by_user_id: string | null;
     received_at: Date | string | null;
@@ -586,6 +609,8 @@ async function loadStepStates(
       // about the customer's spend, and a statement predating the mandatory cost carries none.
       // 0 is a stated zero. Never conflated.
       costCents: o.cost_cents,
+      // WHOSE win it was. Null is "nobody was asked" — never "not us", and never "us".
+      causedByOutreach: o.caused_by_outreach,
       note: o.note,
       statedByUserId: o.stated_by_user_id,
       at: toIsoTimestamp(o.received_at),
@@ -621,6 +646,8 @@ async function loadStepStates(
         // The delivery layer measured a click. It knows nothing about what the customer spent,
         // so nobody was asked: null, never a fabricated zero.
         costCents: null,
+        // Nor does it know WHY: a measured click is not somebody stating what caused anything.
+        causedByOutreach: null,
         note: null,
         statedByUserId: null,
         at: null,
@@ -1138,6 +1165,7 @@ router.get(
           source: "manual",
           valueCents: null,
           costCents: null,
+          causedByOutreach: null,
           note: null,
           statedByUserId: null,
           at: null,

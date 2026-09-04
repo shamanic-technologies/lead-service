@@ -106,3 +106,36 @@ export type StepState = "outcome" | "never" | "pending";
 export function manualOutcomeSignature(leadCampaignId: string, step: LeadStepOutcomeName): string {
   return `m:${leadCampaignId}:${step}`;
 }
+
+/**
+ * WHOSE win an outcome was — did OUR outreach cause it, or something else the customer already
+ * does (a referral, a conference, an existing pipeline, another agency)?
+ *
+ * A brand does not only talk to people through us, so some of the people we email go on to buy for
+ * reasons that have nothing to do with us. A deal like that is a REAL closed deal — it is recorded,
+ * it is counted among the brand's own outcomes, and stating it honestly must never cost the person
+ * stating it anything — but a consumer computing the return on OUR outreach has to be able to leave
+ * its value out, and until this existed it could not tell the two apart at all.
+ *
+ * Three states, and the third is not a shade of either:
+ *
+ *   outreach — the customer says our outreach caused it (`caused_by_outreach = true`).
+ *   other    — the customer says something else of theirs did (`false`).
+ *   unstated — NOBODY WAS ASKED (`null`): every statement made before this existed, and every
+ *              tracker-reported outcome, because a page-load tag observes a page load and cannot
+ *              know why somebody bought. Never defaulted into either answer.
+ *
+ * This is deliberately NOT `attribution_status` (attributed / needs_review / unmatched), which
+ * answers whether the tracker managed to identify WHO somebody was. Conflating a fact about our
+ * identity matching with a fact about what caused a deal makes both unreadable.
+ */
+export type OutcomeCause = "outreach" | "other" | "unstated";
+
+export const OUTCOME_CAUSES: readonly OutcomeCause[] = ["outreach", "other", "unstated"];
+
+/** Which bucket a stored `caused_by_outreach` falls in. Null is its own answer, never a default. */
+export function outcomeCauseOf(causedByOutreach: boolean | null | undefined): OutcomeCause {
+  if (causedByOutreach === true) return "outreach";
+  if (causedByOutreach === false) return "other";
+  return "unstated";
+}
