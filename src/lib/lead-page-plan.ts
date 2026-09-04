@@ -100,15 +100,20 @@ export function planLeadPage(
   bucket: LeadBucket | null,
   sort: LeadSortOrder,
   page: LeadListPage,
-  standing: LeadStandingState | null = null,
+  standings: readonly LeadStandingState[] | null = null,
 ): LeadPagePlan {
   // Two independent lenses, deliberately: an engagement bucket asks what HAPPENED to somebody and
   // is not exclusive, a standing asks where they STAND on this campaign's funnel and is. Naming
   // both narrows to the rows satisfying both, which is what a board with a search and a tab means.
+  //
+  // SEVERAL standings read as ONE set, not as several reads: a board column can hold two states,
+  // and the point of naming them together is that the page, the order, the total and the cursor
+  // are the column's, not one of its halves'.
+  const standingSet = standings === null ? null : new Set<string>(standings);
   const matching = rows.filter(
     (row) =>
       (bucket === null || row.buckets.has(bucket)) &&
-      (standing === null || (row.standing ?? "unresolved") === standing),
+      (standingSet === null || standingSet.has(row.standing ?? "unresolved")),
   );
   const total = matching.length;
 

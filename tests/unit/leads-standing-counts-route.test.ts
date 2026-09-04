@@ -111,6 +111,10 @@ vi.mock("../../src/lib/offer-card-client.js", async (importOriginal) => ({
   createOfferCardResolver: () => ({ resolve: () => Promise.resolve(new Map()) }),
 }));
 vi.mock("../../src/lib/campaign-identity-client.js", () => ({ resolveCampaignFamily: () => Promise.resolve(null) }));
+vi.mock("../../src/lib/offer-campaigns-client.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/lib/offer-campaigns-client.js")>()),
+  resolveOfferCampaignIds: () => Promise.resolve(["camp-1"]),
+}));
 vi.mock("../../src/lib/trace-event.js", () => ({ traceEvent: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("../../src/config.js", () => ({ LEAD_SERVICE_API_KEY: "test-api-key" }));
 
@@ -340,5 +344,105 @@ describe("GET /orgs/leads?standing=", () => {
     const res = await counts(`?brandId=${BRAND}`);
     expect(res.status).toBe(200);
     expect(standingChunks).toEqual([1000, 1000, 500]);
+  });
+});
+
+/**
+ * A COLUMN of the board is not always ONE standing: five columns over eight states means two of
+ * them hold two states each (still in play holds the person nobody has heard from and the person
+ * who did something that is not the step their campaign sells; showing interest holds the person
+ * who reached that step and the person who bought). Such a column must read as ONE page — one
+ * order, one total, one walkable cursor — because two independently-bounded lists cannot be merged
+ * into a column that pages.
+ */
+describe("GET /orgs/leads?standing=a,b (a column holding several standings)", () => {
+  it("answers ONE page covering the named set, totalled over the whole set", async () => {
+    const res = await get(`?brandId=${BRAND}&view=basic&standing=sales_interest,customer`);
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(2);
+    expect(res.body.leads.map((l: { id: string }) => l.id)).toEqual([
+      indexRows[2].id,
+      indexRows[3].id,
+    ]);
+    // Only the page's own rows were hydrated — one read, not one per standing.
+    expect(hydrated).toEqual([[indexRows[2].id, indexRows[3].id]]);
+  });
+
+  it("states the set's size even when the page is bounded below it", async () => {
+    const res = await get(
+      `?brandId=${BRAND}&view=basic&standing=not_contacted,contacted,engaged,unresolved&limit=1`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.leads).toHaveLength(1);
+    // contacted + engaged + the one nobody could resolve.
+    expect(res.body.total).toBe(3);
+    expect(res.body.nextCursor).toBeTruthy();
+  });
+
+  it("walks the set to the end with no gaps and no repeats", async () => {
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < 6; page++) {
+      const query =
+        `?brandId=${BRAND}&view=basic&standing=contacted,engaged,unresolved&limit=1` +
+        (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
+      const res: request.Response = await get(query);
+      expect(res.status).toBe(200);
+      expect(res.body.total).toBe(3);
+      for (const lead of res.body.leads) seen.push(lead.id);
+      cursor = res.body.nextCursor;
+      if (!cursor) break;
+    }
+    expect(seen).toEqual([indexRows[0].id, indexRows[1].id, indexRows[6].id]);
+    expect(new Set(seen).size).toBe(3);
+  });
+
+  it("sums to the counts of the states it names, so a column's header and body agree", async () => {
+    const counted = await counts(`?brandId=${BRAND}`);
+    const listed = await get(`?brandId=${BRAND}&view=basic&standing=sales_interest,customer`);
+    expect(listed.body.total).toBe(
+      counted.body.counts.sales_interest + counted.body.counts.customer,
+    );
+  });
+
+  it("answers the same set at campaign scope and at offer scope", async () => {
+    for (const scope of [`&campaignId=camp-1`, `&offerId=o1`]) {
+      const res = await get(`?brandId=${BRAND}&view=basic&standing=sales_interest,customer${scope}`);
+      expect(res.status).toBe(200);
+      expect(res.body.total).toBe(2);
+      expect(res.body.leads).toHaveLength(2);
+    }
+  });
+
+  it("answers the set with a search naming it too", async () => {
+    const res = await get(`?brandId=${BRAND}&view=basic&standing=sales_interest,customer&q=example`);
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(2);
+  });
+
+  it("reads a single standing exactly as it always did", async () => {
+    const one = await get(`?brandId=${BRAND}&view=basic&standing=customer`);
+    const listed = await get(`?brandId=${BRAND}&view=basic&standing=customer,customer`);
+    expect(one.status).toBe(200);
+    expect(listed.body.total).toBe(one.body.total);
+    expect(listed.body.leads).toEqual(one.body.leads);
+  });
+
+  it("400s when any member of the set is a standing it does not know", async () => {
+    const res = await get(`?brandId=${BRAND}&standing=customer,interested`);
+    expect(res.status).toBe(400);
+    // The message names the member that is wrong, not the whole set.
+    expect(res.body.error).toContain("Unknown standing value(s): interested");
+  });
+
+  it("400s on an empty set rather than silently widening it to the brand", async () => {
+    const res = await get(`?brandId=${BRAND}&standing=,`);
+    expect(res.status).toBe(400);
+  });
+
+  it("refuses rather than answering a differently-filtered list when the standing cannot be resolved", async () => {
+    standingFails = true;
+    const res = await get(`?brandId=${BRAND}&view=basic&standing=sales_interest,customer`);
+    expect(res.status).toBe(502);
   });
 });
