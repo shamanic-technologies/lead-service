@@ -28,6 +28,7 @@ import {
   type LeadListScope,
 } from "../lib/lead-list-query.js";
 import { parseLeadSearch } from "../lib/lead-search.js";
+import { leadExportHeader, leadExportLine } from "../lib/lead-export.js";
 import { parseLeadBucket, zeroBucketCounts, type LeadBucket } from "../lib/lead-buckets.js";
 import { countLeadListRows, fetchLeadIndex } from "../lib/lead-index.js";
 import { countBuckets, enrichLeadIndex, type EngagementContext } from "../lib/lead-engagement.js";
@@ -483,68 +484,6 @@ function parseLeadFormat(raw: unknown): LeadListFormat {
   throw new Error(`Unknown format '${raw}'. Valid: json, csv`);
 }
 
-/** One CSV field: quoted always, embedded quotes doubled — the only escaping RFC 4180 asks for. */
-function csvCell(value: unknown): string {
-  if (value === null || value === undefined) return '""';
-  return '"' + String(value).replace(/"/g, '""') + '"';
-}
-
-/**
- * The columns an export carries.
- *
- * A person, where they work, how to reach them, where they are in the funnel, and the evidence
- * behind that — the same facts the table renders, flattened. Deliberately NOT the whole record:
- * an export nobody can open in a spreadsheet is not an export.
- */
-const LEAD_CSV_COLUMNS = [
-  "id", "leadId", "firstName", "lastName", "name", "currentTitle", "email", "emailStatus",
-  "company", "companyDomain", "audience", "offer", "campaignId", "status", "servedAt",
-  "standing", "standingSignal", "contacted", "sent", "delivered", "opened", "clicked",
-  "replied", "replyClassification", "bounced", "unsubscribed", "firstSentAt", "firstClickedAt",
-  "firstRepliedAt",
-] as const;
-
-/** One export line, built from the SAME object the JSON list emits — never a second projection. */
-function leadCsvLine(item: Record<string, unknown>): string {
-  const lead = (item.lead ?? null) as Record<string, unknown> | null;
-  const organization = (lead?.organization ?? null) as Record<string, unknown> | null;
-  const standing = (item.standing ?? null) as Record<string, unknown> | null;
-  const audience = (item.audience ?? null) as Record<string, unknown> | null;
-  const offer = (item.offer ?? null) as Record<string, unknown> | null;
-  const values: Record<(typeof LEAD_CSV_COLUMNS)[number], unknown> = {
-    id: item.id,
-    leadId: item.leadId,
-    firstName: lead?.firstName ?? null,
-    lastName: lead?.lastName ?? null,
-    name: lead?.name ?? null,
-    currentTitle: lead?.currentTitle ?? null,
-    email: item.email,
-    emailStatus: item.emailStatus,
-    company: organization?.name ?? null,
-    companyDomain: organization?.primaryDomain ?? null,
-    audience: audience?.name ?? null,
-    offer: offer?.name ?? null,
-    campaignId: item.campaignId,
-    status: item.status,
-    servedAt: item.servedAt,
-    standing: standing?.state ?? null,
-    standingSignal: standing?.signal ?? null,
-    contacted: item.contacted,
-    sent: item.sent,
-    delivered: item.delivered,
-    opened: item.opened,
-    clicked: item.clicked,
-    replied: item.replied,
-    replyClassification: item.replyClassification,
-    bounced: item.bounced,
-    unsubscribed: item.unsubscribed,
-    firstSentAt: item.firstSentAt,
-    firstClickedAt: item.firstClickedAt,
-    firstRepliedAt: item.firstRepliedAt,
-  };
-  return LEAD_CSV_COLUMNS.map((column) => csvCell(values[column])).join(",") + "\n";
-}
-
 /**
  * The delivery half of a standing, read off the overlay this row already carries. No second
  * source: whatever scope the engagement fields answer for, the standing answers for.
@@ -801,7 +740,7 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
     if (resolved.kind === "empty") {
       if (format === "csv") {
         res.setHeader("Content-Type", "text/csv; charset=utf-8");
-        return res.send(LEAD_CSV_COLUMNS.join(",") + "\n");
+        return res.send(leadExportHeader());
       }
       // Same rule as every other read: a caller that named a bound or a filter is told how many
       // rows it is paging through, and here that is honestly zero.
@@ -908,7 +847,7 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
           "Content-Disposition",
           `attachment; filename="leads-${brandIdStr ?? req.orgId}-${new Date().toISOString().slice(0, 10)}.csv"`,
         );
-        res.write(LEAD_CSV_COLUMNS.join(",") + "\n");
+        res.write(leadExportHeader());
       } else {
         res.setHeader("Content-Type", "application/json");
         res.write('{"leads":[');
@@ -1029,7 +968,7 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
           };
 
           if (format === "csv") {
-            res.write(leadCsvLine(leadOut as unknown as Record<string, unknown>));
+            res.write(leadExportLine(leadOut as unknown as Record<string, unknown>));
           } else {
             res.write((wroteFirstBasic ? "," : "") + JSON.stringify(leadOut));
           }

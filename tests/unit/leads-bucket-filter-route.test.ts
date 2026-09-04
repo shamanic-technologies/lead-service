@@ -290,7 +290,15 @@ describe("GET /orgs/leads?format=csv", () => {
     expect(res.headers["content-type"]).toMatch(/text\/csv/);
     expect(res.headers["content-disposition"]).toMatch(/attachment; filename="leads-/);
     const lines = res.text.trim().split("\n");
-    expect(lines[0]).toContain('email');
+    // Headed in the words the page uses, never in the field names the JSON carries.
+    expect(lines[0]).toContain('"Email"');
+    expect(lines[0]).toContain('"Website visit"');
+    expect(lines[0]).toContain('"Reply sentiment"');
+    expect(lines[0]).not.toContain('"clicked"');
+    // A yes/no fact reads as a word, not as a raw boolean token.
+    expect(lines[1]).toMatch(/"(Yes|No)"/);
+    expect(lines[1]).not.toContain('"true"');
+    expect(lines[1]).not.toContain('"false"');
     // Three contacted people, one line each — no paging involved.
     expect(lines).toHaveLength(4);
   });
