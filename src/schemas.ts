@@ -2126,6 +2126,25 @@ registry.registerPath({
     },
     {
       in: "query" as const,
+      name: "standing",
+      required: false,
+      description:
+        "Restrict the read to ONE standing state: `unresolved`, `not_contacted`, `contacted`, " +
+        "`engaged`, `sales_interest`, `customer`, `disqualified`. This is the `standing.state` " +
+        "every row already carries — where the lead stands on the funnel ITS campaign sells, " +
+        "decided by this service and rendered by everyone else. Unlike a `bucket` it IS a " +
+        "partition: a lead has exactly one standing, so it is what a triage board draws a column " +
+        "per. Naming a `bucket` too narrows to the rows satisfying both. `total` is then the " +
+        "column's size, and GET /orgs/leads/standing-counts answers every column's size without " +
+        "returning any rows. An unknown value is a 400. A standing that cannot be resolved for " +
+        "this scope is a 502 — never a differently-filtered list answered with a 200.",
+      schema: { type: "string" as const, enum: [
+        "unresolved", "not_contacted", "contacted", "engaged", "sales_interest", "customer",
+        "disqualified",
+      ] },
+    },
+    {
+      in: "query" as const,
       name: "sort",
       required: false,
       description:
@@ -2167,8 +2186,8 @@ registry.registerPath({
     },
     400: {
       description:
-        "Invalid `status`, `limit`, `cursor`, `offset`, `q`, `bucket`, `sort` or `format` value, " +
-        "or `offerId` and `campaignId` both named",
+        "Invalid `status`, `limit`, `cursor`, `offset`, `q`, `bucket`, `standing`, `sort` or " +
+        "`format` value, or `offerId` and `campaignId` both named",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     401: { description: "Unauthorized" },
@@ -2275,6 +2294,112 @@ registry.registerPath({
     502: {
       description:
         "The delivery evidence these counts are counted from could not be read — refused rather than answered with zeros",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+const LeadStandingCountsResponseSchema = z
+  .object({
+    total: z.number().int().openapi({
+      description:
+        "The whole scoped population — every lead the same list read would return for this scope. " +
+        "A standing is a PARTITION (one per lead), so the counts below SUM to this exactly.",
+      example: 2052,
+    }),
+    counts: z
+      .object({
+        unresolved: z.number().int(),
+        not_contacted: z.number().int(),
+        contacted: z.number().int(),
+        engaged: z.number().int(),
+        sales_interest: z.number().int(),
+        customer: z.number().int(),
+        disqualified: z.number().int(),
+      })
+      .openapi({
+        description:
+          "How many leads stand in each state. Every key is ALWAYS present — a state nobody is in " +
+          "is 0, never absent, so a consumer can draw a column per state without guessing. " +
+          "`unresolved` is counted like any other: it is a stated non-answer (the campaign states " +
+          "no funnel, campaign-service could not be reached, the read named no scope so the " +
+          "delivery layer was never asked), and dropping it would make the columns fail to add up " +
+          "to the population they say they are showing.",
+      }),
+  })
+  .openapi("LeadStandingCountsResponse", {
+    description: "Response shape for GET /orgs/leads/standing-counts. Counts only — never any rows.",
+  });
+
+registry.registerPath({
+  method: "get",
+  path: "/orgs/leads/standing-counts",
+  summary: "Count the leads in each standing state, without returning any of them",
+  description:
+    "Answers how many leads stand in each standing state for a scope, and NO lead rows. A triage " +
+    "board draws one column per standing — still in play, sales interest, disqualified, opted out, " +
+    "and the unresolved case — and states each column's size; doing that from a bounded page of " +
+    "leads sorted in the browser makes every number on the screen describe a different population " +
+    "(one production campaign: 2,052 leads in scope, 200 fetched, so the page reads '200 leads' " +
+    "and '19 sales interests' directly beneath its own heading, which correctly reads '2,052 " +
+    "leads'). A count is a number, and a number should not cost a population. " +
+    "Takes the SAME scope vocabulary as GET /orgs/leads, meaning the same thing: `brandId`, " +
+    "`campaignId` (resolved to the whole campaign identity), `offerId`, `status` and `q`, with the " +
+    "same lifecycle default (`buffered,claimed,served`). The set counted is exactly the set " +
+    "`GET /orgs/leads?standing=<state>` returns for those parameters, so a column's stated size " +
+    "and what the column shows cannot disagree. " +
+    "Standing is funnel-aware and per campaign — deliberately NOT the engagement-bucket " +
+    "vocabulary, which asks what happened to somebody rather than where they stand; see " +
+    "GET /orgs/leads/bucket-counts for that. " +
+    "email-gateway unreachable, or a standing that cannot be resolved, is a 502 — never zeros.",
+  parameters: [
+    ...AuthHeaders,
+    { in: "query" as const, name: "brandId", required: false, schema: { type: "string" as const } },
+    { in: "query" as const, name: "campaignId", required: false, schema: { type: "string" as const } },
+    {
+      in: "query" as const,
+      name: "offerId",
+      required: false,
+      description:
+        "Restrict the counted population to one offer, exactly as on the list. Mutually exclusive " +
+        "with `campaignId`. An offer no campaign sells yet counts zero, never the brand.",
+      schema: { type: "string" as const },
+    },
+    { in: "query" as const, name: "orgId", required: false, schema: { type: "string" as const } },
+    { in: "query" as const, name: "userId", required: false, schema: { type: "string" as const } },
+    { in: "query" as const, name: "workflowSlug", required: false, schema: { type: "string" as const } },
+    {
+      in: "query" as const,
+      name: "status",
+      required: false,
+      description:
+        "Which lifecycle statuses to count, same vocabulary and same default as the list: absent " +
+        "means `buffered,claimed,served`, the population a caller can act on.",
+      schema: { type: "string" as const },
+    },
+    {
+      in: "query" as const,
+      name: "q",
+      required: false,
+      description:
+        "Count within a free-text search, same fields and same rules as on the list — so the " +
+        "column counts follow the search box.",
+      schema: { type: "string" as const },
+    },
+  ],
+  responses: {
+    200: {
+      description: "How many leads stand in each state, plus the scoped population",
+      content: { "application/json": { schema: LeadStandingCountsResponseSchema } },
+    },
+    400: {
+      description: "Invalid `status` or `q` value, or `offerId` and `campaignId` both named",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: { description: "Unauthorized" },
+    502: {
+      description:
+        "The delivery evidence, or the funnel each campaign sells, could not be read — refused rather than answered with zeros",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
   },

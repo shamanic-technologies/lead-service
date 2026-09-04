@@ -406,3 +406,26 @@ export function resolveLeadStanding(input: LeadStandingInput): LeadStanding {
   // Served, in scope, and the delivery layer has no event for them yet.
   return { ...shared, state: "not_contacted", signal: "none", origin: null, reason: null };
 }
+
+/**
+ * Resolve the `standing` query param. Absent → null (no standing filter). Anything that is not a
+ * standing state is a 400 (throws) — never a silent "no filter", which would answer a whole brand
+ * to a caller that asked for one column of a triage board.
+ */
+export function parseLeadStanding(raw: unknown): LeadStandingState | null {
+  if (raw === undefined) return null;
+  if (typeof raw !== "string") throw new Error("standing must be a single standing state");
+  const trimmed = raw.trim();
+  if ((LEAD_STANDING_STATES as readonly string[]).includes(trimmed)) {
+    return trimmed as LeadStandingState;
+  }
+  throw new Error(`Unknown standing '${raw}'. Valid: ${LEAD_STANDING_STATES.join(", ")}`);
+}
+
+/** A count per standing state, every key always present — a state nobody is in is 0, never absent. */
+export function zeroStandingCounts(): Record<LeadStandingState, number> {
+  return Object.fromEntries(LEAD_STANDING_STATES.map((s) => [s, 0])) as Record<
+    LeadStandingState,
+    number
+  >;
+}
