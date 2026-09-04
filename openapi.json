@@ -1482,6 +1482,13 @@
             "description": "First-occurrence (MIN) ISO 8601 timestamp of an unsubscribed event in this scope; null if it never happened in scope. Passed through from email-gateway status.",
             "example": "2026-01-01T00:00:00.000Z"
           },
+          "campaigns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LeadCampaignEvidence"
+            },
+            "description": "This person's campaigns within the read's scope, each card stating what happened IN THAT CAMPAIGN. Present ONLY when the caller passes `?include=campaigns`; absent otherwise, so every existing consumer's response is byte-identical. This exists because a brand-scoped read answers one row per PERSON and its top-level delivery fields are the BRAND-wide roll-up — 56,809 people in production sit in more than one campaign of one brand, so nesting campaign cards under a person without this would print byte-identical evidence under every card. Both facts are served at once: the brand-wide roll-up stays exactly where it was (the leads table's status badge, its tabs, the triage board and the covered-lead count all read it), and these cards answer the per-campaign question beside it. A card whose `delivery` is null means the provider reports no evidence for that campaign — 'we cannot tell', never 'no'."
+          },
           "global": {
             "type": "object",
             "properties": {
@@ -1679,6 +1686,223 @@
           "at"
         ],
         "description": "Where this lead stands on the campaign it was served under, decided here so that two surfaces cannot say different things about the same person. Derived on read from the delivery evidence below plus the hand-stated step statements this service owns; nothing is stored, so a retracted or withdrawn statement moves it with no write."
+      },
+      "LeadCampaignEvidence": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The leads_campaigns row this card speaks for — addressable at GET /orgs/leads/{id}.",
+            "example": "50000000-0000-0000-0000-000000000002"
+          },
+          "campaignId": {
+            "type": "string",
+            "description": "The campaign row that membership names.",
+            "example": "60000000-0000-0000-0000-000000000002"
+          },
+          "campaignIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Every stored campaign id whose evidence this card reads — the campaign IDENTITY's members (org, brand, sales funnel, acquisition channel), restricted to the read's own campaign scope when it has one. `[campaignId]` when the identity could not be resolved.",
+            "example": [
+              "60000000-0000-0000-0000-000000000002"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "buffered",
+              "skipped",
+              "claimed",
+              "served"
+            ],
+            "description": "Lifecycle status of this person in this campaign.",
+            "example": "served"
+          },
+          "servedAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "When this person was served to this campaign.",
+            "example": "2026-01-01T00:00:00.000Z"
+          },
+          "audienceId": {
+            "type": "string",
+            "nullable": true,
+            "description": "The audience tagged on this membership row, when it carries one.",
+            "example": null
+          },
+          "offer": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Offer UUID (brand-service offer.offerId).",
+                "example": "0ffe0000-0000-4000-8000-000000000001"
+              },
+              "name": {
+                "type": "string",
+                "nullable": true,
+                "description": "Offer display name, from brand-service.",
+                "example": "Fractional CFO retainer"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "description": "The offer this campaign sells — the same card the row's `offer` names."
+          },
+          "standing": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LeadStanding"
+              },
+              {
+                "description": "Where this person stands ON THIS CAMPAIGN, resolved exactly as the row-level standing is. A card whose delivery evidence the provider cannot speak to reads `unresolved` with `reason: \"delivery_not_queried\"` unless a hand statement decides it — never `not_contacted`."
+              }
+            ]
+          },
+          "delivery": {
+            "$ref": "#/components/schemas/LeadCampaignDelivery"
+          }
+        },
+        "required": [
+          "id",
+          "campaignId",
+          "campaignIds",
+          "status",
+          "servedAt",
+          "audienceId",
+          "offer",
+          "standing",
+          "delivery"
+        ],
+        "description": "One campaign of a person, with the delivery evidence of that campaign alone. The row's own top-level delivery fields stay the BRAND-wide roll-up; these cards are the per-campaign answer beside them, so a consumer can tell 'this campaign reached them' from 'some campaign of this brand did' without aggregating anything itself."
+      },
+      "LeadCampaignDelivery": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "contacted": {
+            "type": "boolean"
+          },
+          "sent": {
+            "type": "boolean"
+          },
+          "delivered": {
+            "type": "boolean"
+          },
+          "opened": {
+            "type": "boolean"
+          },
+          "clicked": {
+            "type": "boolean"
+          },
+          "bounced": {
+            "type": "boolean"
+          },
+          "unsubscribed": {
+            "type": "boolean"
+          },
+          "replied": {
+            "type": "boolean"
+          },
+          "replyClassification": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "positive",
+              "negative",
+              "neutral",
+              null
+            ]
+          },
+          "disqualified": {
+            "type": "boolean",
+            "description": "Tri-state: true = the provider reports this person as permanently out, false = it looked and says no, ABSENT = nobody can tell us. Never collapsed to a boolean."
+          },
+          "sentCount": {
+            "type": "number"
+          },
+          "lastDeliveredAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "firstContactedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "firstSentAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "firstDeliveredAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "firstOpenedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "firstClickedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "firstRepliedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "firstBouncedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "firstUnsubscribedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "global": {
+            "type": "object",
+            "properties": {
+              "bounced": {
+                "type": "boolean"
+              },
+              "unsubscribed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "bounced",
+              "unsubscribed"
+            ]
+          }
+        },
+        "required": [
+          "contacted",
+          "sent",
+          "delivered",
+          "opened",
+          "clicked",
+          "bounced",
+          "unsubscribed",
+          "replied",
+          "replyClassification",
+          "sentCount",
+          "lastDeliveredAt",
+          "firstContactedAt",
+          "firstSentAt",
+          "firstDeliveredAt",
+          "firstOpenedAt",
+          "firstClickedAt",
+          "firstRepliedAt",
+          "firstBouncedAt",
+          "firstUnsubscribedAt",
+          "global"
+        ],
+        "description": "The delivery evidence for THIS campaign alone, read out of the per-campaign breakdown email-gateway returns in brand mode. **null means the provider reports none for this campaign — 'we cannot tell', NOT 'nothing happened'.** An all-false status is never substituted for it, because the two are different facts."
       },
       "LeadDetailResponse": {
         "type": "object",
@@ -4048,6 +4272,16 @@
           },
           {
             "in": "query",
+            "name": "include",
+            "required": false,
+            "description": "Comma-separated extras. The only value is `campaigns`: nest this person's campaigns (within the read's scope) under each row, each card carrying the delivery evidence and standing OF THAT CAMPAIGN ALONE. Absent means today's response byte for byte; an unknown value is a 400, never silently dropped. A card's `delivery: null` means the provider reports no evidence for that campaign — 'we cannot tell', not 'no'.",
+            "schema": {
+              "type": "string",
+              "example": "campaigns"
+            }
+          },
+          {
+            "in": "query",
             "name": "offerId",
             "required": false,
             "description": "Restrict returned leads to ONE offer — brand-service's proposition level, between the brand and the campaign. A lead's offer is the offer named by the campaign it was served under: the membership row's `campaign_id` is a frozen attribution, and campaign-service records which offer each campaign sells, so this resolves to every campaign in the org naming that offer and filters on the same `campaign_id` a campaignId read filters on. Delivery status is offer-scoped (the union over those campaigns), the same way a campaign identity's is. MUTUALLY EXCLUSIVE with `campaignId` — a campaign already sells exactly one offer, so naming both is a 400 rather than one silently winning. An offer no campaign sells yet returns an empty list, never the brand's leads. If campaign-service cannot say which campaigns sell it, the read is refused with a 502 — never widened to the brand. When absent, behavior + response shape are unchanged.",
@@ -4290,6 +4524,16 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "description": "Comma-separated extras. The only value is `campaigns`: nest this person's campaigns (within the read's scope) under each row, each card carrying the delivery evidence and standing OF THAT CAMPAIGN ALONE. Absent means today's response byte for byte; an unknown value is a 400, never silently dropped. A card's `delivery: null` means the provider reports no evidence for that campaign — 'we cannot tell', not 'no'.",
+            "schema": {
+              "type": "string",
+              "example": "campaigns"
             }
           },
           {
