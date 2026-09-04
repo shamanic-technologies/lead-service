@@ -32,6 +32,11 @@ import { leadExportHeader, leadExportLine } from "../lib/lead-export.js";
 import { parseLeadBucket, zeroBucketCounts, type LeadBucket } from "../lib/lead-buckets.js";
 import { countLeadListRows, fetchLeadIndex } from "../lib/lead-index.js";
 import { countBuckets, enrichLeadIndex, type EngagementContext } from "../lib/lead-engagement.js";
+import {
+  attachLeadStandings,
+  countStandings,
+  standingDelivery,
+} from "../lib/lead-standing-index.js";
 import { parseLeadSort, planLeadPage, type LeadPagePlan, type LeadSortOrder } from "../lib/lead-page-plan.js";
 import { resolveAudiencesForBrand, type AudienceCard, type AudienceResolveContext } from "../lib/audience-client.js";
 import { createOfferCardResolver, type OfferCard } from "../lib/offer-card-client.js";
@@ -45,7 +50,12 @@ import {
   type LeadStandingResolver,
   type StandingRow,
 } from "../lib/lead-standing-resolver.js";
-import type { LeadStanding, LeadStandingDelivery } from "../lib/lead-standing.js";
+import {
+  parseLeadStanding,
+  zeroStandingCounts,
+  type LeadStandingState,
+} from "../lib/lead-standing.js";
+import type { LeadStanding } from "../lib/lead-standing.js";
 
 const router = Router();
 import {
@@ -485,25 +495,6 @@ function parseLeadFormat(raw: unknown): LeadListFormat {
 }
 
 /**
- * The delivery half of a standing, read off the overlay this row already carries. No second
- * source: whatever scope the engagement fields answer for, the standing answers for.
- */
-function standingDelivery(status: FlattenedStatus): LeadStandingDelivery {
-  return {
-    contacted: status.contacted,
-    opened: status.opened,
-    clicked: status.clicked,
-    replied: status.replied,
-    replyClassification: status.replyClassification,
-    disqualified: status.disqualified,
-    bounced: status.bounced,
-    unsubscribed: status.unsubscribed,
-    globalBounced: status.global.bounced,
-    globalUnsubscribed: status.global.unsubscribed,
-  };
-}
-
-/**
  * The standing of every row in one chunk. A resolver failure is NOT allowed to take the walk down:
  * the standing of a lead whose funnel or statements could not be read is stated as unresolved, and
  * the raw delivery facts beside it are unaffected. Anything else would fail a 57k-row list read
@@ -713,12 +704,14 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
     // dropped filter is a consumer rendering a filtered-looking list that was never filtered.
     let searchTokens: string[] | null;
     let bucket: LeadBucket | null;
+    let standing: LeadStandingState | null;
     let sort: LeadSortOrder;
     let format: LeadListFormat;
     try {
       statuses = parseLeadStatusFilter(req.query.status);
       searchTokens = parseLeadSearch(req.query.q);
       bucket = parseLeadBucket(req.query.bucket);
+      standing = parseLeadStanding(req.query.standing);
       sort = parseLeadSort(req.query.sort);
       format = parseLeadFormat(req.query.format);
       // How much of that population to return, and where to start. Absent `limit` means the whole
@@ -747,6 +740,7 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       const bounded =
         searchTokens !== null ||
         bucket !== null ||
+        standing !== null ||
         sort !== "created" ||
         page.limit !== null ||
         page.offset !== null ||
@@ -801,12 +795,15 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
     // one narrow row each — the page is chosen from that index, and only the page's own ids are
     // hydrated. A read naming none of the three never builds an index and is byte-identical to
     // what it has always been.
-    const indexed = searchTokens !== null || bucket !== null || sort !== "created";
+    const indexed =
+      searchTokens !== null || bucket !== null || standing !== null || sort !== "created";
     // The gateway fan-out is only paid for when something actually asks about evidence. A read
     // that only searches needs neither the delivery overlay nor the outcome ledger to choose its
     // rows, and paying for a population-wide fan-out to answer a search would be the same waste in
     // a different place.
-    const needsEvidence = bucket !== null || sort === "activity";
+    // A standing is read FROM the delivery overlay (a click is the measured half of a website
+    // visit), so asking for one column of the board is asking about evidence too.
+    const needsEvidence = bucket !== null || standing !== null || sort === "activity";
     let plan: LeadPagePlan | null = null;
     if (indexed) {
       const indexRows = await fetchLeadIndex(scope, searchTokens);
@@ -815,7 +812,21 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
         engagementContext(req, scope, brandIdStr, statusCampaignIdStr, flatten, hasScopeForStatus),
         needsEvidence,
       );
-      plan = planLeadPage(enriched, bucket, sort, page);
+      // FAIL LOUD, unlike the per-row standing on the walk: there a standing nobody could resolve
+      // is one field of a row, here it decides WHICH rows come back at all, so a resolver that
+      // throws must not quietly answer a differently-filtered list with a 200.
+      if (standing !== null) {
+        try {
+          await attachLeadStandings(enriched, standingResolver);
+        } catch (error) {
+          console.error(
+            "[lead-service] a standing-filtered read is refused: where these leads stand could " +
+              `not be resolved, and a wrongly-filtered list is worse than none: ${(error as Error).message}`,
+          );
+          return res.status(502).json({ error: "lead standing unavailable" });
+        }
+      }
+      plan = planLeadPage(enriched, bucket, sort, page, standing);
     }
 
     // How many rows match what the caller asked for — the number that labels the page, not the
@@ -1213,6 +1224,100 @@ router.get("/orgs/leads/bucket-counts", apiKeyAuth, requireOrgId, async (req: Au
     return res.json({ total: enriched.length, counts: countBuckets(enriched) });
   } catch (error) {
     console.error("[lead-service] Bucket counts error:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * GET /orgs/leads/standing-counts — how many leads stand in each state, and no rows.
+ *
+ * A triage board draws one column per STANDING (still in play, sales interest, disqualified,
+ * opted out, and the unresolved case) and states each column's size. Doing that by fetching a
+ * bounded page of leads and sorting the cards in the browser makes every number on the screen
+ * about a different population: one production campaign has 2,052 leads in scope, 200 of them
+ * fetched, so the page reads "200 leads" and "19 sales interests" directly beneath its own heading,
+ * which correctly reads "2,052 leads". Every number is real and none of them agree.
+ *
+ * So this answers the whole scope, and returns no lead rows. It takes the SAME scope vocabulary as
+ * GET /orgs/leads — `brandId`, `campaignId` (resolved to the whole campaign identity), `offerId`,
+ * `status`, `q` — through the SAME resolution (resolveLeadReadScope), over the SAME index, with
+ * the SAME delivery overlay and the SAME standing resolver the list uses. A column's stated size
+ * and what `GET /orgs/leads?standing=<state>` then shows are the same set by construction.
+ *
+ * Standing IS a partition, unlike the engagement buckets: a lead has exactly one, so these counts
+ * SUM to `total`. `unresolved` is one of them and is counted like any other — a board that dropped
+ * the leads nobody could resolve would not add up to the population it says it is showing.
+ *
+ * FAIL LOUD: email-gateway unreachable is a 502 and so is a standing that cannot be resolved at
+ * all — never a count of zero, which is a wrong number nothing anywhere would go red about.
+ */
+router.get("/orgs/leads/standing-counts", apiKeyAuth, requireOrgId, async (req: AuthenticatedRequest, res) => {
+  try {
+    let statuses: readonly string[];
+    let searchTokens: string[] | null;
+    try {
+      statuses = parseLeadStatusFilter(req.query.status);
+      searchTokens = parseLeadSearch(req.query.q);
+    } catch (error) {
+      return res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+
+    const resolved = await resolveLeadReadScope(req, statuses);
+    if (resolved.kind === "error") {
+      return res.status(resolved.status).json({ error: resolved.error });
+    }
+    // An offer no campaign sells: a real, empty population, stated as such rather than widened.
+    if (resolved.kind === "empty") {
+      return res.json({ total: 0, counts: zeroStandingCounts() });
+    }
+
+    const brandId = typeof req.query.brandId === "string" ? req.query.brandId : undefined;
+    const indexRows = await fetchLeadIndex(resolved.scope, searchTokens);
+
+    let enriched;
+    try {
+      enriched = await enrichLeadIndex(
+        indexRows,
+        engagementContext(
+          req,
+          resolved.scope,
+          brandId,
+          resolved.statusCampaignIdStr,
+          resolved.flatten,
+          resolved.hasScopeForStatus,
+        ),
+        true,
+      );
+    } catch (error) {
+      console.error(
+        "[lead-service] standing counts refused: the delivery evidence they are read from could " +
+          `not be read: ${(error as Error).message}`,
+      );
+      return res.status(502).json({ error: "email-gateway unavailable" });
+    }
+
+    // The same resolver the list builds, with the same identity and the same delivery scope: one
+    // campaign-service read for the whole request, reused by every chunk.
+    const standingResolver = createLeadStandingResolver({
+      orgId: req.orgId!,
+      userId: req.userId ?? null,
+      runId: req.runId ?? null,
+      brandId: brandId ?? null,
+      deliveryQueried: resolved.hasScopeForStatus,
+    });
+    try {
+      await attachLeadStandings(enriched, standingResolver);
+    } catch (error) {
+      console.error(
+        "[lead-service] standing counts refused: where these leads stand could not be resolved: " +
+          `${(error as Error).message}`,
+      );
+      return res.status(502).json({ error: "lead standing unavailable" });
+    }
+
+    return res.json({ total: enriched.length, counts: countStandings(enriched) });
+  } catch (error) {
+    console.error("[lead-service] Standing counts error:", error);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
