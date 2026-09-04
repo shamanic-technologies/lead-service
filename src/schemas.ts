@@ -2149,6 +2149,8 @@ registry.registerPath({
         "showing, without paging through it in the browser. The file is written to be READ: its " +
         "columns are headed in the words the Leads page uses (First name, Email status, Title, " +
         "Company domain, Contacted, Website visit, Reply sentiment, First replied at, ...), a " +
+        "person suppressed across the whole org reads under `Bounced (any brand)` / " +
+        "`Unsubscribed (any brand)` beside this brand's own `Bounced` / `Unsubscribed`, a " +
         "yes/no fact reads as `Yes`/`No`, and an instant reads as `YYYY-MM-DD HH:MM:SS` (UTC), " +
         "which every spreadsheet parses as a date. The facts are the slim projection flattened " +
         "(person, company, email, lifecycle, standing, delivery evidence) minus the internal row, " +
