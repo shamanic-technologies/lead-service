@@ -97,6 +97,14 @@ export const LEAD_EXPORT_COLUMNS: readonly LeadExportColumn[] = [
   { header: "First replied at", kind: "datetime", read: (i) => i.firstRepliedAt },
   { header: "First bounced at", kind: "datetime", read: (i) => i.firstBouncedAt },
   { header: "First unsubscribed at", kind: "datetime", read: (i) => i.firstUnsubscribedAt },
+  // Suppression ACROSS the org, not on this brand: somebody cleaning a list needs to tell
+  // "never write to this person again, under any brand" from "this brand stopped writing to
+  // them". Same two facts the JSON carries as `global.bounced` / `global.unsubscribed`, read
+  // off the SAME item. They are appended rather than placed beside their per-brand namesakes
+  // because a customer may already have a sheet built on the column positions this file has
+  // today, and the headings carry the distinction instead.
+  { header: "Bounced (any brand)", kind: "yesno", read: (i) => nested(i, "global")?.bounced },
+  { header: "Unsubscribed (any brand)", kind: "yesno", read: (i) => nested(i, "global")?.unsubscribed },
 ] as const;
 
 /**

@@ -59,6 +59,7 @@ const item = {
   firstRepliedAt: "2026-08-03T08:00:00.000Z",
   firstBouncedAt: null,
   firstUnsubscribedAt: null,
+  global: { bounced: true, unsubscribed: false },
 };
 
 function cells(line: string): string[] {
@@ -83,7 +84,19 @@ describe("the export a customer opens", () => {
       "Website visit", "Replied", "Reply sentiment", "Bounced", "Unsubscribed", "Served at",
       "First contacted at", "First sent at", "First delivered at", "First opened at",
       "First website visit at", "First replied at", "First bounced at", "First unsubscribed at",
+      "Bounced (any brand)", "Unsubscribed (any brand)",
     ]);
+  });
+
+  it("tells suppression across the org apart from this brand's own", () => {
+    // The two facts answer different questions: this person bounced somewhere under another
+    // brand of the same org, and did not bounce on the brand this export is scoped to.
+    expect(cellFor("Bounced")).toBe("No");
+    expect(cellFor("Bounced (any brand)")).toBe("Yes");
+    expect(cellFor("Unsubscribed")).toBe("No");
+    expect(cellFor("Unsubscribed (any brand)")).toBe("No");
+    const headers = cells(leadExportHeader());
+    expect(new Set(headers).size).toBe(headers.length);
   });
 
   it("names no API field and no internal identifier", () => {
