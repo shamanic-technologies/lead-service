@@ -134,7 +134,7 @@ describe("where a lead stands on the campaign it was served under", () => {
         delivery: { contacted: true, clicked: true, unsubscribed: true },
         outcomes: { sale: "manual" },
       });
-      expect(s.state).toBe("disqualified");
+      expect(s.state).toBe("opted_out");
       expect(s.signal).toBe("unsubscribed");
       // Both facts stay true and readable: they DID reach the entry step, and they DID opt out.
       expect(s.reachedEntryStep).toBe(true);
@@ -142,8 +142,20 @@ describe("where a lead stands on the campaign it was served under", () => {
 
     it("honours a global unsubscribe the same as a scoped one", () => {
       expect(stand({ delivery: { contacted: true, globalUnsubscribed: true } }).state).toBe(
-        "disqualified",
+        "opted_out",
       );
+    });
+
+    // The board draws an opt-out and a disqualification as two columns with different copy and
+    // different moves, so the two must never collapse into one state.
+    it("keeps an opt-out apart from a commercial disqualification", () => {
+      const optedOut = stand({ delivery: { contacted: true, unsubscribed: true } });
+      const wrongContact = stand({
+        delivery: { contacted: true, replied: true, replyClassification: "negative", disqualified: true },
+      });
+      expect(optedOut.state).toBe("opted_out");
+      expect(wrongContact.state).toBe("disqualified");
+      expect(optedOut.state).not.toBe(wrongContact.state);
     });
 
     it("puts a human statement above every machine signal", () => {
@@ -271,9 +283,9 @@ describe("where a lead stands on the campaign it was served under", () => {
       expect(clicked.signal).toBe("measured_visit");
     });
 
-    // The opt-out column is drawn off `signal`, so being out of play by our judgement and being
-    // out of play by the prospect's own act must never collapse into one answer.
-    it("keeps an opt-out distinguishable from a disqualification", () => {
+    // Being out of play by our judgement and being out of play by the prospect's own act are two
+    // STATES, so a board can count and page each without reading a row's evidence.
+    it("reads an opt-out as opted_out even when the provider also disqualifies them", () => {
       const out = stand({
         delivery: {
           contacted: true,
@@ -283,7 +295,7 @@ describe("where a lead stands on the campaign it was served under", () => {
           disqualified: true,
         },
       });
-      expect(out.state).toBe("disqualified");
+      expect(out.state).toBe("opted_out");
       expect(out.signal).toBe("unsubscribed");
     });
 
@@ -322,9 +334,9 @@ describe("where a lead stands on the campaign it was served under", () => {
       expect(said.signal).toBe("disqualifying_reply");
     });
 
-    it("still disqualifies an OPT-OUT, which is the prospect's own binding act", () => {
+    it("still reads an OPT-OUT as opted_out, which is the prospect's own binding act", () => {
       const s = stand({ delivery: { contacted: true, unsubscribed: true, bounced: true } });
-      expect(s.state).toBe("disqualified");
+      expect(s.state).toBe("opted_out");
       expect(s.signal).toBe("unsubscribed");
     });
 
