@@ -1815,6 +1815,15 @@ const LeadsResponseSchema = z
         "last one in this response. null means this response reached the end of the population — " +
         "always null for an unbounded read (no `limit`).",
     }),
+    total: z.number().int().optional().openapi({
+      description:
+        "How many leads match this read's filter IN TOTAL — the number the page is a window onto, " +
+        "so a consumer can page rather than hold the population. Present whenever the caller named " +
+        "a bound (`limit` / `offset` / `cursor`) or a filter (`q` / `bucket` / `sort`); ABSENT on " +
+        "an unbounded, unfiltered read, whose response is unchanged byte for byte. Counted over " +
+        "the same relation the rows come from, so the two can never describe different populations.",
+      example: 12945,
+    }),
   })
   .openapi("LeadsResponse", {
     description: "Response shape for GET /orgs/leads.",
@@ -2082,6 +2091,66 @@ registry.registerPath({
         "one to prefer. Mutually exclusive with `cursor`. A negative or non-integer value is a 400.",
       schema: { type: "integer" as const, minimum: 0 },
     },
+    {
+      in: "query" as const,
+      name: "q",
+      required: false,
+      description:
+        "Free-text search over the person's name, their job title, their email address and their " +
+        "company's name — evaluated over the WHOLE matching population, not over a page. Words are " +
+        "split on whitespace and EVERY word must match at least one of those fields, so two words " +
+        "narrow rather than widen. Case-insensitive substring matching; `%` and `_` are matched " +
+        "literally. `total` on the response is the number of matches. Blank, longer than 200 " +
+        "characters, or more than 8 words is a 400 — never a silently ignored search.",
+      schema: { type: "string" as const, example: "jane acme" },
+    },
+    {
+      in: "query" as const,
+      name: "bucket",
+      required: false,
+      description:
+        "Restrict the read to ONE engagement bucket: `contacted`, `website_visit`, " +
+        "`positive_reply`, `signup`, `meeting_booked`, `meeting_attended`, `form_submission`, " +
+        "`sale`. Buckets are the tabs a leads page offers, and they are NOT exclusive — somebody " +
+        "who bought was also contacted, and appears under both. `contacted` / `website_visit` / " +
+        "`positive_reply` come from the delivery evidence at this read's scope (a website visit is " +
+        "a measured click OR a hand-stated visit, unioned per person, never summed); the five " +
+        "outcomes come from this service's live, attributed conversion ledger, tracker-reported " +
+        "and hand-stated alike, withdrawn statements excluded. `total` is then the bucket's size. " +
+        "GET /orgs/leads/bucket-counts answers every bucket's count without returning any rows. " +
+        "An unknown value is a 400.",
+      schema: { type: "string" as const, enum: [
+        "contacted", "website_visit", "positive_reply", "signup", "meeting_booked",
+        "meeting_attended", "form_submission", "sale",
+      ] },
+    },
+    {
+      in: "query" as const,
+      name: "sort",
+      required: false,
+      description:
+        "The order rows come back in. ABSENT (or `created`) => `(created_at, id)` ascending, " +
+        "exactly as this endpoint has always answered. `activity` => newest first on the timestamp " +
+        "that proves each lead's most advanced status: an outcome by when it was recorded, a reply " +
+        "by the reply, a click by the click, an open by the open, a send by the send, and down to " +
+        "the moment the lead was served. Ties break on the row id, so both orders are TOTAL and a " +
+        "`limit` + `cursor` walk visits every row exactly once — no gaps, no repeats. An unknown " +
+        "value is a 400.",
+      schema: { type: "string" as const, enum: ["created", "activity"] },
+    },
+    {
+      in: "query" as const,
+      name: "format",
+      required: false,
+      description:
+        "ABSENT (or `json`) => the JSON response documented here. `csv` => the whole matching set " +
+        "as a downloadable file (text/csv, Content-Disposition attachment), streamed, honouring " +
+        "every scope, `status`, `q` and `bucket` — so an export is exactly what the page is " +
+        "showing, without paging through it in the browser. The columns are the slim projection " +
+        "flattened (person, company, email, lifecycle, standing, delivery evidence); `limit` and " +
+        "`cursor` are irrelevant to it. An unknown value is a 400.",
+      schema: { type: "string" as const, enum: ["json", "csv"] },
+    },
   ],
   responses: {
     200: {
@@ -2090,13 +2159,114 @@ registry.registerPath({
     },
     400: {
       description:
-        "Invalid `status`, `limit`, `cursor` or `offset` value, or `offerId` and `campaignId` both named",
+        "Invalid `status`, `limit`, `cursor`, `offset`, `q`, `bucket`, `sort` or `format` value, " +
+        "or `offerId` and `campaignId` both named",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     401: { description: "Unauthorized" },
     502: {
       description:
         "`offerId` was named and campaign-service could not say which campaigns sell it — the read is refused rather than widened to the brand",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+const LeadBucketCountsResponseSchema = z
+  .object({
+    total: z.number().int().openapi({
+      description:
+        "The whole scoped population — every lead the same list read would return for this scope, " +
+        "including the people who carry no evidence at all and are therefore in no bucket. Bucket " +
+        "membership is not exclusive and the counts do NOT sum to this.",
+      example: 12945,
+    }),
+    counts: z
+      .object({
+        contacted: z.number().int(),
+        website_visit: z.number().int(),
+        positive_reply: z.number().int(),
+        signup: z.number().int(),
+        meeting_booked: z.number().int(),
+        meeting_attended: z.number().int(),
+        form_submission: z.number().int(),
+        sale: z.number().int(),
+      })
+      .openapi({
+        description:
+          "How many people are in each engagement bucket. Every key is ALWAYS present — a bucket " +
+          "nobody is in is 0, never absent. A consumer shows whichever of the five outcomes its " +
+          "brand's funnel prices; this read does not decide that, because a brand can run several " +
+          "funnels at once.",
+      }),
+  })
+  .openapi("LeadBucketCountsResponse", {
+    description: "Response shape for GET /orgs/leads/bucket-counts. Counts only — never any rows.",
+  });
+
+registry.registerPath({
+  method: "get",
+  path: "/orgs/leads/bucket-counts",
+  summary: "Count the leads in each engagement bucket, without returning any of them",
+  description:
+    "Answers how many leads fall in each engagement bucket for a scope, and NO lead rows. A leads " +
+    "page labels a tab per bucket and states its population; doing that by taking every lead and " +
+    "counting them in the browser costs 44 MB and about 6.6s for one production brand, on a tab " +
+    "that re-reads every 15 seconds and is far too large for the browser to cache — so the page " +
+    "cold-loads on every visit. A count is a number, and a number should not cost a population. " +
+    "Takes the SAME scope vocabulary as GET /orgs/leads, meaning the same thing: `brandId`, " +
+    "`campaignId` (resolved to the whole campaign identity), `offerId`, `status` and `q`. The set " +
+    "counted is therefore exactly the set `GET /orgs/leads` returns for those parameters, so a " +
+    "tab's count and what the tab shows cannot disagree. " +
+    "email-gateway unreachable is a 502 — never a count of zero.",
+  parameters: [
+    ...AuthHeaders,
+    { in: "query" as const, name: "brandId", required: false, schema: { type: "string" as const } },
+    { in: "query" as const, name: "campaignId", required: false, schema: { type: "string" as const } },
+    {
+      in: "query" as const,
+      name: "offerId",
+      required: false,
+      description:
+        "Restrict the counted population to one offer, exactly as on the list. Mutually exclusive " +
+        "with `campaignId`. An offer no campaign sells yet counts zero, never the brand.",
+      schema: { type: "string" as const },
+    },
+    { in: "query" as const, name: "orgId", required: false, schema: { type: "string" as const } },
+    { in: "query" as const, name: "userId", required: false, schema: { type: "string" as const } },
+    { in: "query" as const, name: "workflowSlug", required: false, schema: { type: "string" as const } },
+    {
+      in: "query" as const,
+      name: "status",
+      required: false,
+      description:
+        "Which lifecycle statuses to count, same vocabulary and same default as the list: absent " +
+        "means `buffered,claimed,served`, the population a caller can act on.",
+      schema: { type: "string" as const },
+    },
+    {
+      in: "query" as const,
+      name: "q",
+      required: false,
+      description:
+        "Count within a free-text search, same fields and same rules as on the list — so the tab " +
+        "counts follow the search box.",
+      schema: { type: "string" as const },
+    },
+  ],
+  responses: {
+    200: {
+      description: "How many leads are in each bucket, plus the scoped population",
+      content: { "application/json": { schema: LeadBucketCountsResponseSchema } },
+    },
+    400: {
+      description: "Invalid `status` or `q` value, or `offerId` and `campaignId` both named",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: { description: "Unauthorized" },
+    502: {
+      description:
+        "The delivery evidence these counts are counted from could not be read — refused rather than answered with zeros",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
   },
