@@ -2135,21 +2135,25 @@ registry.registerPath({
       name: "standing",
       required: false,
       description:
-        "Restrict the read to ONE standing state: `unresolved`, `not_contacted`, `contacted`, " +
-        "`engaged`, `sales_interest`, `customer`, `disqualified`, `opted_out`. An opt-out is the " +
-        "prospect's own act and `disqualified` is a commercial judgement of ours, so they are two " +
-        "states and each pages on its own. This is the `standing.state` " +
+        "Restrict the read to one or SEVERAL standing states, comma-separated, read as ONE set: " +
+        "`unresolved`, `not_contacted`, `contacted`, `engaged`, `sales_interest`, `customer`, " +
+        "`disqualified`, `opted_out` (e.g. `standing=not_contacted,contacted,engaged`). A triage " +
+        "board's COLUMN is not always one standing — five columns over eight states means two " +
+        "columns hold two states each — and a column must page as one thing: one order, one " +
+        "`total` (the size of the whole named set), one walkable cursor. Naming several here gives " +
+        "exactly that; naming one behaves exactly as before. An opt-out is the prospect's own act " +
+        "and `disqualified` is a commercial judgement of ours, so they stay two states and each " +
+        "pages on its own. This is the `standing.state` " +
         "every row already carries — where the lead stands on the funnel ITS campaign sells, " +
         "decided by this service and rendered by everyone else. Unlike a `bucket` it IS a " +
         "partition: a lead has exactly one standing, so it is what a triage board draws a column " +
         "per. Naming a `bucket` too narrows to the rows satisfying both. `total` is then the " +
         "column's size, and GET /orgs/leads/standing-counts answers every column's size without " +
-        "returning any rows. An unknown value is a 400. A standing that cannot be resolved for " +
-        "this scope is a 502 — never a differently-filtered list answered with a 200.",
-      schema: { type: "string" as const, enum: [
-        "unresolved", "not_contacted", "contacted", "engaged", "sales_interest", "customer",
-        "disqualified", "opted_out",
-      ] },
+        "returning any rows (a consumer adds the counts of a column that holds two). An unknown " +
+        "value is a 400, and so is an empty one — a set is never silently widened or narrowed. A " +
+        "standing that cannot be resolved for this scope is a 502 — never a differently-filtered " +
+        "list answered with a 200.",
+      schema: { type: "string" as const },
     },
     {
       in: "query" as const,
@@ -2359,7 +2363,9 @@ registry.registerPath({
     "`campaignId` (resolved to the whole campaign identity), `offerId`, `status` and `q`, with the " +
     "same lifecycle default (`buffered,claimed,served`). The set counted is exactly the set " +
     "`GET /orgs/leads?standing=<state>` returns for those parameters, so a column's stated size " +
-    "and what the column shows cannot disagree. Standing is a PARTITION — one per lead — so the " +
+    "and what the column shows cannot disagree — and a board column holding SEVERAL standings adds " +
+    "their counts here and draws them with one `?standing=a,b` read, which pages as one column. " +
+    "Standing is a PARTITION — one per lead — so the " +
     "counts sum to `total` exactly, and `opted_out` (the prospect's own act) is counted apart " +
     "from `disqualified` (a commercial judgement of ours) so a board can size and page each of " +
     "those two columns on its own. " +

@@ -421,18 +421,43 @@ export function resolveLeadStanding(input: LeadStandingInput): LeadStanding {
 }
 
 /**
- * Resolve the `standing` query param. Absent → null (no standing filter). Anything that is not a
- * standing state is a 400 (throws) — never a silent "no filter", which would answer a whole brand
- * to a caller that asked for one column of a triage board.
+ * Resolve the `standing` query param into the standings a read answers for.
+ *
+ * Absent → null (no standing filter). Otherwise a COMMA-SEPARATED list of standing states, read as
+ * ONE set: the read answers for every named state at once, in one order, with one total and one
+ * walkable cursor — exactly as `status` already reads a list of lifecycle statuses.
+ *
+ * It takes a list because a COLUMN of a triage board is not always ONE standing. The board draws
+ * five columns over the eight states, so two of them hold two states each (still in play holds the
+ * person nobody has heard from and the person who did something that is not the step their campaign
+ * sells; showing interest holds the person who reached that step and the person who bought). Those
+ * are product decisions about what somebody triaging a list needs side by side. Sizing such a column
+ * was already solved — the counts are a partition, so a consumer adds the two numbers it is given —
+ * but DRAWING it was not: two independently-ordered, independently-bounded lists cannot be merged
+ * into one column that pages, so a consumer stitching them would be back to stating a cap as a
+ * population. One read over the named set is the whole fix.
+ *
+ * Naming a single standing behaves exactly as it always did. Anything that is not a standing state
+ * is a 400 (throws) — never a silent "no filter", which would answer a whole brand to a caller that
+ * asked for one column, and never a silently narrowed set.
  */
-export function parseLeadStanding(raw: unknown): LeadStandingState | null {
+export function parseLeadStandingFilter(raw: unknown): readonly LeadStandingState[] | null {
   if (raw === undefined) return null;
-  if (typeof raw !== "string") throw new Error("standing must be a single standing state");
-  const trimmed = raw.trim();
-  if ((LEAD_STANDING_STATES as readonly string[]).includes(trimmed)) {
-    return trimmed as LeadStandingState;
+  if (typeof raw !== "string") {
+    throw new Error("standing must be a single comma-separated string");
   }
-  throw new Error(`Unknown standing '${raw}'. Valid: ${LEAD_STANDING_STATES.join(", ")}`);
+  const trimmed = raw.trim();
+  const parts = trimmed.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
+  if (parts.length === 0) {
+    throw new Error(`standing must name at least one of: ${LEAD_STANDING_STATES.join(", ")}`);
+  }
+  const unknown = parts.filter((p) => !(LEAD_STANDING_STATES as readonly string[]).includes(p));
+  if (unknown.length > 0) {
+    throw new Error(
+      `Unknown standing value(s): ${unknown.join(", ")}. Valid: ${LEAD_STANDING_STATES.join(", ")}`,
+    );
+  }
+  return Array.from(new Set(parts)) as LeadStandingState[];
 }
 
 /** A count per standing state, every key always present — a state nobody is in is 0, never absent. */

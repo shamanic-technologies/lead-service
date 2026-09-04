@@ -51,7 +51,7 @@ import {
   type StandingRow,
 } from "../lib/lead-standing-resolver.js";
 import {
-  parseLeadStanding,
+  parseLeadStandingFilter,
   zeroStandingCounts,
   type LeadStandingState,
 } from "../lib/lead-standing.js";
@@ -704,14 +704,14 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
     // dropped filter is a consumer rendering a filtered-looking list that was never filtered.
     let searchTokens: string[] | null;
     let bucket: LeadBucket | null;
-    let standing: LeadStandingState | null;
+    let standings: readonly LeadStandingState[] | null;
     let sort: LeadSortOrder;
     let format: LeadListFormat;
     try {
       statuses = parseLeadStatusFilter(req.query.status);
       searchTokens = parseLeadSearch(req.query.q);
       bucket = parseLeadBucket(req.query.bucket);
-      standing = parseLeadStanding(req.query.standing);
+      standings = parseLeadStandingFilter(req.query.standing);
       sort = parseLeadSort(req.query.sort);
       format = parseLeadFormat(req.query.format);
       // How much of that population to return, and where to start. Absent `limit` means the whole
@@ -740,7 +740,7 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       const bounded =
         searchTokens !== null ||
         bucket !== null ||
-        standing !== null ||
+        standings !== null ||
         sort !== "created" ||
         page.limit !== null ||
         page.offset !== null ||
@@ -796,14 +796,14 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
     // hydrated. A read naming none of the three never builds an index and is byte-identical to
     // what it has always been.
     const indexed =
-      searchTokens !== null || bucket !== null || standing !== null || sort !== "created";
+      searchTokens !== null || bucket !== null || standings !== null || sort !== "created";
     // The gateway fan-out is only paid for when something actually asks about evidence. A read
     // that only searches needs neither the delivery overlay nor the outcome ledger to choose its
     // rows, and paying for a population-wide fan-out to answer a search would be the same waste in
     // a different place.
     // A standing is read FROM the delivery overlay (a click is the measured half of a website
     // visit), so asking for one column of the board is asking about evidence too.
-    const needsEvidence = bucket !== null || standing !== null || sort === "activity";
+    const needsEvidence = bucket !== null || standings !== null || sort === "activity";
     let plan: LeadPagePlan | null = null;
     if (indexed) {
       const indexRows = await fetchLeadIndex(scope, searchTokens);
@@ -815,7 +815,7 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       // FAIL LOUD, unlike the per-row standing on the walk: there a standing nobody could resolve
       // is one field of a row, here it decides WHICH rows come back at all, so a resolver that
       // throws must not quietly answer a differently-filtered list with a 200.
-      if (standing !== null) {
+      if (standings !== null) {
         try {
           await attachLeadStandings(enriched, standingResolver);
         } catch (error) {
@@ -826,7 +826,7 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
           return res.status(502).json({ error: "lead standing unavailable" });
         }
       }
-      plan = planLeadPage(enriched, bucket, sort, page, standing);
+      plan = planLeadPage(enriched, bucket, sort, page, standings);
     }
 
     // How many rows match what the caller asked for — the number that labels the page, not the
