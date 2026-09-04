@@ -1305,6 +1305,109 @@ const LeadStandingSchema = z
       "on the row beside it, unchanged, and a consumer that ignores this field keeps working.",
   });
 
+
+/** The offer card a campaign names — same shape as `offer` on a lead row. */
+const OfferCardSchema = z.object({
+  id: z.string().openapi({ description: "Offer UUID (brand-service offer.offerId).", example: "0ffe0000-0000-4000-8000-000000000001" }),
+  name: z.string().nullable().openapi({ description: "Offer display name, from brand-service.", example: "Fractional CFO retainer" }),
+});
+
+/**
+ * The delivery evidence of ONE campaign — the same fields the row carries at top level, answering
+ * for that campaign alone instead of for the brand.
+ */
+const LeadCampaignDeliverySchema = z.object({
+  contacted: z.boolean(),
+  sent: z.boolean(),
+  delivered: z.boolean(),
+  opened: z.boolean(),
+  clicked: z.boolean(),
+  bounced: z.boolean(),
+  unsubscribed: z.boolean(),
+  replied: z.boolean(),
+  replyClassification: z.enum(["positive", "negative", "neutral"]).nullable(),
+  disqualified: z.boolean().optional().openapi({
+    description:
+      "Tri-state: true = the provider reports this person as permanently out, false = it looked " +
+      "and says no, ABSENT = nobody can tell us. Never collapsed to a boolean.",
+  }),
+  sentCount: z.number(),
+  lastDeliveredAt: z.string().nullable(),
+  firstContactedAt: z.string().nullable(),
+  firstSentAt: z.string().nullable(),
+  firstDeliveredAt: z.string().nullable(),
+  firstOpenedAt: z.string().nullable(),
+  firstClickedAt: z.string().nullable(),
+  firstRepliedAt: z.string().nullable(),
+  firstBouncedAt: z.string().nullable(),
+  firstUnsubscribedAt: z.string().nullable(),
+  global: z.object({ bounced: z.boolean(), unsubscribed: z.boolean() }),
+}).openapi("LeadCampaignDelivery", {
+  description:
+    "Delivery evidence scoped to ONE campaign identity. Deliberately WITHOUT the brand-contacted " +
+    "widening the campaign-scoped read applies: re-applying it here would restamp brand-wide " +
+    "evidence onto every card, which is what these cards exist to stop.",
+});
+
+/**
+ * One campaign card under a person: what that campaign is, and what happened IN IT.
+ */
+const LeadCampaignEvidenceSchema = z
+  .object({
+    id: z.string().uuid().openapi({
+      description:
+        "The leads_campaigns row this card speaks for — addressable at GET /orgs/leads/{id}.",
+      example: "50000000-0000-0000-0000-000000000002",
+    }),
+    campaignId: z.string().openapi({
+      description: "The campaign row that membership names.",
+      example: "60000000-0000-0000-0000-000000000002",
+    }),
+    campaignIds: z.array(z.string()).openapi({
+      description:
+        "Every stored campaign id whose evidence this card reads — the campaign IDENTITY's " +
+        "members (org, brand, sales funnel, acquisition channel), restricted to the read's own " +
+        "campaign scope when it has one. `[campaignId]` when the identity could not be resolved.",
+      example: ["60000000-0000-0000-0000-000000000002"],
+    }),
+    status: z.enum(["buffered", "skipped", "claimed", "served"]).openapi({
+      description: "Lifecycle status of this person in this campaign.",
+      example: "served",
+    }),
+    servedAt: z.string().nullable().openapi({
+      description: "When this person was served to this campaign.",
+      example: "2026-01-01T00:00:00.000Z",
+    }),
+    audienceId: z.string().nullable().openapi({
+      description: "The audience tagged on this membership row, when it carries one.",
+      example: null,
+    }),
+    offer: OfferCardSchema.nullable().openapi({
+      description: "The offer this campaign sells — the same card the row's `offer` names.",
+    }),
+    standing: LeadStandingSchema.openapi({
+      description:
+        "Where this person stands ON THIS CAMPAIGN, resolved exactly as the row-level standing " +
+        "is. A card whose delivery evidence the provider cannot speak to reads `unresolved` with " +
+        "`reason: \"delivery_not_queried\"` unless a hand statement decides it — never " +
+        "`not_contacted`.",
+    }),
+    delivery: LeadCampaignDeliverySchema.nullable().openapi({
+      description:
+        "The delivery evidence for THIS campaign alone, read out of the per-campaign breakdown " +
+        "email-gateway returns in brand mode. **null means the provider reports none for this " +
+        "campaign — 'we cannot tell', NOT 'nothing happened'.** An all-false status is never " +
+        "substituted for it, because the two are different facts.",
+    }),
+  })
+  .openapi("LeadCampaignEvidence", {
+    description:
+      "One campaign of a person, with the delivery evidence of that campaign alone. The row's own " +
+      "top-level delivery fields stay the BRAND-wide roll-up; these cards are the per-campaign " +
+      "answer beside them, so a consumer can tell 'this campaign reached them' from 'some " +
+      "campaign of this brand did' without aggregating anything itself.",
+  });
+
 const LeadDetailSchema = z
   .object({
     id: z
@@ -1667,6 +1770,23 @@ const LeadDetailSchema = z
           "null if it never happened in scope. Passed through from email-gateway status.",
         example: "2026-01-01T00:00:00.000Z",
       }),
+    campaigns: z
+      .array(LeadCampaignEvidenceSchema)
+      .optional()
+      .openapi({
+        description:
+          "This person's campaigns within the read's scope, each card stating what happened IN " +
+          "THAT CAMPAIGN. Present ONLY when the caller passes `?include=campaigns`; absent " +
+          "otherwise, so every existing consumer's response is byte-identical. " +
+          "This exists because a brand-scoped read answers one row per PERSON and its top-level " +
+          "delivery fields are the BRAND-wide roll-up — 56,809 people in production sit in more " +
+          "than one campaign of one brand, so nesting campaign cards under a person without this " +
+          "would print byte-identical evidence under every card. Both facts are served at once: " +
+          "the brand-wide roll-up stays exactly where it was (the leads table's status badge, its " +
+          "tabs, the triage board and the covered-lead count all read it), and these cards answer " +
+          "the per-campaign question beside it. A card whose `delivery` is null means the provider " +
+          "reports no evidence for that campaign — 'we cannot tell', never 'no'.",
+      }),
     global: z
       .object({
         bounced: z.boolean().openapi({ description: "Lead has bounced anywhere across the platform.", example: false }),
@@ -1846,6 +1966,18 @@ registry.registerPath({
     },
     {
       in: "query" as const,
+      name: "include",
+      required: false,
+      description:
+        "Comma-separated extras. The only value is `campaigns`: nest this person's campaigns " +
+        "(within the read's scope) under each row, each card carrying the delivery evidence and " +
+        "standing OF THAT CAMPAIGN ALONE. Absent means today's response byte for byte; an unknown " +
+        "value is a 400, never silently dropped. A card's `delivery: null` means the provider " +
+        "reports no evidence for that campaign — 'we cannot tell', not 'no'.",
+      schema: { type: "string" as const, example: "campaigns" },
+    },
+    {
+      in: "query" as const,
       name: "offerId",
       required: false,
       description:
@@ -1995,6 +2127,18 @@ registry.registerPath({
       required: true,
       description: "The `id` of a lead as returned by GET /orgs/leads. A non-uuid value is a 400.",
       schema: { type: "string" as const, format: "uuid" },
+    },
+    {
+      in: "query" as const,
+      name: "include",
+      required: false,
+      description:
+        "Comma-separated extras. The only value is `campaigns`: nest this person's campaigns " +
+        "(within the read's scope) under each row, each card carrying the delivery evidence and " +
+        "standing OF THAT CAMPAIGN ALONE. Absent means today's response byte for byte; an unknown " +
+        "value is a 400, never silently dropped. A card's `delivery: null` means the provider " +
+        "reports no evidence for that campaign — 'we cannot tell', not 'no'.",
+      schema: { type: "string" as const, example: "campaigns" },
     },
     {
       in: "query" as const,
