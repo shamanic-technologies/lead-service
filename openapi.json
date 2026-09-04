@@ -1573,9 +1573,10 @@
               "engaged",
               "sales_interest",
               "customer",
-              "disqualified"
+              "disqualified",
+              "opted_out"
             ],
-            "description": "Where this person stands on THIS campaign, decided by lead-service and by nobody else. `sales_interest` = they reached the step this campaign's sales funnel is entered by (a visit on a visit-led funnel, a positive reply on a conversation-led one) or a later step of it. `customer` = the funnel's last step (the sale) is reached. `disqualified` = they opted out, or we realised they are not our target at all — the wrong contact, or gone from the role — or somebody stated they never will buy. A prospect who simply DECLINES is not disqualified: that is a judgement about the moment, they stay reachable and the lead stays recyclable, so they read as `engaged` with `signal: \"negative_reply\"`. `engaged` = something happened that is not the step this campaign sells. `contacted` = written to, nothing since — INCLUDING a lead whose mail bounced, which is a failure of delivery rather than an opinion about the person, and is named by `signal: \"bounced\"` rather than used as a verdict. `not_contacted` = never written to. `unresolved` = a signal could not be resolved and is stated as such rather than defaulted — read `reason`. A consumer needs to know none of the reply kinds or funnel step names to use this.",
+            "description": "Where this person stands on THIS campaign, decided by lead-service and by nobody else. `sales_interest` = they reached the step this campaign's sales funnel is entered by (a visit on a visit-led funnel, a positive reply on a conversation-led one) or a later step of it. `customer` = the funnel's last step (the sale) is reached. `opted_out` = the person asked not to be contacted (an unsubscribe, at this scope or globally); it is their own act, it is legally binding, and NOTHING overrides it — not a click, not a stated sale. `disqualified` = a commercial judgement of OURS: we realised they are not our target at all (the wrong contact, or gone from the role), or somebody stated they never will buy. The two are separate states, never folded together, because a board draws them as two columns with different copy and different moves and has to be able to count them apart. A prospect who simply DECLINES is not disqualified: that is a judgement about the moment, they stay reachable and the lead stays recyclable, so they read as `engaged` with `signal: \"negative_reply\"`. `engaged` = something happened that is not the step this campaign sells. `contacted` = written to, nothing since — INCLUDING a lead whose mail bounced, which is a failure of delivery rather than an opinion about the person, and is named by `signal: \"bounced\"` rather than used as a verdict. `not_contacted` = never written to. `unresolved` = a signal could not be resolved and is stated as such rather than defaulted — read `reason`. A consumer needs to know none of the reply kinds or funnel step names to use this.",
             "example": "sales_interest"
           },
           "signal": {
@@ -1596,7 +1597,7 @@
               "bounced",
               "unsubscribed"
             ],
-            "description": "Which single piece of evidence decided the state. `unsubscribed` is the prospect's own act and never shares a state with a commercial judgement of ours, which is what draws an opt-out apart from every other way of being out of play. `disqualifying_reply` = the delivery layer reports this person as permanently out (the wrong contact, or gone from the role). `negative_reply` = they declined; that leaves them in play.",
+            "description": "Which single piece of evidence decided the state. `unsubscribed` is the prospect's own act and never shares a state with a commercial judgement of ours — it decides `opted_out`, which is its own countable, pageable standing rather than a shade of `disqualified`. `disqualifying_reply` = the delivery layer reports this person as permanently out (the wrong contact, or gone from the role). `negative_reply` = they declined; that leaves them in play.",
             "example": "measured_visit"
           },
           "origin": {
@@ -1995,6 +1996,9 @@
               },
               "disqualified": {
                 "type": "integer"
+              },
+              "opted_out": {
+                "type": "integer"
               }
             },
             "required": [
@@ -2004,9 +2008,10 @@
               "engaged",
               "sales_interest",
               "customer",
-              "disqualified"
+              "disqualified",
+              "opted_out"
             ],
-            "description": "How many leads stand in each state. Every key is ALWAYS present — a state nobody is in is 0, never absent, so a consumer can draw a column per state without guessing. `unresolved` is counted like any other: it is a stated non-answer (the campaign states no funnel, campaign-service could not be reached, the read named no scope so the delivery layer was never asked), and dropping it would make the columns fail to add up to the population they say they are showing."
+            "description": "How many leads stand in each state. Every key is ALWAYS present — a state nobody is in is 0, never absent, so a consumer can draw a column per state without guessing. `unresolved` is counted like any other: it is a stated non-answer (the campaign states no funnel, campaign-service could not be reached, the read named no scope so the delivery layer was never asked), and dropping it would make the columns fail to add up to the population they say they are showing. `opted_out` and `disqualified` are two separate keys — the prospect's own act versus a commercial judgement of ours — so each of those columns can state its own size and be paged on its own via `GET /orgs/leads?standing=opted_out` / `?standing=disqualified`."
           }
         },
         "required": [
@@ -4509,7 +4514,7 @@
             "in": "query",
             "name": "standing",
             "required": false,
-            "description": "Restrict the read to ONE standing state: `unresolved`, `not_contacted`, `contacted`, `engaged`, `sales_interest`, `customer`, `disqualified`. This is the `standing.state` every row already carries — where the lead stands on the funnel ITS campaign sells, decided by this service and rendered by everyone else. Unlike a `bucket` it IS a partition: a lead has exactly one standing, so it is what a triage board draws a column per. Naming a `bucket` too narrows to the rows satisfying both. `total` is then the column's size, and GET /orgs/leads/standing-counts answers every column's size without returning any rows. An unknown value is a 400. A standing that cannot be resolved for this scope is a 502 — never a differently-filtered list answered with a 200.",
+            "description": "Restrict the read to ONE standing state: `unresolved`, `not_contacted`, `contacted`, `engaged`, `sales_interest`, `customer`, `disqualified`, `opted_out`. An opt-out is the prospect's own act and `disqualified` is a commercial judgement of ours, so they are two states and each pages on its own. This is the `standing.state` every row already carries — where the lead stands on the funnel ITS campaign sells, decided by this service and rendered by everyone else. Unlike a `bucket` it IS a partition: a lead has exactly one standing, so it is what a triage board draws a column per. Naming a `bucket` too narrows to the rows satisfying both. `total` is then the column's size, and GET /orgs/leads/standing-counts answers every column's size without returning any rows. An unknown value is a 400. A standing that cannot be resolved for this scope is a 502 — never a differently-filtered list answered with a 200.",
             "schema": {
               "type": "string",
               "enum": [
@@ -4519,7 +4524,8 @@
                 "engaged",
                 "sales_interest",
                 "customer",
-                "disqualified"
+                "disqualified",
+                "opted_out"
               ]
             }
           },
@@ -4808,7 +4814,7 @@
     "/orgs/leads/standing-counts": {
       "get": {
         "summary": "Count the leads in each standing state, without returning any of them",
-        "description": "Answers how many leads stand in each standing state for a scope, and NO lead rows. A triage board draws one column per standing — still in play, sales interest, disqualified, opted out, and the unresolved case — and states each column's size; doing that from a bounded page of leads sorted in the browser makes every number on the screen describe a different population (one production campaign: 2,052 leads in scope, 200 fetched, so the page reads '200 leads' and '19 sales interests' directly beneath its own heading, which correctly reads '2,052 leads'). A count is a number, and a number should not cost a population. Takes the SAME scope vocabulary as GET /orgs/leads, meaning the same thing: `brandId`, `campaignId` (resolved to the whole campaign identity), `offerId`, `status` and `q`, with the same lifecycle default (`buffered,claimed,served`). The set counted is exactly the set `GET /orgs/leads?standing=<state>` returns for those parameters, so a column's stated size and what the column shows cannot disagree. Standing is funnel-aware and per campaign — deliberately NOT the engagement-bucket vocabulary, which asks what happened to somebody rather than where they stand; see GET /orgs/leads/bucket-counts for that. email-gateway unreachable, or a standing that cannot be resolved, is a 502 — never zeros.",
+        "description": "Answers how many leads stand in each standing state for a scope, and NO lead rows. A triage board draws one column per standing — still in play, sales interest, disqualified, opted out, and the unresolved case — and states each column's size; doing that from a bounded page of leads sorted in the browser makes every number on the screen describe a different population (one production campaign: 2,052 leads in scope, 200 fetched, so the page reads '200 leads' and '19 sales interests' directly beneath its own heading, which correctly reads '2,052 leads'). A count is a number, and a number should not cost a population. Takes the SAME scope vocabulary as GET /orgs/leads, meaning the same thing: `brandId`, `campaignId` (resolved to the whole campaign identity), `offerId`, `status` and `q`, with the same lifecycle default (`buffered,claimed,served`). The set counted is exactly the set `GET /orgs/leads?standing=<state>` returns for those parameters, so a column's stated size and what the column shows cannot disagree. Standing is a PARTITION — one per lead — so the counts sum to `total` exactly, and `opted_out` (the prospect's own act) is counted apart from `disqualified` (a commercial judgement of ours) so a board can size and page each of those two columns on its own. Standing is funnel-aware and per campaign — deliberately NOT the engagement-bucket vocabulary, which asks what happened to somebody rather than where they stand; see GET /orgs/leads/bucket-counts for that. email-gateway unreachable, or a standing that cannot be resolved, is a 502 — never zeros.",
         "parameters": [
           {
             "in": "header",
