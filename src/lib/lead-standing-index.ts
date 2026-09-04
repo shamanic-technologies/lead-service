@@ -82,7 +82,7 @@ export async function attachLeadStandings(
     }));
     const resolved = await resolver.resolve(standingRows);
     for (const row of slice) {
-      row.standing = resolved.get(row.id)?.state ?? "unresolved";
+      row.standing = resolved.get(row.id)?.standing.state ?? "unresolved";
     }
   }
   return rows;

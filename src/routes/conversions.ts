@@ -16,7 +16,9 @@ import {
   LEAD_STEP_OUTCOMES,
   WEBSITE_VISIT,
   canonicalizeStepOutcome,
+  outcomeCauseOf,
   type LeadStepOutcomeName,
+  type OutcomeCause,
   type StatementSource,
 } from "../lib/step-statements.js";
 import {
@@ -388,6 +390,15 @@ function respondMeasuredVisitFailure(error: unknown, res: Response): boolean {
  * outcome is distinguishable from a tracker-reported one after the fact without changing what
  * either counts toward. For every key, tracker + manual === counts.
  *
+ * `byCause.outreach` / `byCause.other` / `byCause.unstated` split the same rows by WHOSE WIN each
+ * outcome was — a brand also sells through referrals, conferences, its own pipeline and other
+ * agencies, so some of the people we email buy for reasons that have nothing to do with us. A deal
+ * the customer says we did NOT cause is a real deal and stays in `counts`; what this split adds is
+ * the ability to leave its value out of the return computed on OUR outreach. `unstated` is nobody
+ * having been asked (every outcome predating the field, and every tracker-reported one — a
+ * page-load tag cannot know why somebody bought) and is never folded into either answer. For every
+ * key, outreach + other + unstated === counts.
+ *
  * A "never" statement ("this lead will not book / attend / buy") is NOT an outcome: it lives in
  * lead_step_disqualifications, which this read does not touch, so nothing here can count it.
  * Never 404 — a brand with zero conversions returns all-zero counts.
@@ -407,15 +418,20 @@ router.get(
     }
 
     const rows = (await db.execute(sql`
-      SELECT ce.event, ce.source, count(*)::int AS n
+      SELECT ce.event, ce.source, ce.caused_by_outreach, count(*)::int AS n
       FROM conversion_events ce
       WHERE ce.brand_id = ${brandId}
         AND ce.attribution_status = 'attributed'
         -- A statement its author took back is not a live outcome: nothing counts it.
         AND ce.withdrawn_at IS NULL
         ${excludeIds(suppressed)}
-      GROUP BY ce.event, ce.source
-    `)) as unknown as Array<{ event: string; source: string; n: number }>;
+      GROUP BY ce.event, ce.source, ce.caused_by_outreach
+    `)) as unknown as Array<{
+      event: string;
+      source: string;
+      caused_by_outreach: boolean | null;
+      n: number;
+    }>;
 
     const zeroed = () =>
       Object.fromEntries(LEAD_STEP_OUTCOMES.map((e) => [e, 0])) as Record<
@@ -427,6 +443,16 @@ router.get(
       tracker: zeroed(),
       manual: zeroed(),
     };
+    // WHOSE win each outcome was. `outreach` — the customer says ours caused it; `other` — they say
+    // something else of theirs did (a referral, a conference, their own pipeline: a REAL outcome,
+    // counted in `counts` exactly like any other, simply not one to compute OUR return on);
+    // `unstated` — nobody was ever asked, which is every outcome stated before this existed and
+    // every tracker-reported one. Three buckets, and the third is never folded into either answer.
+    const byCause: Record<OutcomeCause, Record<LeadStepOutcomeName, number>> = {
+      outreach: zeroed(),
+      other: zeroed(),
+      unstated: zeroed(),
+    };
 
     for (const row of rows) {
       // Fold canonical + any legacy-spelled historical row into its canonical bucket.
@@ -436,6 +462,7 @@ router.get(
       // Anything not explicitly stated by a human came off the website tracker — which is what
       // every row written before the column existed is.
       bySource[row.source === "manual" ? "manual" : "tracker"][canonical] += row.n;
+      byCause[outcomeCauseOf(row.caused_by_outreach)][canonical] += row.n;
     }
 
     res.json({
@@ -443,6 +470,11 @@ router.get(
       bySource: {
         tracker: withLegacyPurchaseAlias(bySource.tracker),
         manual: withLegacyPurchaseAlias(bySource.manual),
+      },
+      byCause: {
+        outreach: withLegacyPurchaseAlias(byCause.outreach),
+        other: withLegacyPurchaseAlias(byCause.other),
+        unstated: withLegacyPurchaseAlias(byCause.unstated),
       },
     });
   }),
@@ -658,6 +690,14 @@ router.get(
  *    null means nobody was ever asked (a tracker-reported outcome knows nothing about the
  *    customer's spend, and so does every statement made before the cost became mandatory). The
  *    whole per-step picture, "never" legs included, is /internal/brands/:brandId/step-costs.
+ *  - `causedByOutreach` — WHOSE win it was. `true`: the customer says our outreach caused it.
+ *    `false`: they say something else of theirs did (a referral, a conference, their existing
+ *    pipeline, another agency) — the deal is REAL and stays in every count, it is simply not one to
+ *    compute OUR return on, which is exactly what a consumer holding the two apart needs. `null`:
+ *    NOBODY WAS ASKED — every outcome stated before this existed, and every tracker-reported one,
+ *    because a page-load tag observes a page load and cannot know why somebody bought. Null is
+ *    never read as either answer. Deliberately NOT the `attributed / needs_review / unmatched`
+ *    vocabulary, which answers whether we managed to identify who somebody was.
  *  - `source` — `manual` (a human stated it) or `tracker` (the website tag reported it).
  *
  * `event` is REQUIRED, one of the five step outcomes (legacy "purchase" normalized to "sale");
@@ -692,6 +732,7 @@ router.get(
         ce.campaign_id,
         ce.value_cents,
         ce.cost_cents,
+        ce.caused_by_outreach,
         ce.source,
         ce.received_at,
         lower(canonical.value) AS email
@@ -715,6 +756,7 @@ router.get(
       campaign_id: string | null;
       value_cents: number | null;
       cost_cents: number | null;
+      caused_by_outreach: boolean | null;
       source: string | null;
       received_at: Date | string | null;
       email: string | null;
@@ -729,6 +771,10 @@ router.get(
       occurredAt: toIsoTimestamp(r.received_at),
       valueCents: typeof r.value_cents === "number" ? r.value_cents : null,
       costCents: typeof r.cost_cents === "number" ? r.cost_cents : null,
+      // WHOSE win it was: true — the customer says our outreach caused it; false — they say
+      // something else of theirs did, so its value belongs in the brand's own total and NOT in the
+      // return computed on our outreach; null — nobody was ever asked, which is neither answer.
+      causedByOutreach: typeof r.caused_by_outreach === "boolean" ? r.caused_by_outreach : null,
       source: (r.source === "manual" ? "manual" : "tracker") as StatementSource,
     }));
 

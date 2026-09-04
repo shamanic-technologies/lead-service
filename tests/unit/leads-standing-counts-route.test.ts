@@ -91,7 +91,10 @@ vi.mock("../../src/lib/lead-standing-resolver.js", async (importOriginal) => ({
         new Map(
           rows
             .filter((r) => standingByRow[r.id])
-            .map((r) => [r.id, { state: standingByRow[r.id] }]),
+            .map((r) => [
+              r.id,
+              { standing: { state: standingByRow[r.id] }, closedDeal: null },
+            ]),
         ),
       );
     },

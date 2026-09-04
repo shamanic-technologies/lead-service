@@ -1376,6 +1376,9 @@
           "standing": {
             "$ref": "#/components/schemas/LeadStanding"
           },
+          "closedDeal": {
+            "$ref": "#/components/schemas/LeadClosedDeal"
+          },
           "contacted": {
             "type": "boolean",
             "description": "Lead has been contacted at least once in this scope (campaign or brand depending on query).",
@@ -1538,6 +1541,7 @@
           "emailStatus",
           "lead",
           "standing",
+          "closedDeal",
           "contacted",
           "sent",
           "sentCount",
@@ -1692,6 +1696,52 @@
           "at"
         ],
         "description": "Where this lead stands on the campaign it was served under, decided here so that two surfaces cannot say different things about the same person. Derived on read from the delivery evidence below plus the hand-stated step statements this service owns; nothing is stored, so a retracted or withdrawn statement moves it with no write."
+      },
+      "LeadClosedDeal": {
+        "type": "object",
+        "nullable": true,
+        "properties": {
+          "occurredAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "When the deal closed, ISO-8601 — the date the person stating it gave, not the date they typed it. Null only when genuinely undated; never fabricated.",
+            "example": "2026-08-19T14:30:00.000Z"
+          },
+          "valueCents": {
+            "type": "integer",
+            "nullable": true,
+            "description": "What the deal was worth, in cents. A sale stated from now on always carries one (the write refuses a sale with no value); null means nobody said, NOT zero.",
+            "example": 490000
+          },
+          "costCents": {
+            "type": "integer",
+            "nullable": true,
+            "description": "What the CUSTOMER states closing it cost THEM, in cents. 0 is a stated zero; null means nobody was ever asked. Never platform spend and never billed.",
+            "example": 12000
+          },
+          "causedByOutreach": {
+            "type": "boolean",
+            "nullable": true,
+            "description": "WHOSE win it was. true — the customer states OUR outreach caused this deal. false — they state something else of theirs did (a referral, a conference, their existing pipeline, another agency): the deal is REAL, it stays among the brand's own closes and in every count, it is simply not one to compute the return on our outreach from. null — NOBODY WAS ASKED, which is what every deal stated before this existed reads as, and what a tracker-reported one always reads as (a page-load tag cannot know why somebody bought). Null is never read as either answer.",
+            "example": true
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "tracker",
+              "manual"
+            ],
+            "description": "manual — a human stated the deal; tracker — the website tag reported it."
+          }
+        },
+        "required": [
+          "occurredAt",
+          "valueCents",
+          "costCents",
+          "causedByOutreach",
+          "source"
+        ],
+        "description": "The deal on this lead — worth, cost to the customer, and WHOSE win it was — or null when nobody has stated one. It is here so a table can render a column per lead over pages of rows without a request per lead, and so a consumer can hold the deals our outreach caused apart from the ones the brand closed some other way. Present at every scope this read supports. Derived on read: nothing is stored, so withdrawing or restating the statement moves it with no write."
       },
       "LeadCampaignEvidence": {
         "type": "object",
@@ -2736,11 +2786,152 @@
               "manual"
             ],
             "description": "The SAME rows, split by who said so: tracker — reported by the client's website; manual — stated by a human about a lead named by id. For every key, tracker + manual === counts. This is how a hand-stated outcome stays distinguishable from a tracker-reported one after the fact without changing what either counts toward."
+          },
+          "byCause": {
+            "type": "object",
+            "properties": {
+              "outreach": {
+                "type": "object",
+                "properties": {
+                  "signup": {
+                    "type": "integer",
+                    "example": 12
+                  },
+                  "meeting_booked": {
+                    "type": "integer",
+                    "example": 3
+                  },
+                  "meeting_attended": {
+                    "type": "integer",
+                    "example": 2
+                  },
+                  "form_submission": {
+                    "type": "integer",
+                    "example": 7
+                  },
+                  "sale": {
+                    "type": "integer",
+                    "example": 2
+                  },
+                  "website_visit": {
+                    "type": "integer",
+                    "description": "Website visits known ONLY by hand: a visit stated for a lead whose click the delivery layer already measured is NOT counted here, so this number can be ADDED to the measured click count without counting anybody twice. Nothing about what the delivery layer measures changes.",
+                    "example": 1
+                  },
+                  "purchase": {
+                    "type": "integer",
+                    "example": 2
+                  }
+                },
+                "required": [
+                  "signup",
+                  "meeting_booked",
+                  "meeting_attended",
+                  "form_submission",
+                  "sale",
+                  "website_visit",
+                  "purchase"
+                ]
+              },
+              "other": {
+                "type": "object",
+                "properties": {
+                  "signup": {
+                    "type": "integer",
+                    "example": 12
+                  },
+                  "meeting_booked": {
+                    "type": "integer",
+                    "example": 3
+                  },
+                  "meeting_attended": {
+                    "type": "integer",
+                    "example": 2
+                  },
+                  "form_submission": {
+                    "type": "integer",
+                    "example": 7
+                  },
+                  "sale": {
+                    "type": "integer",
+                    "example": 2
+                  },
+                  "website_visit": {
+                    "type": "integer",
+                    "description": "Website visits known ONLY by hand: a visit stated for a lead whose click the delivery layer already measured is NOT counted here, so this number can be ADDED to the measured click count without counting anybody twice. Nothing about what the delivery layer measures changes.",
+                    "example": 1
+                  },
+                  "purchase": {
+                    "type": "integer",
+                    "example": 2
+                  }
+                },
+                "required": [
+                  "signup",
+                  "meeting_booked",
+                  "meeting_attended",
+                  "form_submission",
+                  "sale",
+                  "website_visit",
+                  "purchase"
+                ]
+              },
+              "unstated": {
+                "type": "object",
+                "properties": {
+                  "signup": {
+                    "type": "integer",
+                    "example": 12
+                  },
+                  "meeting_booked": {
+                    "type": "integer",
+                    "example": 3
+                  },
+                  "meeting_attended": {
+                    "type": "integer",
+                    "example": 2
+                  },
+                  "form_submission": {
+                    "type": "integer",
+                    "example": 7
+                  },
+                  "sale": {
+                    "type": "integer",
+                    "example": 2
+                  },
+                  "website_visit": {
+                    "type": "integer",
+                    "description": "Website visits known ONLY by hand: a visit stated for a lead whose click the delivery layer already measured is NOT counted here, so this number can be ADDED to the measured click count without counting anybody twice. Nothing about what the delivery layer measures changes.",
+                    "example": 1
+                  },
+                  "purchase": {
+                    "type": "integer",
+                    "example": 2
+                  }
+                },
+                "required": [
+                  "signup",
+                  "meeting_booked",
+                  "meeting_attended",
+                  "form_submission",
+                  "sale",
+                  "website_visit",
+                  "purchase"
+                ]
+              }
+            },
+            "required": [
+              "outreach",
+              "other",
+              "unstated"
+            ],
+            "description": "The SAME rows, split by WHOSE WIN each outcome was. A brand contacts people through us AND through everything else it already does — referrals, conferences, an existing pipeline, another agency — so some of the people we email go on to buy for reasons that have nothing to do with us. outreach — the customer states our outreach caused it. other — they state something else of theirs did; the outcome is REAL, it stays in `counts` and among the brand's own, it is simply not one to compute OUR return on. unstated — NOBODY WAS ASKED: every outcome stated before this field existed and every tracker-reported one (a page-load tag cannot know why somebody bought). `unstated` is never folded into either answer. For every key, outreach + other + unstated === counts. This is deliberately NOT the attributed / needs_review / unmatched vocabulary, which answers whether we managed to identify WHO somebody was."
           }
         },
         "required": [
           "counts",
-          "bySource"
+          "bySource",
+          "byCause"
         ],
         "description": "Per-brand real conversion counts by event type, for features-service to compute real signups / cost-per-signup."
       },
@@ -2963,6 +3154,12 @@
             "description": "What the CUSTOMER states this leg cost THEM, in cents — the meeting they ran, the call they took, their time valued however they chose. The platform automates the first link of a sales funnel and the customer performs the rest, so a cost of acquisition that omits this counts only the link we billed for. It is NEVER platform spend: nothing here was charged to the organisation, no platform cost was declared for it, and it is absent from their billing. 0 is a STATED zero; null means nobody was ever asked (a tracker-reported outcome knows nothing about a customer's spend, and so does every statement made before the cost became mandatory). The whole per-step picture, \"never\" legs included, is /internal/brands/{brandId}/step-costs.",
             "example": 12000
           },
+          "causedByOutreach": {
+            "type": "boolean",
+            "nullable": true,
+            "description": "WHOSE win it was. true — the customer states OUR outreach caused this outcome. false — they state something else of theirs did (a referral, a conference, their existing pipeline, another agency): the outcome is REAL and is counted everywhere the others are, it is simply not one to compute the return on our outreach from, so a consumer leaves its value out of that figure and keeps it in the brand's own total. null — NOBODY WAS ASKED: every outcome stated before this field existed, and every tracker-reported one, because a page-load tag observes a page load and cannot know why somebody bought. Null is never read as either answer. Deliberately NOT the attributed / needs_review / unmatched vocabulary, which answers whether we managed to identify who somebody was.",
+            "example": true
+          },
           "source": {
             "type": "string",
             "enum": [
@@ -2979,6 +3176,7 @@
           "occurredAt",
           "valueCents",
           "costCents",
+          "causedByOutreach",
           "source"
         ]
       },
@@ -3039,6 +3237,11 @@
                 "nullable": true,
                 "description": "What the author stated this step cost them, in cents, echoed back. 0 is a stated zero. Never charged, never part of the platform's spend ledger."
               },
+              "causedByOutreach": {
+                "type": "boolean",
+                "nullable": true,
+                "description": "WHOSE win it was, echoed back. true — our outreach caused it; false — something else of the customer's did (a real outcome either way); null — nobody was asked, which is neither answer. Always null on a \"never\" statement: nothing happened, so nothing caused it."
+              },
               "note": {
                 "type": "string",
                 "nullable": true
@@ -3063,6 +3266,7 @@
               "source",
               "valueCents",
               "costCents",
+              "causedByOutreach",
               "note",
               "statedByUserId",
               "statedAt"
@@ -3170,6 +3374,11 @@
             "type": "integer",
             "description": "What this step cost YOU, in cents — MANDATORY on every statement, outcome and \"never\" alike. The platform automates the first link of a sales funnel and you perform the rest (you run the meeting, you close the deal), so you are the only one who can say what that leg cost; without it a funnel's cost of acquisition counts only the link we billed for and every return shown for it is too good. You choose what goes in: zero, your time valued however you like, real expenses. ZERO IS A LEGITIMATE ANSWER and reads back as a stated zero — leaving the field out is a 400 (code cost_required), never a zero, because an absent cost and a stated zero must stay distinguishable. Negative is a 400. THIS MONEY IS YOURS: it is recorded because you told us, it is never charged to you, and it never enters the platform's own spend ledger or your billing. A \"never\" carries one too — a meeting that was run and went nowhere still cost what it cost.",
             "example": 12000
+          },
+          "causedByOutreach": {
+            "type": "boolean",
+            "description": "WHOSE win it was — did OUR outreach cause this, or something else you already do? true — ours. false — yours (a referral, a conference, your existing pipeline, another agency): the outcome is REAL, it is recorded and counted among your own exactly like any other, and stating it honestly costs you nothing; it simply stops it inflating the return we report on our own outreach. LEAVING IT OUT IS NOT \"NOT US\": an absent answer is recorded as \"nobody was asked\" and stays distinguishable from both answers forever, which is why every statement made before this existed reads as unstated rather than silently acquiring an answer nobody gave. Optional on every step; rejected with 400 on a \"never\" statement (nothing happened, so nothing caused it). A restatement REPLACES the statement, so restating without naming a cause returns it to unstated.",
+            "example": true
           },
           "note": {
             "type": "string",
@@ -3340,6 +3549,11 @@
             "type": "integer",
             "nullable": true
           },
+          "causedByOutreach": {
+            "type": "boolean",
+            "nullable": true,
+            "description": "WHOSE win it was: true — the customer states our outreach caused it; false — they state something else of theirs did (still a real outcome, counted everywhere the others are); null — NOBODY WAS ASKED, which is neither answer and is what every statement made before this existed reads as. Null on a pending step, on an IMPLIED one (nobody stated it, so nobody stated its cause), on a \"never\" (nothing happened, so nothing caused it) and on a tracker-reported outcome (a page-load tag cannot know why somebody bought)."
+          },
           "costCents": {
             "type": "integer",
             "nullable": true,
@@ -3369,6 +3583,7 @@
           "stepIndex",
           "source",
           "valueCents",
+          "causedByOutreach",
           "costCents",
           "note",
           "statedByUserId",
@@ -6255,7 +6470,7 @@
     "/internal/brands/{brandId}/conversion-counts": {
       "get": {
         "summary": "Real conversion counts per event type for a brand (internal, service-auth)",
-        "description": "INTERNAL (service-auth: x-api-key — same tier as other /internal/* routes, NO Clerk). Returns the per-event-type COUNT of REAL, attributed conversions for the brand. Each count is deduped (rows are deduped at write via the (brand_id, dedupe_signature) partial unique index) and filtered to attribution_status = 'attributed' (credited to a lead we emailed for the brand; excludes needs_review and unmatched). The \"ping\" liveness heartbeat never lands in conversion_events, so it is excluded. All six step keys are ALWAYS present (0 when none received), including \"meeting_attended\" and \"website_visit\", which are statable by hand only. \"website_visit\" counts the visits known ONLY by hand: a visit stated for a lead whose click the delivery layer already measured is left out, so this number can be added to the measured click count without counting anybody twice (email-gateway unreachable → 502, never a guessed count). `bySource` splits the same rows into tracker-reported and hand-stated (tracker + manual === counts, per key). A \"never\" statement is not an outcome and is counted by nothing here. A brand with zero conversions returns all-zero counts (200, never 404).",
+        "description": "INTERNAL (service-auth: x-api-key — same tier as other /internal/* routes, NO Clerk). Returns the per-event-type COUNT of REAL, attributed conversions for the brand. Each count is deduped (rows are deduped at write via the (brand_id, dedupe_signature) partial unique index) and filtered to attribution_status = 'attributed' (credited to a lead we emailed for the brand; excludes needs_review and unmatched). The \"ping\" liveness heartbeat never lands in conversion_events, so it is excluded. All six step keys are ALWAYS present (0 when none received), including \"meeting_attended\" and \"website_visit\", which are statable by hand only. \"website_visit\" counts the visits known ONLY by hand: a visit stated for a lead whose click the delivery layer already measured is left out, so this number can be added to the measured click count without counting anybody twice (email-gateway unreachable → 502, never a guessed count). `bySource` splits the same rows into tracker-reported and hand-stated (tracker + manual === counts, per key), and `byCause` splits them by WHOSE win each was: outreach (the customer states ours caused it), other (they state something else of theirs did — a real outcome, counted here like any other, simply not one to compute OUR return on) and unstated (nobody was asked; every outcome predating the field and every tracker-reported one). outreach + other + unstated === counts, per key. A \"never\" statement is not an outcome and is counted by nothing here. A brand with zero conversions returns all-zero counts (200, never 404).",
         "parameters": [
           {
             "in": "header",
@@ -6399,7 +6614,7 @@
     "/internal/brands/{brandId}/converted-leads": {
       "get": {
         "summary": "Attributed outcomes of a step for a brand, with date, campaign and value (internal, service-auth)",
-        "description": "INTERNAL (service-auth: x-api-key — same tier as conversion-counts, NO Clerk). Every attributed outcome of `event` for the brand, ONE ROW PER OUTCOME, carrying when it happened, which campaign it is attributable to and what it was worth — the three things /converted-lead-emails cannot say, and without which an observed outcome cannot be charted over time, cannot move any grain below the brand, and gets priced at the brand's average lifetime revenue. Exactly the same set /conversion-counts and /conversion-counts-by-day count (deduped at write, attribution_status = 'attributed'), so the reads reconcile row for row — a lead with no email is returned with a null email rather than dropped. `event` is required, one of signup | meeting_booked | meeting_attended | form_submission | sale (legacy \"purchase\" accepted, normalized to \"sale\"); missing/invalid → 400. A brand with no attributed outcome of `event` returns an empty array (200, never 404).",
+        "description": "INTERNAL (service-auth: x-api-key — same tier as conversion-counts, NO Clerk). Every attributed outcome of `event` for the brand, ONE ROW PER OUTCOME, carrying when it happened, which campaign it is attributable to and what it was worth — the three things /converted-lead-emails cannot say, and without which an observed outcome cannot be charted over time, cannot move any grain below the brand, and gets priced at the brand's average lifetime revenue. Exactly the same set /conversion-counts and /conversion-counts-by-day count (deduped at write, attribution_status = 'attributed'), so the reads reconcile row for row — a lead with no email is returned with a null email rather than dropped. Each row also carries `causedByOutreach`: true (the customer states our outreach caused it), false (they state something else of theirs did — a real outcome, in every count, simply not one to compute OUR return on) or null (nobody was asked). `event` is required, one of signup | meeting_booked | meeting_attended | form_submission | sale (legacy \"purchase\" accepted, normalized to \"sale\"); missing/invalid → 400. A brand with no attributed outcome of `event` returns an empty array (200, never 404).",
         "parameters": [
           {
             "in": "header",
@@ -6461,7 +6676,7 @@
     "/orgs/leads/{id}/step-statements": {
       "post": {
         "summary": "State by hand what happened to one lead at one funnel step (or that it never will)",
-        "description": "Organisation-authenticated (the customer dashboard and the staff console are both org-authenticated; the publishable website-tracker token is deliberately NOT a door to this — it is write-only, brand-scoped and meant for a third party's page). The lead is named by the `id` a list row already carries, so nothing about the person is re-supplied and nothing is matched or guessed — which is what repairs, for hand-stated facts, the ~90% unmatched rate the tracker's identity waterfall carries. kind=outcome writes to the conversion ledger tagged source=manual, so the brand's outcome counts move on the next read with no consumer change, and restating the same step corrects the first statement instead of counting twice. kind=never writes to a separate store that NO count reads, so a \"never\" can never move an outcome count; it is what lets a consumer separate a lead that is dead at a step from one still pending. A \"sale\" outcome MUST carry valueCents (400 otherwise) — a won deal states what it was worth instead of being priced at the brand average; every other step keeps it optional.",
+        "description": "Organisation-authenticated (the customer dashboard and the staff console are both org-authenticated; the publishable website-tracker token is deliberately NOT a door to this — it is write-only, brand-scoped and meant for a third party's page). The lead is named by the `id` a list row already carries, so nothing about the person is re-supplied and nothing is matched or guessed — which is what repairs, for hand-stated facts, the ~90% unmatched rate the tracker's identity waterfall carries. kind=outcome writes to the conversion ledger tagged source=manual, so the brand's outcome counts move on the next read with no consumer change, and restating the same step corrects the first statement instead of counting twice. kind=never writes to a separate store that NO count reads, so a \"never\" can never move an outcome count; it is what lets a consumer separate a lead that is dead at a step from one still pending. A \"sale\" outcome MUST carry valueCents (400 otherwise) — a won deal states what it was worth instead of being priced at the brand average; every other step keeps it optional. `causedByOutreach` states WHOSE win it was — ours, or something else the customer already does (a referral, a conference, their own pipeline). A deal they say we did not cause is still a real deal, recorded and counted among their own; saying so simply keeps it out of the return we report on our own outreach. It is optional, and leaving it out records \"nobody was asked\" rather than \"not us\", so a statement made before this existed never silently acquires an answer.",
         "parameters": [
           {
             "in": "header",
@@ -6532,7 +6747,7 @@
             }
           },
           "400": {
-            "description": "Invalid id, step, kind, occurredAt; valueCents on a \"never\"; a \"sale\" outcome with no valueCents; a missing costCents (code cost_required — absent is a refusal, never a zero); or a negative costCents"
+            "description": "Invalid id, step, kind, occurredAt; valueCents or causedByOutreach on a \"never\"; a \"sale\" outcome with no valueCents; a missing costCents (code cost_required — absent is a refusal, never a zero); or a negative costCents"
           },
           "401": {
             "description": "Unauthorized"

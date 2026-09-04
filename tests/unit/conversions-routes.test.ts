@@ -908,6 +908,8 @@ describe("GET /internal/brands/:brandId/converted-leads", () => {
         // A stated ZERO: the customer answered "this leg cost me nothing". It must survive as 0
         // and never be folded into the null that means nobody was ever asked.
         cost_cents: 0,
+        // The customer states OUR outreach caused this deal.
+        caused_by_outreach: true,
         source: "manual",
         // A raw `sql` row hands a timestamptz back as a STRING on some paths — the fixture
         // must be one, or a handler that calls .toISOString() on it ships green and throws in prod.
@@ -935,6 +937,7 @@ describe("GET /internal/brands/:brandId/converted-leads", () => {
         occurredAt: "2026-08-19T14:30:00.000Z",
         valueCents: 490000,
         costCents: 0,
+        causedByOutreach: true,
         source: "manual",
       },
       {
@@ -942,8 +945,10 @@ describe("GET /internal/brands/:brandId/converted-leads", () => {
         email: "bob@globex.com",
         campaignId: null,
         occurredAt: "2026-08-18T09:00:00.000Z",
-        // A tracker event observes a page load and knows nothing about the customer's spend.
+        // A tracker event observes a page load and knows nothing about the customer's spend,
+        // and no more about WHY they bought: nobody was asked, which is neither answer.
         costCents: null,
+        causedByOutreach: null,
         valueCents: null,
         source: "tracker",
       },
