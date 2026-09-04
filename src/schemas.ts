@@ -4191,3 +4191,184 @@ registry.registerPath({
     500: { description: "Internal server error" },
   },
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A LEAD'S HISTORY — GET /orgs/leads/{id}/history
+//
+// One read that answers what happened to a person, in order, with the words. Assembled here from
+// the services that own each fact, so a consumer renders it without merging anything — which is
+// what six services being merged in a browser had made impossible.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const HistorySourceStateSchema = z
+  .object({
+    source: z.enum(["lead-service", "delivery", "outreach", "mailbox", "content"]).openapi({
+      description:
+        "Who owns this fact. lead-service: the lifecycle, the funnel statements, the conversions and the follow-up debt. delivery: email-gateway's measured evidence. outreach: the messages the outreach provider carried, plus the reply and opt-out statements a human recorded. mailbox: the customer's own Gmail mirror — for some prospects the ONLY copy of the exchange. content: the copy we generated and the cadence it planned.",
+    }),
+    status: z.enum(["ok", "unavailable", "not_asked"]).openapi({
+      description:
+        "ok: it answered. unavailable: it could NOT be read, and what it holds is therefore missing from `events` — never read that absence as nothing having happened. not_asked: there was nothing in scope to ask it about (an unserved lead, a person with no registered email).",
+    }),
+    reason: z.string().nullable().openapi({
+      description: "Why it could not answer, or why it was not asked. Null when it answered.",
+    }),
+  })
+  .openapi("LeadHistorySourceState");
+
+const HistoryEventSchema = z
+  .object({
+    id: z.string().openapi({ description: "Stable within one response — key a rendered list on it." }),
+    at: z.string().nullable().openapi({
+      description:
+        "ISO 8601 UTC when it happened, or null when the fact carries no date. Events are ordered oldest first and undated ones come LAST — never placed at the epoch.",
+    }),
+    type: z
+      .enum([
+        "generated_email",
+        "message",
+        "delivery",
+        "lifecycle",
+        "reply_statement",
+        "opt_out_statement",
+        "step_statement",
+        "conversion",
+        "followup",
+      ])
+      .openapi({
+        description:
+          "What kind of thing this is. A reply whose WORDS we hold is a `message`; a reply somebody wrote down because it never reached us is a `reply_statement` and carries no body — the two are different facts and a consumer renders them differently without having to guess.",
+      }),
+    evidence: z.enum(["observed", "asserted"]).openapi({
+      description:
+        "observed: a fact we hold — a message we can produce the words of, a milestone the delivery layer measured, an outcome the tracker reported. asserted: a fact somebody stated — a recorded reply, a recorded opt-out, a hand-stated funnel step.",
+    }),
+    source: z.enum(["lead-service", "delivery", "outreach", "mailbox", "content"]),
+    campaignId: z.string().nullable().openapi({
+      description:
+        "The campaign this happened on, when the fact belongs to one. Null where the holder genuinely does not know: a mailbox knows an address, a website tracker knows a brand, an opt-out belongs to the person.",
+    }),
+    direction: z.enum(["inbound", "outbound"]).nullable(),
+    milestone: z.string().optional().openapi({
+      description:
+        "On a `delivery` event: sent | delivered | opened | clicked | replied | bounced | unsubscribed. On a `lifecycle` event: served | handed_to_sending. A `sent` or `replied` milestone is OMITTED when the message carrying those words is already in the list — the de-duplication happens here, not in the consumer.",
+    }),
+    from: z.string().nullable().optional(),
+    to: z.array(z.string()).optional(),
+    subject: z.string().nullable().optional(),
+    bodyText: z.string().nullable().optional().openapi({
+      description: "The words, as readable text. Null when the holder says it could not read them.",
+    }),
+    bodyStatus: z.enum(["ok", "empty", "unavailable"]).optional().openapi({
+      description:
+        "ok: these are the words. empty: it genuinely says nothing. unavailable: we hold the message and could not read it — deliberately NOT the same answer as empty.",
+    }),
+    threadId: z.string().nullable().optional(),
+    heldBy: z.array(z.string()).optional().openapi({
+      description:
+        "Which copies hold this message. One message mirrored on both the outreach side and the customer's mailbox is ONE event naming both, never two.",
+    }),
+    copy: z.string().nullable().optional().openapi({
+      description:
+        "Which copy it was read from. `mirror` is the outreach provider's mailbox as we hold it — the copy that outlives the subscription being cancelled.",
+    }),
+    plannedSequence: z.unknown().optional().openapi({
+      description:
+        "On a `generated_email`: the cadence the sequence PLANNED, verbatim from its producer. It is a plan, not a promise — what is still owed is the `followup` event, read from live state.",
+    }),
+    model: z.string().nullable().optional(),
+    replyKind: z.string().optional(),
+    channel: z.string().optional(),
+    step: z.string().optional(),
+    kind: z.enum(["outcome", "never"]).optional(),
+    event: z.string().optional(),
+    valueCents: z.number().nullable().optional(),
+    costCents: z.number().nullable().optional(),
+    matchConfidence: z.string().nullable().optional(),
+    attributionStatus: z.string().nullable().optional(),
+    statedBy: z.string().nullable().optional(),
+    note: z.string().nullable().optional(),
+    state: z.enum(["scheduled", "stopped"]).optional(),
+    dueAt: z.string().nullable().optional().openapi({
+      description:
+        "On a `followup`: when the next answer is owed. Always null on a stopped schedule — a stopped sequence never advertises a next follow-up.",
+    }),
+    followupCount: z.number().optional(),
+    stoppedReason: z.string().nullable().optional(),
+  })
+  .openapi("LeadHistoryEvent");
+
+const LeadHistoryResponseSchema = z
+  .object({
+    leadCampaignId: z.string(),
+    leadId: z.string(),
+    campaignId: z.string(),
+    brandId: z.string(),
+    email: z.string().nullable(),
+    scope: z.enum(["campaign", "brand"]).openapi({
+      description:
+        "Which question was answered. campaign: what THIS campaign did, resolved to the campaign's whole identity. brand: the roll-up across every campaign of the brand this person is in. Both are legitimate and the answer always says which it gave.",
+    }),
+    campaignIds: z.array(z.string()).openapi({
+      description: "The campaigns actually asked about.",
+    }),
+    campaignsTruncated: z.boolean().openapi({
+      description:
+        "True when this person is in more campaigns than one read fans out over. The answer is then bounded, and `complete` is false — a capped answer must never look like a whole one.",
+    }),
+    complete: z.boolean().openapi({
+      description:
+        "False when ANY source could not answer, or when the campaign fan-out was bounded. A consumer must never render this list as the whole story while it is false.",
+    }),
+    sources: z.array(HistorySourceStateSchema),
+    events: z.array(HistoryEventSchema).openapi({
+      description: "Oldest first, undated last. Already merged and de-duplicated.",
+    }),
+  })
+  .openapi("LeadHistoryResponse");
+
+registry.registerPath({
+  method: "get",
+  path: "/orgs/leads/{id}/history",
+  summary: "Everything that happened to one person, in order, in one place",
+  description:
+    "Both directions of every exchange WITH THE MESSAGE BODIES, what we sent and when it was delivered, " +
+    "what the person did, what somebody recorded by hand and who recorded it, and what it converted into — " +
+    "one ordered list a consumer renders without merging anything. Every fact is asked of the service that " +
+    "owns it and none is re-derived here; no funnel or outcome logic lives in this read. A fact we HOLD and " +
+    "a fact somebody ASSERTED are distinguishable (`evidence`), and so are a reply we can produce the words " +
+    "of (a `message`) and a reply somebody wrote down because it never reached us (a `reply_statement`). A " +
+    "source that could not be read is stated as unreachable in `sources` and sets `complete: false`; it " +
+    "degrades only itself and never empties the list, because \"we could not read this\" and \"this did not " +
+    "happen\" are different facts.",
+  request: { params: LeadRowIdPathParam },
+  parameters: [
+    ...FollowupOrgHeaders,
+    {
+      in: "query" as const,
+      name: "scope",
+      required: false,
+      schema: { type: "string" as const, enum: ["campaign", "brand"] },
+      description:
+        "campaign (default): what this campaign did, resolved to the campaign's whole identity. brand: the roll-up across every campaign of the brand this person is in.",
+    },
+    {
+      in: "query" as const,
+      name: "brandId",
+      required: false,
+      schema: { type: "string" as const },
+      description:
+        "Which brand the history is about — the same scoping GET /orgs/leads/{id} takes. A brand this row is not part of answers 404, exactly as an absent row does.",
+    },
+  ],
+  responses: {
+    200: {
+      description: "The person's history, ordered",
+      content: { "application/json": { schema: LeadHistoryResponseSchema } },
+    },
+    400: { description: "id is not a uuid, or scope is not one of campaign | brand" },
+    401: { description: "Unauthorized" },
+    404: { description: "No such lead row for this org (or for the requested brand scope)" },
+    500: { description: "Internal server error" },
+  },
+});

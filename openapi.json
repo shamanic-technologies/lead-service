@@ -4077,6 +4077,299 @@
           "kind"
         ],
         "description": "What we owe one person on one campaign next."
+      },
+      "LeadHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "leadCampaignId": {
+            "type": "string"
+          },
+          "leadId": {
+            "type": "string"
+          },
+          "campaignId": {
+            "type": "string"
+          },
+          "brandId": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string",
+            "nullable": true
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "campaign",
+              "brand"
+            ],
+            "description": "Which question was answered. campaign: what THIS campaign did, resolved to the campaign's whole identity. brand: the roll-up across every campaign of the brand this person is in. Both are legitimate and the answer always says which it gave."
+          },
+          "campaignIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The campaigns actually asked about."
+          },
+          "campaignsTruncated": {
+            "type": "boolean",
+            "description": "True when this person is in more campaigns than one read fans out over. The answer is then bounded, and `complete` is false — a capped answer must never look like a whole one."
+          },
+          "complete": {
+            "type": "boolean",
+            "description": "False when ANY source could not answer, or when the campaign fan-out was bounded. A consumer must never render this list as the whole story while it is false."
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LeadHistorySourceState"
+            }
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LeadHistoryEvent"
+            },
+            "description": "Oldest first, undated last. Already merged and de-duplicated."
+          }
+        },
+        "required": [
+          "leadCampaignId",
+          "leadId",
+          "campaignId",
+          "brandId",
+          "email",
+          "scope",
+          "campaignIds",
+          "campaignsTruncated",
+          "complete",
+          "sources",
+          "events"
+        ]
+      },
+      "LeadHistorySourceState": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "lead-service",
+              "delivery",
+              "outreach",
+              "mailbox",
+              "content"
+            ],
+            "description": "Who owns this fact. lead-service: the lifecycle, the funnel statements, the conversions and the follow-up debt. delivery: email-gateway's measured evidence. outreach: the messages the outreach provider carried, plus the reply and opt-out statements a human recorded. mailbox: the customer's own Gmail mirror — for some prospects the ONLY copy of the exchange. content: the copy we generated and the cadence it planned."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "unavailable",
+              "not_asked"
+            ],
+            "description": "ok: it answered. unavailable: it could NOT be read, and what it holds is therefore missing from `events` — never read that absence as nothing having happened. not_asked: there was nothing in scope to ask it about (an unserved lead, a person with no registered email)."
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true,
+            "description": "Why it could not answer, or why it was not asked. Null when it answered."
+          }
+        },
+        "required": [
+          "source",
+          "status",
+          "reason"
+        ]
+      },
+      "LeadHistoryEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable within one response — key a rendered list on it."
+          },
+          "at": {
+            "type": "string",
+            "nullable": true,
+            "description": "ISO 8601 UTC when it happened, or null when the fact carries no date. Events are ordered oldest first and undated ones come LAST — never placed at the epoch."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "generated_email",
+              "message",
+              "delivery",
+              "lifecycle",
+              "reply_statement",
+              "opt_out_statement",
+              "step_statement",
+              "conversion",
+              "followup"
+            ],
+            "description": "What kind of thing this is. A reply whose WORDS we hold is a `message`; a reply somebody wrote down because it never reached us is a `reply_statement` and carries no body — the two are different facts and a consumer renders them differently without having to guess."
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "asserted"
+            ],
+            "description": "observed: a fact we hold — a message we can produce the words of, a milestone the delivery layer measured, an outcome the tracker reported. asserted: a fact somebody stated — a recorded reply, a recorded opt-out, a hand-stated funnel step."
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "lead-service",
+              "delivery",
+              "outreach",
+              "mailbox",
+              "content"
+            ]
+          },
+          "campaignId": {
+            "type": "string",
+            "nullable": true,
+            "description": "The campaign this happened on, when the fact belongs to one. Null where the holder genuinely does not know: a mailbox knows an address, a website tracker knows a brand, an opt-out belongs to the person."
+          },
+          "direction": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "inbound",
+              "outbound",
+              null
+            ]
+          },
+          "milestone": {
+            "type": "string",
+            "description": "On a `delivery` event: sent | delivered | opened | clicked | replied | bounced | unsubscribed. On a `lifecycle` event: served | handed_to_sending. A `sent` or `replied` milestone is OMITTED when the message carrying those words is already in the list — the de-duplication happens here, not in the consumer."
+          },
+          "from": {
+            "type": "string",
+            "nullable": true
+          },
+          "to": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "subject": {
+            "type": "string",
+            "nullable": true
+          },
+          "bodyText": {
+            "type": "string",
+            "nullable": true,
+            "description": "The words, as readable text. Null when the holder says it could not read them."
+          },
+          "bodyStatus": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "empty",
+              "unavailable"
+            ],
+            "description": "ok: these are the words. empty: it genuinely says nothing. unavailable: we hold the message and could not read it — deliberately NOT the same answer as empty."
+          },
+          "threadId": {
+            "type": "string",
+            "nullable": true
+          },
+          "heldBy": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Which copies hold this message. One message mirrored on both the outreach side and the customer's mailbox is ONE event naming both, never two."
+          },
+          "copy": {
+            "type": "string",
+            "nullable": true,
+            "description": "Which copy it was read from. `mirror` is the outreach provider's mailbox as we hold it — the copy that outlives the subscription being cancelled."
+          },
+          "plannedSequence": {
+            "nullable": true,
+            "description": "On a `generated_email`: the cadence the sequence PLANNED, verbatim from its producer. It is a plan, not a promise — what is still owed is the `followup` event, read from live state."
+          },
+          "model": {
+            "type": "string",
+            "nullable": true
+          },
+          "replyKind": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "step": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "outcome",
+              "never"
+            ]
+          },
+          "event": {
+            "type": "string"
+          },
+          "valueCents": {
+            "type": "number",
+            "nullable": true
+          },
+          "costCents": {
+            "type": "number",
+            "nullable": true
+          },
+          "matchConfidence": {
+            "type": "string",
+            "nullable": true
+          },
+          "attributionStatus": {
+            "type": "string",
+            "nullable": true
+          },
+          "statedBy": {
+            "type": "string",
+            "nullable": true
+          },
+          "note": {
+            "type": "string",
+            "nullable": true
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "scheduled",
+              "stopped"
+            ]
+          },
+          "dueAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "On a `followup`: when the next answer is owed. Always null on a stopped schedule — a stopped sequence never advertises a next follow-up."
+          },
+          "followupCount": {
+            "type": "number"
+          },
+          "stoppedReason": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "type",
+          "evidence",
+          "source",
+          "campaignId",
+          "direction"
+        ]
       }
     },
     "parameters": {},
@@ -6799,6 +7092,98 @@
           },
           "404": {
             "description": "No such lead row for this org"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/orgs/leads/{id}/history": {
+      "get": {
+        "summary": "Everything that happened to one person, in order, in one place",
+        "description": "Both directions of every exchange WITH THE MESSAGE BODIES, what we sent and when it was delivered, what the person did, what somebody recorded by hand and who recorded it, and what it converted into — one ordered list a consumer renders without merging anything. Every fact is asked of the service that owns it and none is re-derived here; no funnel or outcome logic lives in this read. A fact we HOLD and a fact somebody ASSERTED are distinguishable (`evidence`), and so are a reply we can produce the words of (a `message`) and a reply somebody wrote down because it never reached us (a `reply_statement`). A source that could not be read is stated as unreachable in `sources` and sets `complete: false`; it degrades only itself and never empties the list, because \"we could not read this\" and \"this did not happen\" are different facts.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-api-key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "API key for authenticating requests"
+          },
+          {
+            "in": "header",
+            "name": "x-org-id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Internal organization UUID from client-service"
+          },
+          {
+            "in": "header",
+            "name": "x-run-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Run the claim belongs to, forwarded to the delivery layer for tracing."
+          },
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "campaign",
+                "brand"
+              ]
+            },
+            "description": "campaign (default): what this campaign did, resolved to the campaign's whole identity. brand: the roll-up across every campaign of the brand this person is in."
+          },
+          {
+            "in": "query",
+            "name": "brandId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Which brand the history is about — the same scoping GET /orgs/leads/{id} takes. A brand this row is not part of answers 404, exactly as an absent row does."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "The `id` a list row already carries (the leads_campaigns membership row) — so a caller states an outcome for a lead it has already resolved without re-supplying any identity field.",
+              "example": "40000000-0000-0000-0000-000000000001"
+            },
+            "required": true,
+            "description": "The `id` a list row already carries (the leads_campaigns membership row) — so a caller states an outcome for a lead it has already resolved without re-supplying any identity field.",
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The person's history, ordered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadHistoryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "id is not a uuid, or scope is not one of campaign | brand"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "No such lead row for this org (or for the requested brand scope)"
           },
           "500": {
             "description": "Internal server error"

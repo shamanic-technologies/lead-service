@@ -16,6 +16,7 @@ import featureMembershipsRoutes from "./routes/feature-memberships.js";
 import conversionsRoutes from "./routes/conversions.js";
 import stepStatementsRoutes from "./routes/step-statements.js";
 import followupsRoutes from "./routes/followups.js";
+import leadHistoryRoutes from "./routes/lead-history.js";
 import { registerProviders } from "./lib/register-providers.js";
 import { markBootFailed, markBootReady } from "./lib/boot-state.js";
 import { withConnectRetry } from "./lib/db-retry.js";
@@ -53,6 +54,7 @@ app.use(featureMembershipsRoutes);
 app.use(conversionsRoutes);
 app.use(stepStatementsRoutes);
 app.use(followupsRoutes);
+app.use(leadHistoryRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ error: "Not found" });
