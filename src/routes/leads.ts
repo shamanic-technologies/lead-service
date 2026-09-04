@@ -13,12 +13,13 @@ import { resolveCampaignFamily } from "../lib/campaign-identity-client.js";
 import { resolveOfferCampaignIds, OfferCampaignsUnavailableError } from "../lib/offer-campaigns-client.js";
 import { traceEvent } from "../lib/trace-event.js";
 import { buildFullLeadsBatch, type FullLead } from "../lib/lead-shape.js";
-import { streamBasicLeadChunks, toIsoTimestamp, type BasicLeadRow } from "../lib/basic-leads.js";
+import { fetchBasicLeadChunk, streamBasicLeadChunks, toIsoTimestamp, type BasicLeadRow } from "../lib/basic-leads.js";
 import {
   campaignScopeIds,
   encodeLeadCursor,
   leadCampaignBaseRelation,
   leadCursorTimestampParam,
+  leadRowIdScope,
   leadStatusScope,
   parseLeadListPage,
   parseLeadStatusFilter,
@@ -26,6 +27,11 @@ import {
   type LeadListPage,
   type LeadListScope,
 } from "../lib/lead-list-query.js";
+import { parseLeadSearch } from "../lib/lead-search.js";
+import { parseLeadBucket, zeroBucketCounts, type LeadBucket } from "../lib/lead-buckets.js";
+import { countLeadListRows, fetchLeadIndex } from "../lib/lead-index.js";
+import { countBuckets, enrichLeadIndex, type EngagementContext } from "../lib/lead-engagement.js";
+import { parseLeadSort, planLeadPage, type LeadPagePlan, type LeadSortOrder } from "../lib/lead-page-plan.js";
 import { resolveAudiencesForBrand, type AudienceCard, type AudienceResolveContext } from "../lib/audience-client.js";
 import { createOfferCardResolver, type OfferCard } from "../lib/offer-card-client.js";
 import {
@@ -200,6 +206,7 @@ async function fetchLeadCampaignChunk(
       ${scope.queryOrgId ? sql`AND lc.org_id = ${scope.queryOrgId}` : sql``}
       ${scope.userId ? sql`AND lc.user_id = ${scope.userId}` : sql``}
       ${scope.workflowSlug ? sql`AND lc.workflow_slug = ${scope.workflowSlug}` : sql``}
+      ${leadRowIdScope(scope) ? sql`AND lc.id = ANY(${leadRowIdScope(scope)!}::uuid[])` : sql``}
       ${cursor ? sql`AND (lc.created_at, lc.id) > (${leadCursorTimestampParam(cursor)}, ${cursor.id})` : sql``}
     ORDER BY lc.created_at ASC, lc.id ASC
     LIMIT ${limit}
@@ -387,6 +394,158 @@ function nextCursorFor(
 
 
 /**
+ * The full-projection walk, as a stream of chunks.
+ *
+ * Identical to the loop it replaces: keyset over `(created_at, id)`, `offset` positions the first
+ * chunk only, never more rows read than the caller's `limit`. It is a generator so that the
+ * index-driven read (which chooses its own rows) can feed the SAME emit loop, which is what keeps
+ * a searched page and a plain page serialized by one piece of code.
+ */
+async function* streamFullLeadChunks(
+  scope: LeadListScope,
+  page: LeadListPage,
+  chunkSize: number,
+): AsyncGenerator<LeadCampaignRow[]> {
+  let cursor: LeadCampaignCursor | null = page.cursor;
+  let offset: number | null = page.offset;
+  let remaining: number | null = page.limit;
+  while (remaining === null || remaining > 0) {
+    const take = remaining === null ? chunkSize : Math.min(chunkSize, remaining);
+    const rows = await fetchLeadCampaignChunk(scope, cursor, take, offset);
+    offset = null;
+    if (rows.length === 0) return;
+    yield rows;
+    if (remaining !== null) remaining -= rows.length;
+    const last = rows[rows.length - 1];
+    cursor = { createdAt: last.cursorCreatedAt, id: last.id };
+    if (rows.length < take) return;
+  }
+}
+
+/** Put hydrated rows back in the order the index chose. A row the hydration lost is skipped, not faked. */
+function inIndexOrder<T extends { id: string }>(rows: T[], ids: readonly string[]): T[] {
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  return ids.map((id) => byId.get(id)).filter((row): row is T => row !== undefined);
+}
+
+/**
+ * Hydrate the ids an index-driven page chose, a chunk at a time, in the index's order.
+ *
+ * The ids are already the winners of the same dedup the list applies, so they are hydrated by id
+ * on the OUTER query alone (see `rowIds`) and re-ordered here — the SQL order is the list's, not
+ * this read's.
+ */
+async function* streamChunksByIds<T extends { id: string }>(
+  scope: LeadListScope,
+  ids: readonly string[],
+  chunkSize: number,
+  fetch: (scope: LeadListScope, count: number) => Promise<T[]>,
+): AsyncGenerator<T[]> {
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const slice = ids.slice(i, i + chunkSize);
+    const rows = await fetch({ ...scope, rowIds: slice }, slice.length);
+    const ordered = inIndexOrder(rows, slice);
+    if (ordered.length > 0) yield ordered;
+  }
+}
+
+/**
+ * The context the population-wide evidence pass runs under: the SAME identity headers, the SAME
+ * delivery scope and the SAME flatten the per-row overlay uses, so a bucket count and the row it
+ * counted can never disagree about what happened to that person.
+ */
+function engagementContext(
+  req: AuthenticatedRequest,
+  scope: LeadListScope,
+  brandId: string | undefined,
+  statusCampaignId: string | undefined,
+  flatten: (result: StatusResult) => FlattenedStatus,
+  deliveryQueried: boolean,
+): EngagementContext {
+  return {
+    serviceContext: getServiceContext(req),
+    statusCampaignId,
+    flatten,
+    deliveryQueried,
+    orgId: scope.orgId,
+    brandId,
+  };
+}
+
+/** What a caller asks the response to be. Absent means JSON, exactly as today. */
+type LeadListFormat = "json" | "csv";
+
+function parseLeadFormat(raw: unknown): LeadListFormat {
+  if (raw === undefined) return "json";
+  if (typeof raw !== "string") throw new Error("format must be a single format name");
+  const trimmed = raw.trim();
+  if (trimmed === "json" || trimmed === "csv") return trimmed;
+  throw new Error(`Unknown format '${raw}'. Valid: json, csv`);
+}
+
+/** One CSV field: quoted always, embedded quotes doubled — the only escaping RFC 4180 asks for. */
+function csvCell(value: unknown): string {
+  if (value === null || value === undefined) return '""';
+  return '"' + String(value).replace(/"/g, '""') + '"';
+}
+
+/**
+ * The columns an export carries.
+ *
+ * A person, where they work, how to reach them, where they are in the funnel, and the evidence
+ * behind that — the same facts the table renders, flattened. Deliberately NOT the whole record:
+ * an export nobody can open in a spreadsheet is not an export.
+ */
+const LEAD_CSV_COLUMNS = [
+  "id", "leadId", "firstName", "lastName", "name", "currentTitle", "email", "emailStatus",
+  "company", "companyDomain", "audience", "offer", "campaignId", "status", "servedAt",
+  "standing", "standingSignal", "contacted", "sent", "delivered", "opened", "clicked",
+  "replied", "replyClassification", "bounced", "unsubscribed", "firstSentAt", "firstClickedAt",
+  "firstRepliedAt",
+] as const;
+
+/** One export line, built from the SAME object the JSON list emits — never a second projection. */
+function leadCsvLine(item: Record<string, unknown>): string {
+  const lead = (item.lead ?? null) as Record<string, unknown> | null;
+  const organization = (lead?.organization ?? null) as Record<string, unknown> | null;
+  const standing = (item.standing ?? null) as Record<string, unknown> | null;
+  const audience = (item.audience ?? null) as Record<string, unknown> | null;
+  const offer = (item.offer ?? null) as Record<string, unknown> | null;
+  const values: Record<(typeof LEAD_CSV_COLUMNS)[number], unknown> = {
+    id: item.id,
+    leadId: item.leadId,
+    firstName: lead?.firstName ?? null,
+    lastName: lead?.lastName ?? null,
+    name: lead?.name ?? null,
+    currentTitle: lead?.currentTitle ?? null,
+    email: item.email,
+    emailStatus: item.emailStatus,
+    company: organization?.name ?? null,
+    companyDomain: organization?.primaryDomain ?? null,
+    audience: audience?.name ?? null,
+    offer: offer?.name ?? null,
+    campaignId: item.campaignId,
+    status: item.status,
+    servedAt: item.servedAt,
+    standing: standing?.state ?? null,
+    standingSignal: standing?.signal ?? null,
+    contacted: item.contacted,
+    sent: item.sent,
+    delivered: item.delivered,
+    opened: item.opened,
+    clicked: item.clicked,
+    replied: item.replied,
+    replyClassification: item.replyClassification,
+    bounced: item.bounced,
+    unsubscribed: item.unsubscribed,
+    firstSentAt: item.firstSentAt,
+    firstClickedAt: item.firstClickedAt,
+    firstRepliedAt: item.firstRepliedAt,
+  };
+  return LEAD_CSV_COLUMNS.map((column) => csvCell(values[column])).join(",") + "\n";
+}
+
+/**
  * The delivery half of a standing, read off the overlay this row already carries. No second
  * source: whatever scope the engagement fields answer for, the standing answers for.
  */
@@ -442,68 +601,50 @@ function unresolvedStanding(): LeadStanding {
   };
 }
 
-router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedRequest, res) => {
-  let streamingStarted = false;
-  try {
-    if (req.runId) {
-      traceEvent(req.runId, { service: "lead-service", event: "leads-query-start", detail: `orgId=${req.orgId}` }, req.headers).catch(() => {});
-    }
+/**
+ * WHICH rows a read is about, resolved once for the list, the export and the bucket counts.
+ *
+ * Everything here is scope, and scope is exactly what a count and a list must agree on: an offer
+ * resolves to the campaigns selling it, a campaign resolves to its whole IDENTITY, and the delivery
+ * answer is flattened to whichever of those the read named. Two implementations of this would be
+ * two populations wearing one name — a tab that says 300 and then shows 280.
+ */
+type LeadScopeResolution =
+  | { kind: "error"; status: number; error: string }
+  /** An offer no campaign sells yet: a real, empty answer, and never the brand's leads. */
+  | { kind: "empty" }
+  | {
+      kind: "scope";
+      scope: LeadListScope;
+      statusCampaignIdStr: string | undefined;
+      hasScopeForStatus: boolean;
+      flatten: (result: StatusResult) => FlattenedStatus;
+    };
 
-    const { brandId, campaignId, offerId, orgId: queryOrgId, userId, workflowSlug } = req.query;
-    const campaignIdStr = typeof campaignId === "string" ? campaignId : undefined;
-    const offerIdStr = typeof offerId === "string" ? offerId : undefined;
-    const brandIdStr = typeof brandId === "string" ? brandId : undefined;
-    const queryOrgIdStr = typeof queryOrgId === "string" ? queryOrgId : undefined;
-    const userIdStr = typeof userId === "string" ? userId : undefined;
-    const workflowSlugStr = typeof workflowSlug === "string" ? workflowSlug : undefined;
-
-    // What the caller wants BESIDE the row. `include=campaigns` nests this person's campaigns of
-    // this brand under the row, each card stating what happened in that campaign alone. Absent
-    // means today's response, byte for byte; an unknown value is a 400, never ignored — a silently
-    // dropped include is a consumer rendering an empty panel with nothing anywhere going red.
-    let includeCampaigns = false;
-    {
-      const include = req.query.include;
-      const raw = typeof include === "string" ? include : undefined;
-      if (raw !== undefined) {
-        const parts = raw.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
-        for (const part of parts) {
-          if (part !== "campaigns") {
-            return res.status(400).json({
-              error: `include must be a comma-separated list of: campaigns (got '${part}')`,
-            });
-          }
-        }
-        includeCampaigns = parts.includes("campaigns");
-      }
-    }
-
-    // Which lifecycle statuses this read answers for. Absent means the actionable population
-    // (DEFAULT_LEAD_LIST_STATUSES — everything but `skipped`); `?status=all` or an explicit list
-    // asks for more. A bad value is a 400 before any work starts, never a silent fallback.
-    let statuses: readonly string[];
-    let page: LeadListPage;
-    try {
-      statuses = parseLeadStatusFilter(req.query.status);
-      // How much of that population to return, and where to start. Absent `limit` means the whole
-      // thing — the read every caller got before bounds existed, and what the staff console still
-      // asks for. Anything unreadable is a 400 before any work starts: a bound that is accepted
-      // and dropped is the bug being fixed here, so nothing about paging fails quietly.
-      page = parseLeadListPage(req.query);
-    } catch (error) {
-      return res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
-    }
+async function resolveLeadReadScope(
+  req: AuthenticatedRequest,
+  statuses: readonly string[],
+): Promise<LeadScopeResolution> {
+  const { brandId, campaignId, offerId, orgId: queryOrgId, userId, workflowSlug } = req.query;
+  const brandIdStr = typeof brandId === "string" ? brandId : undefined;
+  const campaignIdStr = typeof campaignId === "string" ? campaignId : undefined;
+  const offerIdStr = typeof offerId === "string" ? offerId : undefined;
+  const queryOrgIdStr = typeof queryOrgId === "string" ? queryOrgId : undefined;
+  const userIdStr = typeof userId === "string" ? userId : undefined;
+  const workflowSlugStr = typeof workflowSlug === "string" ? workflowSlug : undefined;
 
     // A campaign sells exactly ONE offer, so naming both an offer and a campaign states two
     // narrowings where one already implies the other — either the campaign is in the offer (the
     // offer adds nothing) or it is not (the pair matches nothing, and whichever the caller meant
     // is unknowable). Refused rather than silently resolved one way.
-    if (offerIdStr && campaignIdStr) {
-      return res.status(400).json({
-        error:
-          "offerId and campaignId both narrow the read and a campaign already sells exactly one offer — pass one, not both",
-      });
-    }
+  if (offerIdStr && campaignIdStr) {
+    return {
+      kind: "error",
+      status: 400,
+      error:
+        "offerId and campaignId both narrow the read and a campaign already sells exactly one offer — pass one, not both",
+    };
+  }
 
     // A lead's offer is the offer named by the campaign it was served under, and `campaign_id` on
     // the membership row is that frozen attribution — so an offer scope resolves to the campaign
@@ -524,16 +665,19 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
           `[lead-service] offer scope unresolved for offerId=${offerIdStr} orgId=${req.orgId} — ` +
             `refusing the read rather than widening it to the brand: ${(error as Error).message}`,
         );
-        return res.status(502).json({
-          error: error instanceof OfferCampaignsUnavailableError ? error.message : "campaign-service unavailable",
-        });
+        return {
+          kind: "error",
+          status: 502,
+          error:
+            error instanceof OfferCampaignsUnavailableError
+              ? error.message
+              : "campaign-service unavailable",
+        };
       }
 
       // No campaign sells this offer yet, so no lead has been served under it. That is a real,
       // correct answer — and the one place a missing filter would otherwise become the brand.
-      if (offerCampaignIds.length === 0) {
-        return res.json({ leads: [], nextCursor: null });
-      }
+      if (offerCampaignIds.length === 0) return { kind: "empty" };
     }
 
     // A campaign as the customer knows it is an IDENTITY (org, brand, sales funnel, acquisition
@@ -582,6 +726,96 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       : scopeCampaignIds
         ? flattenCampaignStatus
         : flattenBrandStatus;
+
+  return { kind: "scope", scope, statusCampaignIdStr, hasScopeForStatus, flatten };
+}
+
+router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedRequest, res) => {
+  let streamingStarted = false;
+  try {
+    if (req.runId) {
+      traceEvent(req.runId, { service: "lead-service", event: "leads-query-start", detail: `orgId=${req.orgId}` }, req.headers).catch(() => {});
+    }
+
+    // Read here only for what the row-level resolvers need; WHICH rows the read is about is
+    // resolved once, for this route and the bucket counts alike, by resolveLeadReadScope.
+    const { brandId } = req.query;
+    const brandIdStr = typeof brandId === "string" ? brandId : undefined;
+
+    // What the caller wants BESIDE the row. `include=campaigns` nests this person's campaigns of
+    // this brand under the row, each card stating what happened in that campaign alone. Absent
+    // means today's response, byte for byte; an unknown value is a 400, never ignored — a silently
+    // dropped include is a consumer rendering an empty panel with nothing anywhere going red.
+    let includeCampaigns = false;
+    {
+      const include = req.query.include;
+      const raw = typeof include === "string" ? include : undefined;
+      if (raw !== undefined) {
+        const parts = raw.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
+        for (const part of parts) {
+          if (part !== "campaigns") {
+            return res.status(400).json({
+              error: `include must be a comma-separated list of: campaigns (got '${part}')`,
+            });
+          }
+        }
+        includeCampaigns = parts.includes("campaigns");
+      }
+    }
+
+    // Which lifecycle statuses this read answers for. Absent means the actionable population
+    // (DEFAULT_LEAD_LIST_STATUSES — everything but `skipped`); `?status=all` or an explicit list
+    // asks for more. A bad value is a 400 before any work starts, never a silent fallback.
+    let statuses: readonly string[];
+    let page: LeadListPage;
+    // What the caller wants of the POPULATION rather than of each row: a free-text search over the
+    // whole matching set, one engagement bucket of it, a different order, or the whole thing as a
+    // file. Each is absent by default and each is a 400 when it is not understood — a silently
+    // dropped filter is a consumer rendering a filtered-looking list that was never filtered.
+    let searchTokens: string[] | null;
+    let bucket: LeadBucket | null;
+    let sort: LeadSortOrder;
+    let format: LeadListFormat;
+    try {
+      statuses = parseLeadStatusFilter(req.query.status);
+      searchTokens = parseLeadSearch(req.query.q);
+      bucket = parseLeadBucket(req.query.bucket);
+      sort = parseLeadSort(req.query.sort);
+      format = parseLeadFormat(req.query.format);
+      // How much of that population to return, and where to start. Absent `limit` means the whole
+      // thing — the read every caller got before bounds existed, and what the staff console still
+      // asks for. Anything unreadable is a 400 before any work starts: a bound that is accepted
+      // and dropped is the bug being fixed here, so nothing about paging fails quietly.
+      page = parseLeadListPage(req.query);
+    } catch (error) {
+      return res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+
+    // WHICH population this read is about — the offer/campaign-identity resolution, the delivery
+    // scope and the flatten that goes with it. Shared with the bucket-count read so a tab's count
+    // and the rows that tab returns are, by construction, the same population.
+    const resolved = await resolveLeadReadScope(req, statuses);
+    if (resolved.kind === "error") {
+      return res.status(resolved.status).json({ error: resolved.error });
+    }
+    if (resolved.kind === "empty") {
+      if (format === "csv") {
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        return res.send(LEAD_CSV_COLUMNS.join(",") + "\n");
+      }
+      // Same rule as every other read: a caller that named a bound or a filter is told how many
+      // rows it is paging through, and here that is honestly zero.
+      const bounded =
+        searchTokens !== null ||
+        bucket !== null ||
+        sort !== "created" ||
+        page.limit !== null ||
+        page.offset !== null ||
+        page.cursor !== null;
+      return res.json({ leads: [], nextCursor: null, ...(bounded ? { total: 0 } : {}) });
+    }
+    const { scope, statusCampaignIdStr, hasScopeForStatus, flatten } = resolved;
+
     const context = getServiceContext(req);
     const audienceCtx: AudienceResolveContext = {
       orgId: req.orgId!,
@@ -622,22 +856,76 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
         })
       : null;
 
+    // A read that SEARCHES, buckets or re-orders cannot express its page as a keyset over
+    // leads_campaigns alone: the order and the filter depend on evidence held per person (a reply
+    // that dates a lead, a click that puts them in a bucket). So the population is indexed first —
+    // one narrow row each — the page is chosen from that index, and only the page's own ids are
+    // hydrated. A read naming none of the three never builds an index and is byte-identical to
+    // what it has always been.
+    const indexed = searchTokens !== null || bucket !== null || sort !== "created";
+    // The gateway fan-out is only paid for when something actually asks about evidence. A read
+    // that only searches needs neither the delivery overlay nor the outcome ledger to choose its
+    // rows, and paying for a population-wide fan-out to answer a search would be the same waste in
+    // a different place.
+    const needsEvidence = bucket !== null || sort === "activity";
+    let plan: LeadPagePlan | null = null;
+    if (indexed) {
+      const indexRows = await fetchLeadIndex(scope, searchTokens);
+      const enriched = await enrichLeadIndex(
+        indexRows,
+        engagementContext(req, scope, brandIdStr, statusCampaignIdStr, flatten, hasScopeForStatus),
+        needsEvidence,
+      );
+      plan = planLeadPage(enriched, bucket, sort, page);
+    }
+
+    // How many rows match what the caller asked for — the number that labels the page, not the
+    // size of the brand. An index-driven read already counted them; a plain bounded read counts
+    // them with one aggregate over the same relation, so the two can never describe different
+    // populations. An UNBOUNDED, unfiltered read does not compute it at all and its response is
+    // unchanged, byte for byte.
+    const wantsTotal =
+      format === "json" &&
+      (indexed ||
+        page.limit !== null ||
+        page.offset !== null ||
+        page.cursor !== null);
+    const total = wantsTotal ? (plan ? plan.total : await countLeadListRows(scope)) : null;
+
     // `?view=basic` => slim per-lead payload. Anything else (incl. absent) => full
     // FullLead, the existing default. No Zod default: a missing param is full.
-    const slim = req.query.view === "basic";
+    // An export is always taken from the slim projection: a CSV cell cannot hold an employment
+    // history, and an export that reads the full graph for a whole brand is the read being fixed.
+    const slim = req.query.view === "basic" || format === "csv";
 
     // Basic view: ONE flat query (current-employer org + primary email via LATERAL),
     // streamed in cursor chunks. This keeps the list shape compatible with api-service
     // while avoiding the "load a whole large brand before first byte" failure mode.
     if (slim) {
-      res.setHeader("Content-Type", "application/json");
-      res.write('{"leads":[');
+      if (format === "csv") {
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="leads-${brandIdStr ?? req.orgId}-${new Date().toISOString().slice(0, 10)}.csv"`,
+        );
+        res.write(LEAD_CSV_COLUMNS.join(",") + "\n");
+      } else {
+        res.setHeader("Content-Type", "application/json");
+        res.write('{"leads":[');
+      }
       streamingStarted = true;
 
       let wroteFirstBasic = false;
       let rowCount = 0;
       let lastPosition: LeadListCursor | null = null;
-      for await (const basicRows of streamBasicLeadChunks(scope, LEADS_STREAM_CHUNK_SIZE, page)) {
+      // An index-driven read hydrates the ids it already chose, in that order; every other read
+      // walks the relation exactly as before.
+      const basicSource = plan
+        ? streamChunksByIds(scope, plan.ids, LEADS_STREAM_CHUNK_SIZE, (s, count) =>
+            fetchBasicLeadChunk(s, null, count),
+          )
+        : streamBasicLeadChunks(scope, LEADS_STREAM_CHUNK_SIZE, page);
+      for await (const basicRows of basicSource) {
         rowCount += basicRows.length;
         const lastBasic = basicRows[basicRows.length - 1];
         if (lastBasic) lastPosition = { createdAt: lastBasic.cursorCreatedAt, id: lastBasic.id };
@@ -740,13 +1028,26 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
             ...deliveryStatus,
           };
 
-          res.write((wroteFirstBasic ? "," : "") + JSON.stringify(leadOut));
+          if (format === "csv") {
+            res.write(leadCsvLine(leadOut as unknown as Record<string, unknown>));
+          } else {
+            res.write((wroteFirstBasic ? "," : "") + JSON.stringify(leadOut));
+          }
           wroteFirstBasic = true;
         }
       }
 
-      res.write(`],"nextCursor":${JSON.stringify(nextCursorFor(page, rowCount, lastPosition))}}`);
-      res.end();
+      if (format === "csv") {
+        res.end();
+      } else {
+        const nextCursor = plan ? plan.nextCursor : nextCursorFor(page, rowCount, lastPosition);
+        res.write(
+          `],"nextCursor":${JSON.stringify(nextCursor)}` +
+            (total === null ? "" : `,"total":${total}`) +
+            "}",
+        );
+        res.end();
+      }
 
       if (req.runId) {
         traceEvent(req.runId, { service: "lead-service", event: "leads-query-done", detail: `count=${rowCount}`, data: { count: rowCount } }, req.headers).catch(() => {});
@@ -767,18 +1068,16 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
     streamingStarted = true;
 
     let wroteFirst = false;
-    let cursor: LeadCampaignCursor | null = page.cursor;
-    // OFFSET positions the FIRST chunk only; the walk continues by keyset from there.
-    let offset: number | null = page.offset;
-    let remaining: number | null = page.limit;
+    let cursor: LeadCampaignCursor | null = null;
     let rowCount = 0;
-    while (remaining === null || remaining > 0) {
-      const take = remaining === null ? LEADS_STREAM_CHUNK_SIZE : Math.min(LEADS_STREAM_CHUNK_SIZE, remaining);
-      const chunkRows = await fetchLeadCampaignChunk(scope, cursor, take, offset);
-      offset = null;
-      if (chunkRows.length === 0) break;
+    // Same two sources as the slim path: the ids an index-driven read chose, or the keyset walk.
+    const fullSource = plan
+      ? streamChunksByIds(scope, plan.ids, LEADS_STREAM_CHUNK_SIZE, (s, count) =>
+          fetchLeadCampaignChunk(s, null, count),
+        )
+      : streamFullLeadChunks(scope, page, LEADS_STREAM_CHUNK_SIZE);
+    for await (const chunkRows of fullSource) {
       rowCount += chunkRows.length;
-      if (remaining !== null) remaining -= chunkRows.length;
       const chunkLeadIds = Array.from(new Set(chunkRows.map((r) => r.leadId)));
       const fullLeadByLeadId = await buildFullLeadsBatch(chunkLeadIds);
 
@@ -876,10 +1175,14 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
 
       const lastRow = chunkRows[chunkRows.length - 1];
       cursor = { createdAt: lastRow.cursorCreatedAt, id: lastRow.id };
-      if (chunkRows.length < take) break;
     }
 
-    res.write(`],"nextCursor":${JSON.stringify(nextCursorFor(page, rowCount, cursor))}}`);
+    const nextCursor = plan ? plan.nextCursor : nextCursorFor(page, rowCount, cursor);
+    res.write(
+      `],"nextCursor":${JSON.stringify(nextCursor)}` +
+        (total === null ? "" : `,"total":${total}`) +
+        "}",
+    );
     res.end();
 
     if (req.runId) {
@@ -894,6 +1197,84 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
     } else {
       res.status(500).json({ error: "Internal server error" });
     }
+  }
+});
+
+/**
+ * GET /orgs/leads/bucket-counts — how many people are in each engagement bucket, and no rows.
+ *
+ * The customer's Leads page labels a tab per bucket and states the page's population. It used to
+ * get those numbers by taking every lead and counting them in the browser: 44 MB and about 6.6s
+ * for one production brand, on a tab that re-reads every 15 seconds, and too big for the browser
+ * to cache at all — so the page cold-loaded from scratch on every visit. That is the whole reason
+ * this exists: a count is a number, and a number should not cost a population.
+ *
+ * Same scope vocabulary as the list, meaning exactly the same thing: `brandId` / `campaignId`
+ * (resolved to the campaign IDENTITY) / `offerId` / `status` / `q`. So a tab's count and what the
+ * tab shows are the same set — both are `fetchLeadIndex` over `resolveLeadReadScope`, and the
+ * counts fall out of the same evidence the list overlays onto each row.
+ *
+ * Every bucket key is always present; a bucket nobody is in is 0, never absent. A consumer shows
+ * whichever of them its brand's funnel actually prices — this read does not decide that, because
+ * a brand can run several funnels at once and the honest answer is all of them.
+ *
+ * `total` is the whole scoped population, buckets and all, including the people who carry no
+ * evidence at all and can therefore be in no bucket (about 5,000 of one brand's 12,945). Bucket
+ * membership is NOT exclusive and the counts do not sum to it: somebody who bought was also
+ * contacted, and is in both.
+ *
+ * FAIL LOUD: email-gateway unreachable is a 502, never a count of zero — a wrong number here is
+ * one nothing anywhere would go red about.
+ */
+router.get("/orgs/leads/bucket-counts", apiKeyAuth, requireOrgId, async (req: AuthenticatedRequest, res) => {
+  try {
+    let statuses: readonly string[];
+    let searchTokens: string[] | null;
+    try {
+      statuses = parseLeadStatusFilter(req.query.status);
+      searchTokens = parseLeadSearch(req.query.q);
+    } catch (error) {
+      return res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+
+    const resolved = await resolveLeadReadScope(req, statuses);
+    if (resolved.kind === "error") {
+      return res.status(resolved.status).json({ error: resolved.error });
+    }
+    // An offer no campaign sells: a real, empty population, stated as such rather than widened.
+    if (resolved.kind === "empty") {
+      return res.json({ total: 0, counts: zeroBucketCounts() });
+    }
+
+    const brandId = typeof req.query.brandId === "string" ? req.query.brandId : undefined;
+    const indexRows = await fetchLeadIndex(resolved.scope, searchTokens);
+
+    let enriched;
+    try {
+      enriched = await enrichLeadIndex(
+        indexRows,
+        engagementContext(
+          req,
+          resolved.scope,
+          brandId,
+          resolved.statusCampaignIdStr,
+          resolved.flatten,
+          resolved.hasScopeForStatus,
+        ),
+        true,
+      );
+    } catch (error) {
+      console.error(
+        "[lead-service] bucket counts refused: the delivery evidence they are counted from could " +
+          `not be read: ${(error as Error).message}`,
+      );
+      return res.status(502).json({ error: "email-gateway unavailable" });
+    }
+
+    return res.json({ total: enriched.length, counts: countBuckets(enriched) });
+  } catch (error) {
+    console.error("[lead-service] Bucket counts error:", error);
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 

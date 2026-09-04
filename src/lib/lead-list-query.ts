@@ -41,6 +41,16 @@ export interface LeadListScope {
    * caller's query means DEFAULT_LEAD_LIST_STATUSES, never "no filter". See parseLeadStatusFilter.
    */
   statuses?: readonly string[];
+  /**
+   * The exact membership rows to return, named by id — the OUTER filter of an index-driven read.
+   *
+   * A read that searches, buckets or re-orders picks its page from the lean index (lead-index.ts)
+   * and then hydrates those ids and nothing else. Applied on the OUTER query only, NEVER inside
+   * the dedup subquery: the ids ARE the winners that subquery already picked, so filtering them
+   * earlier would change which membership row wins for a person and hand back a different row than
+   * the one counted. Row ORDER is restored by the caller from the index, not by this filter.
+   */
+  rowIds?: readonly string[];
 }
 
 /**
@@ -239,6 +249,11 @@ export function leadStatusScope(f: LeadListScope): string[] | null {
   const statuses = f.statuses ?? DEFAULT_LEAD_LIST_STATUSES;
   if (statuses.length >= LEAD_LIFECYCLE_STATUSES.length) return null;
   return [...statuses];
+}
+
+/** The membership-row ids an index-driven read hydrates, or null when the read is not one. */
+export function leadRowIdScope(f: LeadListScope): string[] | null {
+  return f.rowIds && f.rowIds.length > 0 ? [...f.rowIds] : null;
 }
 
 /** The campaign ids a scope filters on, or null when the read is brand/org-scoped. */
