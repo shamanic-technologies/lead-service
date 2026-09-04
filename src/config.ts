@@ -54,6 +54,22 @@ export const WORKFLOW_SERVICE_API_KEY = required("WORKFLOW_SERVICE_API_KEY");
 export const CHAT_SERVICE_URL = required("CHAT_SERVICE_URL");
 export const CHAT_SERVICE_API_KEY = required("CHAT_SERVICE_API_KEY");
 
+// --- Sources of a lead's history (GET /orgs/leads/:id/history) ---
+// Every one of these owns a fact about a person that this service does not: the messages
+// exchanged and the reply statements a human recorded (instantly-service), the exchange that
+// lives only in the customer's own mailbox (google-service), and the copy we generated with the
+// follow-up cadence it planned (content-generation-service). None of them is re-derived here —
+// each is asked for its own fact, and a source that cannot answer is REPORTED as unreachable
+// rather than rendered as "nothing happened".
+export const INSTANTLY_SERVICE_URL = required("INSTANTLY_SERVICE_URL");
+export const INSTANTLY_SERVICE_API_KEY = required("INSTANTLY_SERVICE_API_KEY");
+
+export const GOOGLE_SERVICE_URL = required("GOOGLE_SERVICE_URL");
+export const GOOGLE_SERVICE_API_KEY = required("GOOGLE_SERVICE_API_KEY");
+
+export const CONTENT_GENERATION_SERVICE_URL = required("CONTENT_GENERATION_SERVICE_URL");
+export const CONTENT_GENERATION_SERVICE_API_KEY = required("CONTENT_GENERATION_SERVICE_API_KEY");
+
 // --- Conversion tracking (beta) ---
 // Public URL of the api-service gateway a client's website hits for
 // POST /public/conversions. This is the PUBLIC gateway host, NOT the internal

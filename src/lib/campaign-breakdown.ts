@@ -32,7 +32,10 @@ import type { CampaignFamilies } from "./campaign-identity.js";
 import { flattenCampaignSubsetStatus, type FlattenedStatus } from "./delivery-flatten.js";
 import type { StatusResult } from "./email-gateway-client.js";
 import { campaignScopeIds, leadStatusScope, type LeadListScope } from "./lead-list-query.js";
-import { createLeadStandingResolver } from "./lead-standing-resolver.js";
+import {
+  createLeadStandingResolver,
+  type ResolvedLeadFacts,
+} from "./lead-standing-resolver.js";
 import type { LeadStanding } from "./lead-standing.js";
 import type { OfferCard, OfferCardResolver } from "./offer-card-client.js";
 
@@ -306,10 +309,10 @@ export function createCampaignBreakdownResolver(
       const [measuredMap, unmeasuredMap] = await Promise.all([
         measured.length > 0
           ? measuredStanding.resolve(measured.map(standingRowOf))
-          : Promise.resolve(new Map<string, LeadStanding>()),
+          : Promise.resolve(new Map<string, ResolvedLeadFacts>()),
         unmeasured.length > 0
           ? unmeasuredStanding.resolve(unmeasured.map(standingRowOf))
-          : Promise.resolve(new Map<string, LeadStanding>()),
+          : Promise.resolve(new Map<string, ResolvedLeadFacts>()),
       ]);
 
       for (const row of rows) {
@@ -325,8 +328,8 @@ export function createCampaignBreakdownResolver(
             offer: offerMap.get(c.membership.campaign_id) ?? null,
             standing:
               (c.delivery !== null
-                ? measuredMap.get(c.membership.id)
-                : unmeasuredMap.get(c.membership.id)) ?? UNRESOLVED_STANDING,
+                ? measuredMap.get(c.membership.id)?.standing
+                : unmeasuredMap.get(c.membership.id)?.standing) ?? UNRESOLVED_STANDING,
             delivery: c.delivery,
           })),
         );

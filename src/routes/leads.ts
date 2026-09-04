@@ -47,6 +47,7 @@ import {
 } from "../lib/campaign-breakdown.js";
 import {
   createLeadStandingResolver,
+  type ResolvedLeadFacts,
   type LeadStandingResolver,
   type StandingRow,
 } from "../lib/lead-standing-resolver.js";
@@ -55,7 +56,6 @@ import {
   zeroStandingCounts,
   type LeadStandingState,
 } from "../lib/lead-standing.js";
-import type { LeadStanding } from "../lib/lead-standing.js";
 
 const router = Router();
 import {
@@ -341,7 +341,7 @@ function serializeLeadItem(
   audience: AudienceCard | null,
   offer: OfferCard | null,
   deliveryStatus: FlattenedStatus,
-  standing: LeadStanding,
+  facts: ResolvedLeadFacts,
   campaigns: LeadCampaignEvidence[] | null,
 ) {
   return {
@@ -375,7 +375,13 @@ function serializeLeadItem(
     statusDetails: row.statusDetails ?? null,
     // Where this person stands on THIS campaign — the served answer, so a consumer renders it
     // rather than deriving one of its own from the raw flags below. See lib/lead-standing.ts.
-    standing,
+    standing: facts.standing,
+    // THE DEAL, when somebody stated one: what it was worth, what closing it cost the customer,
+    // and WHOSE win it was (`causedByOutreach`) — so a table can render a column per lead without
+    // a request per lead, and a consumer can hold the deals our outreach caused apart from the
+    // ones the brand closed some other way. Null when nobody has stated a sale. See
+    // lib/closed-deal.ts.
+    closedDeal: facts.closedDeal,
     // The person's campaigns of this brand, each stating what happened IN THAT CAMPAIGN — present
     // only when the caller asked for it with `?include=campaigns`. Every field above stays exactly
     // what it was: the brand-wide roll-up several dashboard surfaces already read.
@@ -503,7 +509,7 @@ function parseLeadFormat(raw: unknown): LeadListFormat {
 async function resolveStandings(
   resolver: LeadStandingResolver,
   rows: StandingRow[],
-): Promise<Map<string, LeadStanding>> {
+): Promise<Map<string, ResolvedLeadFacts>> {
   try {
     return await resolver.resolve(rows);
   } catch (error) {
@@ -515,19 +521,27 @@ async function resolveStandings(
   }
 }
 
-/** What a row reads as when its standing could not be resolved at all. Never a plausible default. */
-function unresolvedStanding(): LeadStanding {
+/**
+ * What a row reads as when its statements could not be read at all. Never a plausible default: the
+ * standing says `unresolved` with the reason on the wire, and the closed deal is null beside it —
+ * a consumer that reads one reads the other, so an unreadable row is never mistaken for a person
+ * who simply has not bought.
+ */
+function unresolvedFacts(): ResolvedLeadFacts {
   return {
-    state: "unresolved",
-    signal: "none",
-    origin: null,
-    reason: "statements_unreadable",
-    funnelKey: null,
-    entryStep: null,
-    entryMeasure: null,
-    reachedEntryStep: null,
-    deepestStep: null,
-    at: null,
+    standing: {
+      state: "unresolved",
+      signal: "none",
+      origin: null,
+      reason: "statements_unreadable",
+      funnelKey: null,
+      entryStep: null,
+      entryMeasure: null,
+      reachedEntryStep: null,
+      deepestStep: null,
+      at: null,
+    },
+    closedDeal: null,
   };
 }
 
@@ -938,6 +952,7 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
           const emailValue = r.email?.value ?? "";
           const emailStatus = r.email?.status ?? null;
           const deliveryStatus = deliveryByRow.get(r.id)!;
+          const facts = standingMap.get(r.id) ?? unresolvedFacts();
 
           // The slim path's `lead` is the basic projection, not a FullLead — that is the whole
           // point of `?view=basic`, so it is passed through as-is rather than through the shared
@@ -971,8 +986,10 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
             statusReason: r.statusReason ?? null,
             statusDetails: r.statusDetails ?? null,
             // Same field, same policy, same resolver as the full path — a slim row and a full row
-            // for the same lead must not disagree about where that person stands.
-            standing: standingMap.get(r.id) ?? unresolvedStanding(),
+            // for the same lead must not disagree about where that person stands, or about
+            // whether that person bought and whose win it was.
+            standing: facts.standing,
+            closedDeal: facts.closedDeal,
             // Same field, same resolver as the full path — see serializeLeadItem.
             ...(breakdownMap ? { campaigns: breakdownMap.get(r.id) ?? [] } : {}),
             ...deliveryStatus,
@@ -1115,7 +1132,7 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
           audienceMap.get(row.leadId) ?? null,
           offerMap.get(row.campaignId) ?? null,
           deliveryStatus,
-          standingMap.get(row.id) ?? unresolvedStanding(),
+          standingMap.get(row.id) ?? unresolvedFacts(),
           breakdownMap ? (breakdownMap.get(row.id) ?? []) : null,
         );
 
@@ -1501,7 +1518,7 @@ router.get("/orgs/leads/:id", apiKeyAuth, requireOrgId, async (req: Authenticate
         audienceMap.get(row.leadId) ?? null,
         offerMap.get(row.campaignId) ?? null,
         deliveryStatus,
-        standingMap.get(row.id) ?? unresolvedStanding(),
+        standingMap.get(row.id) ?? unresolvedFacts(),
         campaigns,
       ),
     });

@@ -343,6 +343,18 @@ export const conversionEvents = pgTable(
     // somebody answered zero. The two are deliberately distinguishable. This NEVER enters the
     // platform's cost ledger: no runs-service cost is declared for it and nothing is billed.
     costCents: integer("cost_cents"),
+    // WHOSE win was it. A brand contacts people through us AND through everything else it already
+    // does — referrals, conferences, an existing pipeline, another agency — so some of the people
+    // we email go on to buy for reasons that have nothing to do with us. true = the customer says
+    // our outreach caused this outcome; false = they say something else of theirs did (still a
+    // REAL outcome: recorded, counted among the brand's own, never a refusal); NULL = nobody was
+    // ever asked (every row written before this shipped, and every tracker-reported event — a
+    // page-load tag cannot know WHY somebody bought). Defaulting the historical rows either way
+    // would fabricate an answer nobody gave, so the column is nullable and stays that way.
+    //
+    // Deliberately NOT `attributionStatus` (attributed / needs_review / unmatched): that answers
+    // "did we manage to identify who this was", this answers "did our outreach cause this deal".
+    causedByOutreach: boolean("caused_by_outreach"),
     matchedLeadId: uuid("matched_lead_id").references(() => leads.id, {
       onDelete: "set null",
     }),

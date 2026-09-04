@@ -1183,6 +1183,48 @@ export const BufferNextResponseSchema = z
  * Where one lead stands on the campaign it was served under — the SERVED answer to "is this
  * person still a live prospect", so a consumer renders a value instead of deriving one of its own.
  */
+const ClosedDealSchema = z
+  .object({
+    occurredAt: z.string().nullable().openapi({
+      description:
+        "When the deal closed, ISO-8601 — the date the person stating it gave, not the date they " +
+        "typed it. Null only when genuinely undated; never fabricated.",
+      example: "2026-08-19T14:30:00.000Z",
+    }),
+    valueCents: z.number().int().nullable().openapi({
+      description:
+        "What the deal was worth, in cents. A sale stated from now on always carries one (the " +
+        "write refuses a sale with no value); null means nobody said, NOT zero.",
+      example: 490000,
+    }),
+    costCents: z.number().int().nullable().openapi({
+      description:
+        "What the CUSTOMER states closing it cost THEM, in cents. 0 is a stated zero; null means " +
+        "nobody was ever asked. Never platform spend and never billed.",
+      example: 12000,
+    }),
+    causedByOutreach: z.boolean().nullable().openapi({
+      description:
+        "WHOSE win it was. true — the customer states OUR outreach caused this deal. false — they " +
+        "state something else of theirs did (a referral, a conference, their existing pipeline, " +
+        "another agency): the deal is REAL, it stays among the brand's own closes and in every " +
+        "count, it is simply not one to compute the return on our outreach from. null — NOBODY WAS " +
+        "ASKED, which is what every deal stated before this existed reads as, and what a " +
+        "tracker-reported one always reads as (a page-load tag cannot know why somebody bought). " +
+        "Null is never read as either answer.",
+      example: true,
+    }),
+    source: z.enum(["tracker", "manual"]).openapi({
+      description: "manual — a human stated the deal; tracker — the website tag reported it.",
+    }),
+  })
+  .openapi("LeadClosedDeal", {
+    description:
+      "The deal on this lead, when somebody has stated one — what it was worth, what closing it " +
+      "cost the customer, and whose win it was. Derived on read from the same statements the " +
+      "standing is, so withdrawing or restating one moves it with no write.",
+  });
+
 const LeadStandingSchema = z
   .object({
     state: z.enum(LEAD_STANDING_STATES as unknown as [string, ...string[]]).openapi({
@@ -1623,6 +1665,15 @@ const LeadDetailSchema = z
         "surfaces cannot say different things about the same person. Derived on read from the " +
         "delivery evidence below plus the hand-stated step statements this service owns; nothing " +
         "is stored, so a retracted or withdrawn statement moves it with no write.",
+    }),
+    closedDeal: ClosedDealSchema.nullable().openapi({
+      description:
+        "The deal on this lead — worth, cost to the customer, and WHOSE win it was — or null when " +
+        "nobody has stated one. It is here so a table can render a column per lead over pages of " +
+        "rows without a request per lead, and so a consumer can hold the deals our outreach caused " +
+        "apart from the ones the brand closed some other way. Present at every scope this read " +
+        "supports. Derived on read: nothing is stored, so withdrawing or restating the statement " +
+        "moves it with no write.",
     }),
     contacted: z
       .boolean()
@@ -3019,6 +3070,26 @@ const ConversionCountsResponseSchema = z
           "tracker + manual === counts. This is how a hand-stated outcome stays distinguishable " +
           "from a tracker-reported one after the fact without changing what either counts toward.",
       }),
+    byCause: z
+      .object({
+        outreach: StepCountsSchema,
+        other: StepCountsSchema,
+        unstated: StepCountsSchema,
+      })
+      .openapi({
+        description:
+          "The SAME rows, split by WHOSE WIN each outcome was. A brand contacts people through us " +
+          "AND through everything else it already does — referrals, conferences, an existing " +
+          "pipeline, another agency — so some of the people we email go on to buy for reasons that " +
+          "have nothing to do with us. outreach — the customer states our outreach caused it. " +
+          "other — they state something else of theirs did; the outcome is REAL, it stays in " +
+          "`counts` and among the brand's own, it is simply not one to compute OUR return on. " +
+          "unstated — NOBODY WAS ASKED: every outcome stated before this field existed and every " +
+          "tracker-reported one (a page-load tag cannot know why somebody bought). `unstated` is " +
+          "never folded into either answer. For every key, outreach + other + unstated === counts. " +
+          "This is deliberately NOT the attributed / needs_review / unmatched vocabulary, which " +
+          "answers whether we managed to identify WHO somebody was.",
+      }),
   })
   .openapi("ConversionCountsResponse", {
     description:
@@ -3041,7 +3112,11 @@ registry.registerPath({
     "by hand: a visit stated for a lead whose click the delivery layer already measured is left out, so " +
     "this number can be added to the measured click count without counting anybody twice (email-gateway " +
     "unreachable → 502, never a guessed count). `bySource` splits the same " +
-    "rows into tracker-reported and hand-stated (tracker + manual === counts, per key). A \"never\" " +
+    "rows into tracker-reported and hand-stated (tracker + manual === counts, per key), and `byCause` " +
+    "splits them by WHOSE win each was: outreach (the customer states ours caused it), other (they " +
+    "state something else of theirs did — a real outcome, counted here like any other, simply not one " +
+    "to compute OUR return on) and unstated (nobody was asked; every outcome predating the field and " +
+    "every tracker-reported one). outreach + other + unstated === counts, per key. A \"never\" " +
     "statement is not an outcome and is counted by nothing here. A brand with zero conversions returns " +
     "all-zero counts (200, never 404).",
   request: { params: BrandIdPathParam },
@@ -3265,6 +3340,19 @@ const ConvertedLeadOutcomeSchema = z
         "The whole per-step picture, \"never\" legs included, is /internal/brands/{brandId}/step-costs.",
       example: 12000,
     }),
+    causedByOutreach: z.boolean().nullable().openapi({
+      description:
+        "WHOSE win it was. true — the customer states OUR outreach caused this outcome. false — " +
+        "they state something else of theirs did (a referral, a conference, their existing " +
+        "pipeline, another agency): the outcome is REAL and is counted everywhere the others are, " +
+        "it is simply not one to compute the return on our outreach from, so a consumer leaves its " +
+        "value out of that figure and keeps it in the brand's own total. null — NOBODY WAS ASKED: " +
+        "every outcome stated before this field existed, and every tracker-reported one, because a " +
+        "page-load tag observes a page load and cannot know why somebody bought. Null is never read " +
+        "as either answer. Deliberately NOT the attributed / needs_review / unmatched vocabulary, " +
+        "which answers whether we managed to identify who somebody was.",
+      example: true,
+    }),
     source: z.enum(["tracker", "manual"]).openapi({
       description: "manual — a human stated it; tracker — the website tag reported it.",
     }),
@@ -3315,6 +3403,9 @@ registry.registerPath({
     "and gets priced at the brand's average lifetime revenue. Exactly the same set /conversion-counts and " +
     "/conversion-counts-by-day count (deduped at write, attribution_status = 'attributed'), so the reads " +
     "reconcile row for row — a lead with no email is returned with a null email rather than dropped. " +
+    "Each row also carries `causedByOutreach`: true (the customer states our outreach caused it), false " +
+    "(they state something else of theirs did — a real outcome, in every count, simply not one to " +
+    "compute OUR return on) or null (nobody was asked). " +
     "`event` is required, one of signup | meeting_booked | meeting_attended | form_submission | sale " +
     "(legacy \"purchase\" accepted, normalized to \"sale\"); missing/invalid → 400. A brand with no " +
     "attributed outcome of `event` returns an empty array (200, never 404).",
@@ -3461,6 +3552,20 @@ const StepStatementRequestSchema = z
         "it cost.",
       example: 12000,
     }),
+    causedByOutreach: z.boolean().optional().openapi({
+      description:
+        "WHOSE win it was — did OUR outreach cause this, or something else you already do? true — " +
+        "ours. false — yours (a referral, a conference, your existing pipeline, another agency): " +
+        "the outcome is REAL, it is recorded and counted among your own exactly like any other, and " +
+        "stating it honestly costs you nothing; it simply stops it inflating the return we report " +
+        "on our own outreach. LEAVING IT OUT IS NOT \"NOT US\": an absent answer is recorded as " +
+        "\"nobody was asked\" and stays distinguishable from both answers forever, which is why " +
+        "every statement made before this existed reads as unstated rather than silently acquiring " +
+        "an answer nobody gave. Optional on every step; rejected with 400 on a \"never\" statement " +
+        "(nothing happened, so nothing caused it). A restatement REPLACES the statement, so " +
+        "restating without naming a cause returns it to unstated.",
+      example: true,
+    }),
     note: z.string().optional().openapi({
       description: "Free text the person stating the fact wrote, stored verbatim.",
       example: "Closed on the call, contract signed 2026-08-19.",
@@ -3492,6 +3597,12 @@ const StepStatementSchema = z.object({
     description:
       "What the author stated this step cost them, in cents, echoed back. 0 is a stated zero. Never " +
       "charged, never part of the platform's spend ledger.",
+  }),
+  causedByOutreach: z.boolean().nullable().openapi({
+    description:
+      "WHOSE win it was, echoed back. true — our outreach caused it; false — something else of the " +
+      "customer's did (a real outcome either way); null — nobody was asked, which is neither " +
+      "answer. Always null on a \"never\" statement: nothing happened, so nothing caused it.",
   }),
   note: z.string().nullable(),
   statedByUserId: z.string().nullable(),
@@ -3529,7 +3640,12 @@ registry.registerPath({
     "instead of counting twice. kind=never writes to a separate store that NO count reads, so a \"never\" " +
     "can never move an outcome count; it is what lets a consumer separate a lead that is dead at a step " +
     "from one still pending. A \"sale\" outcome MUST carry valueCents (400 otherwise) — a won deal states " +
-    "what it was worth instead of being priced at the brand average; every other step keeps it optional.",
+    "what it was worth instead of being priced at the brand average; every other step keeps it optional. " +
+    "`causedByOutreach` states WHOSE win it was — ours, or something else the customer already does " +
+    "(a referral, a conference, their own pipeline). A deal they say we did not cause is still a real " +
+    "deal, recorded and counted among their own; saying so simply keeps it out of the return we report " +
+    "on our own outreach. It is optional, and leaving it out records \"nobody was asked\" rather than " +
+    "\"not us\", so a statement made before this existed never silently acquires an answer.",
   request: {
     params: LeadRowIdPathParam,
     body: { content: { "application/json": { schema: StepStatementRequestSchema } } },
@@ -3542,9 +3658,9 @@ registry.registerPath({
     },
     400: {
       description:
-        "Invalid id, step, kind, occurredAt; valueCents on a \"never\"; a \"sale\" outcome with no " +
-        "valueCents; a missing costCents (code cost_required — absent is a refusal, never a zero); or " +
-        "a negative costCents",
+        "Invalid id, step, kind, occurredAt; valueCents or causedByOutreach on a \"never\"; a \"sale\" " +
+        "outcome with no valueCents; a missing costCents (code cost_required — absent is a refusal, " +
+        "never a zero); or a negative costCents",
     },
     401: { description: "Unauthorized" },
     404: { description: "No such lead row for this org (or for the requested brand scope)" },
@@ -3591,6 +3707,15 @@ const StepStateSchema = z
         "Who said so. Null on a pending step (nobody has said anything) and on an implied one (nobody stated it).",
     }),
     valueCents: z.number().int().nullable(),
+    causedByOutreach: z.boolean().nullable().openapi({
+      description:
+        "WHOSE win it was: true — the customer states our outreach caused it; false — they state " +
+        "something else of theirs did (still a real outcome, counted everywhere the others are); " +
+        "null — NOBODY WAS ASKED, which is neither answer and is what every statement made before " +
+        "this existed reads as. Null on a pending step, on an IMPLIED one (nobody stated it, so " +
+        "nobody stated its cause), on a \"never\" (nothing happened, so nothing caused it) and on a " +
+        "tracker-reported outcome (a page-load tag cannot know why somebody bought).",
+    }),
     costCents: z.number().int().nullable().openapi({
       description:
         "What the CUSTOMER stated getting through this step cost them, in cents. 0 is a stated zero. " +
@@ -4188,6 +4313,187 @@ registry.registerPath({
     400: { description: "Invalid id" },
     401: { description: "Unauthorized" },
     404: { description: "No such lead row for this org" },
+    500: { description: "Internal server error" },
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A LEAD'S HISTORY — GET /orgs/leads/{id}/history
+//
+// One read that answers what happened to a person, in order, with the words. Assembled here from
+// the services that own each fact, so a consumer renders it without merging anything — which is
+// what six services being merged in a browser had made impossible.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const HistorySourceStateSchema = z
+  .object({
+    source: z.enum(["lead-service", "delivery", "outreach", "mailbox", "content"]).openapi({
+      description:
+        "Who owns this fact. lead-service: the lifecycle, the funnel statements, the conversions and the follow-up debt. delivery: email-gateway's measured evidence. outreach: the messages the outreach provider carried, plus the reply and opt-out statements a human recorded. mailbox: the customer's own Gmail mirror — for some prospects the ONLY copy of the exchange. content: the copy we generated and the cadence it planned.",
+    }),
+    status: z.enum(["ok", "unavailable", "not_asked"]).openapi({
+      description:
+        "ok: it answered. unavailable: it could NOT be read, and what it holds is therefore missing from `events` — never read that absence as nothing having happened. not_asked: there was nothing in scope to ask it about (an unserved lead, a person with no registered email).",
+    }),
+    reason: z.string().nullable().openapi({
+      description: "Why it could not answer, or why it was not asked. Null when it answered.",
+    }),
+  })
+  .openapi("LeadHistorySourceState");
+
+const HistoryEventSchema = z
+  .object({
+    id: z.string().openapi({ description: "Stable within one response — key a rendered list on it." }),
+    at: z.string().nullable().openapi({
+      description:
+        "ISO 8601 UTC when it happened, or null when the fact carries no date. Events are ordered oldest first and undated ones come LAST — never placed at the epoch.",
+    }),
+    type: z
+      .enum([
+        "generated_email",
+        "message",
+        "delivery",
+        "lifecycle",
+        "reply_statement",
+        "opt_out_statement",
+        "step_statement",
+        "conversion",
+        "followup",
+      ])
+      .openapi({
+        description:
+          "What kind of thing this is. A reply whose WORDS we hold is a `message`; a reply somebody wrote down because it never reached us is a `reply_statement` and carries no body — the two are different facts and a consumer renders them differently without having to guess.",
+      }),
+    evidence: z.enum(["observed", "asserted"]).openapi({
+      description:
+        "observed: a fact we hold — a message we can produce the words of, a milestone the delivery layer measured, an outcome the tracker reported. asserted: a fact somebody stated — a recorded reply, a recorded opt-out, a hand-stated funnel step.",
+    }),
+    source: z.enum(["lead-service", "delivery", "outreach", "mailbox", "content"]),
+    campaignId: z.string().nullable().openapi({
+      description:
+        "The campaign this happened on, when the fact belongs to one. Null where the holder genuinely does not know: a mailbox knows an address, a website tracker knows a brand, an opt-out belongs to the person.",
+    }),
+    direction: z.enum(["inbound", "outbound"]).nullable(),
+    milestone: z.string().optional().openapi({
+      description:
+        "On a `delivery` event: sent | delivered | opened | clicked | replied | bounced | unsubscribed. On a `lifecycle` event: served | handed_to_sending. A `sent` or `replied` milestone is OMITTED when the message carrying those words is already in the list — the de-duplication happens here, not in the consumer.",
+    }),
+    from: z.string().nullable().optional(),
+    to: z.array(z.string()).optional(),
+    subject: z.string().nullable().optional(),
+    bodyText: z.string().nullable().optional().openapi({
+      description: "The words, as readable text. Null when the holder says it could not read them.",
+    }),
+    bodyStatus: z.enum(["ok", "empty", "unavailable"]).optional().openapi({
+      description:
+        "ok: these are the words. empty: it genuinely says nothing. unavailable: we hold the message and could not read it — deliberately NOT the same answer as empty.",
+    }),
+    threadId: z.string().nullable().optional(),
+    heldBy: z.array(z.string()).optional().openapi({
+      description:
+        "Which copies hold this message. One message mirrored on both the outreach side and the customer's mailbox is ONE event naming both, never two.",
+    }),
+    copy: z.string().nullable().optional().openapi({
+      description:
+        "Which copy it was read from. `mirror` is the outreach provider's mailbox as we hold it — the copy that outlives the subscription being cancelled.",
+    }),
+    plannedSequence: z.unknown().optional().openapi({
+      description:
+        "On a `generated_email`: the cadence the sequence PLANNED, verbatim from its producer. It is a plan, not a promise — what is still owed is the `followup` event, read from live state.",
+    }),
+    model: z.string().nullable().optional(),
+    replyKind: z.string().optional(),
+    channel: z.string().optional(),
+    step: z.string().optional(),
+    kind: z.enum(["outcome", "never"]).optional(),
+    event: z.string().optional(),
+    valueCents: z.number().nullable().optional(),
+    costCents: z.number().nullable().optional(),
+    matchConfidence: z.string().nullable().optional(),
+    attributionStatus: z.string().nullable().optional(),
+    statedBy: z.string().nullable().optional(),
+    note: z.string().nullable().optional(),
+    state: z.enum(["scheduled", "stopped"]).optional(),
+    dueAt: z.string().nullable().optional().openapi({
+      description:
+        "On a `followup`: when the next answer is owed. Always null on a stopped schedule — a stopped sequence never advertises a next follow-up.",
+    }),
+    followupCount: z.number().optional(),
+    stoppedReason: z.string().nullable().optional(),
+  })
+  .openapi("LeadHistoryEvent");
+
+const LeadHistoryResponseSchema = z
+  .object({
+    leadCampaignId: z.string(),
+    leadId: z.string(),
+    campaignId: z.string(),
+    brandId: z.string(),
+    email: z.string().nullable(),
+    scope: z.enum(["campaign", "brand"]).openapi({
+      description:
+        "Which question was answered. campaign: what THIS campaign did, resolved to the campaign's whole identity. brand: the roll-up across every campaign of the brand this person is in. Both are legitimate and the answer always says which it gave.",
+    }),
+    campaignIds: z.array(z.string()).openapi({
+      description: "The campaigns actually asked about.",
+    }),
+    campaignsTruncated: z.boolean().openapi({
+      description:
+        "True when this person is in more campaigns than one read fans out over. The answer is then bounded, and `complete` is false — a capped answer must never look like a whole one.",
+    }),
+    complete: z.boolean().openapi({
+      description:
+        "False when ANY source could not answer, or when the campaign fan-out was bounded. A consumer must never render this list as the whole story while it is false.",
+    }),
+    sources: z.array(HistorySourceStateSchema),
+    events: z.array(HistoryEventSchema).openapi({
+      description: "Oldest first, undated last. Already merged and de-duplicated.",
+    }),
+  })
+  .openapi("LeadHistoryResponse");
+
+registry.registerPath({
+  method: "get",
+  path: "/orgs/leads/{id}/history",
+  summary: "Everything that happened to one person, in order, in one place",
+  description:
+    "Both directions of every exchange WITH THE MESSAGE BODIES, what we sent and when it was delivered, " +
+    "what the person did, what somebody recorded by hand and who recorded it, and what it converted into — " +
+    "one ordered list a consumer renders without merging anything. Every fact is asked of the service that " +
+    "owns it and none is re-derived here; no funnel or outcome logic lives in this read. A fact we HOLD and " +
+    "a fact somebody ASSERTED are distinguishable (`evidence`), and so are a reply we can produce the words " +
+    "of (a `message`) and a reply somebody wrote down because it never reached us (a `reply_statement`). A " +
+    "source that could not be read is stated as unreachable in `sources` and sets `complete: false`; it " +
+    "degrades only itself and never empties the list, because \"we could not read this\" and \"this did not " +
+    "happen\" are different facts.",
+  request: { params: LeadRowIdPathParam },
+  parameters: [
+    ...FollowupOrgHeaders,
+    {
+      in: "query" as const,
+      name: "scope",
+      required: false,
+      schema: { type: "string" as const, enum: ["campaign", "brand"] },
+      description:
+        "campaign (default): what this campaign did, resolved to the campaign's whole identity. brand: the roll-up across every campaign of the brand this person is in.",
+    },
+    {
+      in: "query" as const,
+      name: "brandId",
+      required: false,
+      schema: { type: "string" as const },
+      description:
+        "Which brand the history is about — the same scoping GET /orgs/leads/{id} takes. A brand this row is not part of answers 404, exactly as an absent row does.",
+    },
+  ],
+  responses: {
+    200: {
+      description: "The person's history, ordered",
+      content: { "application/json": { schema: LeadHistoryResponseSchema } },
+    },
+    400: { description: "id is not a uuid, or scope is not one of campaign | brand" },
+    401: { description: "Unauthorized" },
+    404: { description: "No such lead row for this org (or for the requested brand scope)" },
     500: { description: "Internal server error" },
   },
 });

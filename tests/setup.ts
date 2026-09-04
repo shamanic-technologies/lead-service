@@ -25,6 +25,12 @@ const TEST_ENV_VARS: Record<string, string> = {
   WORKFLOW_SERVICE_API_KEY: "test-workflows-key",
   CHAT_SERVICE_URL: "http://chat:3011",
   CHAT_SERVICE_API_KEY: "test-chat-key",
+  INSTANTLY_SERVICE_URL: "http://instantly:3013",
+  INSTANTLY_SERVICE_API_KEY: "test-instantly-key",
+  GOOGLE_SERVICE_URL: "http://google:3014",
+  GOOGLE_SERVICE_API_KEY: "test-google-key",
+  CONTENT_GENERATION_SERVICE_URL: "http://content-generation:3015",
+  CONTENT_GENERATION_SERVICE_API_KEY: "test-content-generation-key",
   NODE_ENV: "test",
 };
 

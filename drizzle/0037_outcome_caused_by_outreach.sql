@@ -1,0 +1,29 @@
+-- 0037: WHOSE win was it — did OUR outreach cause this outcome, or something else of the customer's?
+--
+-- A brand contacts people through us and also through everything else it already does: referrals,
+-- conferences, an existing pipeline, another agency. So some of the people we email go on to buy
+-- for reasons that have nothing to do with us. Until now a hand-stated deal was indistinguishable
+-- from one our outreach produced, so every return we report on our own outreach silently included
+-- revenue we did not cause, and the customer had nowhere to say so.
+--
+-- THREE STATES, NONE OF THEM A GUESS. `true` = the customer says our outreach caused it; `false` =
+-- they say something else of theirs did (still a REAL outcome, recorded, counted among the brand's
+-- own, never a refusal and never a lesser statement); `NULL` = nobody was ever asked. That is why
+-- the column is a nullable boolean rather than `NOT NULL DEFAULT true/false`: every statement made
+-- before this shipped, and every tracker-reported event (a page-load tag cannot know why somebody
+-- bought), carries NULL, and defaulting them either way would fabricate an answer nobody gave and
+-- make the two indistinguishable forever.
+--
+-- It is DELIBERATELY NOT the `attribution_status` vocabulary (attributed / needs_review /
+-- unmatched). That one answers "did we manage to identify who this was" — a fact about the
+-- tracker's identity waterfall. This one answers "did our outreach cause this deal" — a fact about
+-- the world, which only the customer can state. Conflating them makes both unreadable.
+--
+-- Nothing is counted differently: `/conversion-counts` still totals every attributed outcome, and
+-- a consumer that never asks reads exactly what it read before. `byCause` on that read and
+-- `causedByOutreach` per row on `/converted-leads` are what let a consumer hold OUR return apart
+-- from the brand's own total.
+--
+-- Idempotent: a partially-applied state is a no-op.
+
+ALTER TABLE "conversion_events" ADD COLUMN IF NOT EXISTS "caused_by_outreach" boolean;
