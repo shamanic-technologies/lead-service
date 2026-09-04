@@ -1,0 +1,160 @@
+/**
+ * The index read, executed against a REAL database.
+ *
+ * Everything this feature answers — a tab's count, a searched page, an export — is chosen by one
+ * narrow query whose predicate is BUILT rather than written: a fragment per search word, an
+ * `ILIKE` pattern with the caller's own metacharacters escaped, and a `uuid[]` the hydration is
+ * filtered by. A mocked `sql` returns rows without ever compiling any of that, so a predicate that
+ * cannot run still ships green (this repo has shipped exactly that: `cannot cast type record to
+ * text[]`, and a raw `Date` thrown at Bind). So this file RUNS the statements.
+ */
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
+
+const { db } = await import("../../src/db/index.js");
+const { leads, leadContactMethods, leadsCampaigns, leadsOrganizations, organizations } =
+  await import("../../src/db/schema.js");
+const { countLeadListRows, fetchLeadIndex, fetchOutcomesByLead } = await import(
+  "../../src/lib/lead-index.js"
+);
+const { fetchBasicLeadChunk } = await import("../../src/lib/basic-leads.js");
+
+const PLACEHOLDER_DSN = "postgresql://test:test@localhost:5432/test";
+const hasRealDatabase = process.env.LEAD_SERVICE_DATABASE_URL !== PLACEHOLDER_DSN;
+
+describe.skipIf(!hasRealDatabase)("the lead index against a real database", () => {
+  const orgId = randomUUID();
+  const brandId = randomUUID();
+  const campaignId = `itest-index-${randomUUID()}`;
+  const scope = { orgId, brandId, statuses: ["buffered", "claimed", "served"] as const };
+
+  const seeded: Array<{ rowId: string; leadId: string; email: string }> = [];
+
+  async function seed(person: {
+    firstName: string;
+    lastName: string;
+    title: string;
+    company: string;
+    email: string;
+  }): Promise<void> {
+    const [lead] = await db
+      .insert(leads)
+      .values({
+        firstName: person.firstName,
+        lastName: person.lastName,
+        name: `${person.firstName} ${person.lastName}`,
+      })
+      .returning({ id: leads.id });
+    await db.insert(leadContactMethods).values({
+      leadId: lead.id,
+      channel: "email",
+      value: person.email,
+      source: "itest",
+    });
+    const [org] = await db
+      .insert(organizations)
+      .values({ name: person.company, primaryDomain: `${person.company.toLowerCase()}.test` })
+      .returning({ id: organizations.id });
+    await db.insert(leadsOrganizations).values({
+      leadId: lead.id,
+      organizationId: org.id,
+      title: person.title,
+      current: true,
+    });
+    const [row] = await db
+      .insert(leadsCampaigns)
+      .values({
+        leadId: lead.id,
+        campaignId,
+        orgId,
+        brandIds: [brandId],
+        status: "served",
+      })
+      .returning({ id: leadsCampaigns.id });
+    seeded.push({ rowId: row.id, leadId: lead.id, email: person.email });
+  }
+
+  beforeAll(async () => {
+    await seed({
+      firstName: "Jane",
+      lastName: "Roe",
+      title: "Head of Growth",
+      company: "Acme",
+      email: "jane.roe@acme.test",
+    });
+    await seed({
+      firstName: "John",
+      lastName: "Doe",
+      title: "Chief Financial Officer",
+      company: "Globex",
+      email: "john.doe@globex.test",
+    });
+    await seed({
+      // A name carrying a LIKE metacharacter: searched for literally, never as a wildcard.
+      firstName: "Ten",
+      lastName: "Percent_Off",
+      title: "Owner",
+      company: "Disco",
+      email: "ten@disco.test",
+    });
+  }, 60_000);
+
+  afterAll(async () => {
+    for (const row of seeded) {
+      await db.delete(leadsCampaigns).where(eq(leadsCampaigns.id, row.rowId));
+      await db.delete(leads).where(eq(leads.id, row.leadId));
+    }
+  });
+
+  it("indexes the whole scoped population, and counts the same number", async () => {
+    const rows = await fetchLeadIndex(scope, null);
+    expect(rows).toHaveLength(3);
+    expect(rows.map((r) => r.email).sort()).toEqual(seeded.map((s) => s.email).sort());
+    expect(await countLeadListRows(scope)).toBe(3);
+    // Every row carries the position a default-ordered cursor is built from.
+    expect(rows.every((r) => typeof r.createdAtText === "string" && r.createdAtText.length > 0)).toBe(true);
+  });
+
+  it("searches the person, their title, their company and their address", async () => {
+    for (const [query, email] of [
+      ["jane", "jane.roe@acme.test"],
+      ["acme", "jane.roe@acme.test"],
+      ["financial", "john.doe@globex.test"],
+      ["globex.test", "john.doe@globex.test"],
+    ] as const) {
+      const rows = await fetchLeadIndex(scope, [query]);
+      expect(rows.map((r) => r.email)).toEqual([email]);
+    }
+  });
+
+  it("requires EVERY word to match, so two words narrow rather than widen", async () => {
+    expect(await fetchLeadIndex(scope, ["jane", "acme"])).toHaveLength(1);
+    expect(await fetchLeadIndex(scope, ["jane", "globex"])).toHaveLength(0);
+  });
+
+  it("takes a LIKE metacharacter literally rather than as a wildcard", async () => {
+    expect((await fetchLeadIndex(scope, ["percent_off"])).map((r) => r.email)).toEqual([
+      "ten@disco.test",
+    ]);
+    // `_` matched literally: nothing here spells "percentXoff".
+    expect(await fetchLeadIndex(scope, ["percentaoff"])).toHaveLength(0);
+  });
+
+  it("hydrates exactly the rows an index-driven page named, and nothing else", async () => {
+    const wanted = [seeded[1].rowId];
+    const rows = await fetchBasicLeadChunk({ ...scope, rowIds: wanted }, null, wanted.length);
+    expect(rows.map((r) => r.id)).toEqual(wanted);
+    expect(rows[0].email?.value).toBe("john.doe@globex.test");
+  });
+
+  it("answers no outcomes for leads that have none, without failing on the uuid array", async () => {
+    const outcomes = await fetchOutcomesByLead(
+      orgId,
+      brandId,
+      seeded.map((s) => s.leadId),
+    );
+    expect(outcomes.size).toBe(0);
+    expect(await fetchOutcomesByLead(orgId, brandId, [])).toEqual(new Map());
+  });
+});
