@@ -1190,9 +1190,14 @@ const LeadStandingSchema = z
         "Where this person stands on THIS campaign, decided by lead-service and by nobody else. " +
         "`sales_interest` = they reached the step this campaign's sales funnel is entered by (a " +
         "visit on a visit-led funnel, a positive reply on a conversation-led one) or a later step " +
-        "of it. `customer` = the funnel's last step (the sale) is reached. `disqualified` = they " +
-        "opted out, or we realised they are not our target at all — the wrong contact, or gone " +
-        "from the role — or somebody stated they never will buy. A prospect who simply DECLINES " +
+        "of it. `customer` = the funnel's last step (the sale) is reached. `opted_out` = the person " +
+        "asked not to be contacted (an unsubscribe, at this scope or globally); it is their own " +
+        "act, it is legally binding, and NOTHING overrides it — not a click, not a stated sale. " +
+        "`disqualified` = a commercial judgement of OURS: we realised they are not our target at " +
+        "all (the wrong contact, or gone from the role), or somebody stated they never will buy. " +
+        "The two are separate states, never folded together, because a board draws them as two " +
+        "columns with different copy and different moves and has to be able to count them apart. " +
+        "A prospect who simply DECLINES " +
         "is not disqualified: that is a judgement about the moment, they stay reachable and the " +
         "lead stays recyclable, so they read as `engaged` with `signal: \"negative_reply\"`. " +
         "`engaged` = something " +
@@ -1207,8 +1212,9 @@ const LeadStandingSchema = z
     signal: z.enum(LEAD_STANDING_SIGNALS as unknown as [string, ...string[]]).openapi({
       description:
         "Which single piece of evidence decided the state. `unsubscribed` is the prospect's own " +
-        "act and never shares a state with a commercial judgement of ours, which is what draws " +
-        "an opt-out apart from every other way of being out of play. `disqualifying_reply` = the " +
+        "act and never shares a state with a commercial judgement of ours — it decides " +
+        "`opted_out`, which is its own countable, pageable standing rather than a shade of " +
+        "`disqualified`. `disqualifying_reply` = the " +
         "delivery layer reports this person as permanently out (the wrong contact, or gone from " +
         "the role). `negative_reply` = they declined; that leaves them in play.",
       example: "measured_visit",
@@ -2130,7 +2136,9 @@ registry.registerPath({
       required: false,
       description:
         "Restrict the read to ONE standing state: `unresolved`, `not_contacted`, `contacted`, " +
-        "`engaged`, `sales_interest`, `customer`, `disqualified`. This is the `standing.state` " +
+        "`engaged`, `sales_interest`, `customer`, `disqualified`, `opted_out`. An opt-out is the " +
+        "prospect's own act and `disqualified` is a commercial judgement of ours, so they are two " +
+        "states and each pages on its own. This is the `standing.state` " +
         "every row already carries — where the lead stands on the funnel ITS campaign sells, " +
         "decided by this service and rendered by everyone else. Unlike a `bucket` it IS a " +
         "partition: a lead has exactly one standing, so it is what a triage board draws a column " +
@@ -2140,7 +2148,7 @@ registry.registerPath({
         "this scope is a 502 — never a differently-filtered list answered with a 200.",
       schema: { type: "string" as const, enum: [
         "unresolved", "not_contacted", "contacted", "engaged", "sales_interest", "customer",
-        "disqualified",
+        "disqualified", "opted_out",
       ] },
     },
     {
@@ -2316,6 +2324,7 @@ const LeadStandingCountsResponseSchema = z
         sales_interest: z.number().int(),
         customer: z.number().int(),
         disqualified: z.number().int(),
+        opted_out: z.number().int(),
       })
       .openapi({
         description:
@@ -2324,7 +2333,10 @@ const LeadStandingCountsResponseSchema = z
           "`unresolved` is counted like any other: it is a stated non-answer (the campaign states " +
           "no funnel, campaign-service could not be reached, the read named no scope so the " +
           "delivery layer was never asked), and dropping it would make the columns fail to add up " +
-          "to the population they say they are showing.",
+          "to the population they say they are showing. `opted_out` and `disqualified` are two " +
+          "separate keys — the prospect's own act versus a commercial judgement of ours — so each " +
+          "of those columns can state its own size and be paged on its own via " +
+          "`GET /orgs/leads?standing=opted_out` / `?standing=disqualified`.",
       }),
   })
   .openapi("LeadStandingCountsResponse", {
@@ -2347,7 +2359,10 @@ registry.registerPath({
     "`campaignId` (resolved to the whole campaign identity), `offerId`, `status` and `q`, with the " +
     "same lifecycle default (`buffered,claimed,served`). The set counted is exactly the set " +
     "`GET /orgs/leads?standing=<state>` returns for those parameters, so a column's stated size " +
-    "and what the column shows cannot disagree. " +
+    "and what the column shows cannot disagree. Standing is a PARTITION — one per lead — so the " +
+    "counts sum to `total` exactly, and `opted_out` (the prospect's own act) is counted apart " +
+    "from `disqualified` (a commercial judgement of ours) so a board can size and page each of " +
+    "those two columns on its own. " +
     "Standing is funnel-aware and per campaign — deliberately NOT the engagement-bucket " +
     "vocabulary, which asks what happened to somebody rather than where they stand; see " +
     "GET /orgs/leads/bucket-counts for that. " +

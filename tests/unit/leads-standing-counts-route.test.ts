@@ -167,14 +167,16 @@ beforeAll(async () => {
 }, 30_000);
 
 beforeEach(() => {
-  indexRows = Array.from({ length: 6 }, (_, i) => person(i));
-  // Two in play, one interested, one bought, one out — and one nobody can resolve.
+  indexRows = Array.from({ length: 7 }, (_, i) => person(i));
+  // Two in play, one interested, one bought, one we disqualified, one who opted out — and one
+  // nobody can resolve.
   standingByRow = {
     [indexRows[0].id]: "contacted",
     [indexRows[1].id]: "engaged",
     [indexRows[2].id]: "sales_interest",
     [indexRows[3].id]: "customer",
     [indexRows[4].id]: "disqualified",
+    [indexRows[5].id]: "opted_out",
   };
   hydrated = [];
   standingChunks = [];
@@ -203,7 +205,7 @@ describe("GET /orgs/leads/standing-counts", () => {
     const res = await counts(`?brandId=${BRAND}`);
     expect(res.status).toBe(200);
     expect(res.body.leads).toBeUndefined();
-    expect(res.body.total).toBe(6);
+    expect(res.body.total).toBe(7);
     expect(res.body.counts).toEqual({
       unresolved: 1,
       not_contacted: 0,
@@ -212,6 +214,7 @@ describe("GET /orgs/leads/standing-counts", () => {
       sales_interest: 1,
       customer: 1,
       disqualified: 1,
+      opted_out: 1,
     });
     // A standing is a partition, so the columns add up to the population they describe.
     const summed = Object.values(res.body.counts as Record<string, number>).reduce((a, b) => a + b, 0);
@@ -224,8 +227,8 @@ describe("GET /orgs/leads/standing-counts", () => {
     standingByRow = {};
     const res = await counts(`?brandId=${BRAND}`);
     expect(res.status).toBe(200);
-    expect(res.body.counts.unresolved).toBe(6);
-    expect(res.body.total).toBe(6);
+    expect(res.body.counts.unresolved).toBe(7);
+    expect(res.body.total).toBe(7);
   });
 
   it("refuses rather than reporting zeros when the delivery evidence cannot be read", async () => {
@@ -260,7 +263,7 @@ describe("GET /orgs/leads?standing=", () => {
     expect(res.status).toBe(200);
     expect(res.body.leads).toHaveLength(2);
     // The column's real size, not the size of the page — the whole point of the read.
-    expect(res.body.total).toBe(6);
+    expect(res.body.total).toBe(7);
     expect(res.body.nextCursor).toBeTruthy();
   });
 
@@ -268,7 +271,7 @@ describe("GET /orgs/leads?standing=", () => {
     standingByRow = Object.fromEntries(indexRows.map((r) => [r.id, "engaged"]));
     const seen: string[] = [];
     let cursor: string | null = null;
-    for (let page = 0; page < 5; page++) {
+    for (let page = 0; page < 6; page++) {
       const query = `?brandId=${BRAND}&view=basic&standing=engaged&limit=2` +
         (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
       const res: request.Response = await get(query);
@@ -278,7 +281,7 @@ describe("GET /orgs/leads?standing=", () => {
       if (!cursor) break;
     }
     expect(seen).toEqual(indexRows.map((r) => r.id));
-    expect(new Set(seen).size).toBe(6);
+    expect(new Set(seen).size).toBe(7);
   });
 
   it("agrees with the count for the same scope", async () => {
@@ -286,6 +289,30 @@ describe("GET /orgs/leads?standing=", () => {
     const listed = await get(`?brandId=${BRAND}&view=basic&standing=customer`);
     expect(listed.body.total).toBe(counted.body.counts.customer);
     expect(listed.body.leads).toHaveLength(counted.body.counts.customer);
+  });
+
+  // The two columns the board draws apart: each pages on its own, neither bounded by the other.
+  it("pages an opt-out on its own, apart from every other disqualification", async () => {
+    const optedOut = await get(`?brandId=${BRAND}&view=basic&standing=opted_out`);
+    expect(optedOut.status).toBe(200);
+    expect(optedOut.body.leads).toHaveLength(1);
+    expect(optedOut.body.leads[0].id).toBe(indexRows[5].id);
+    expect(optedOut.body.total).toBe(1);
+
+    const disqualified = await get(`?brandId=${BRAND}&view=basic&standing=disqualified`);
+    expect(disqualified.status).toBe(200);
+    expect(disqualified.body.leads).toHaveLength(1);
+    expect(disqualified.body.leads[0].id).toBe(indexRows[4].id);
+    expect(disqualified.body.total).toBe(1);
+  });
+
+  it("agrees with the counts for both of those two columns", async () => {
+    const counted = await counts(`?brandId=${BRAND}`);
+    for (const standing of ["opted_out", "disqualified"] as const) {
+      const listed = await get(`?brandId=${BRAND}&view=basic&standing=${standing}`);
+      expect(listed.body.total).toBe(counted.body.counts[standing]);
+      expect(listed.body.leads).toHaveLength(counted.body.counts[standing]);
+    }
   });
 
   it("narrows to the rows satisfying BOTH when a bucket is named too", async () => {

@@ -24,9 +24,19 @@
  *   1. never served          -> not_contacted. Nobody was written to; there is nothing to judge,
  *                              and inventing a standing for a lead nobody contacted is exactly
  *                              the fabrication this must not do.
- *   2. unsubscribed          -> disqualified. A hard opt-out, and NOTHING overrides it — not a
+ *   2. unsubscribed          -> opted_out. A hard opt-out, and NOTHING overrides it — not a
  *                              click, not a sale, not a hand statement. It is a decision the
  *                              person made about being contacted at all.
+ *
+ *                              It is its OWN state rather than a shade of `disqualified`, because
+ *                              the two are different facts with different consequences: an opt-out
+ *                              is the prospect's own act and legally binding, while a
+ *                              disqualification is a commercial judgement of ours that we may
+ *                              revisit. A board draws them as two columns, with different copy and
+ *                              different moves, so it has to be able to COUNT them apart — and a
+ *                              count cannot read `signal` off rows it deliberately never fetched.
+ *                              Splitting the state keeps the partition intact: a lead still has
+ *                              exactly one standing, so the counts still sum to the population.
  *   3. no delivery evidence  -> unresolved. The read was not scoped to a brand or a campaign, so
  *                              nothing was ever asked of the delivery layer. Stated, never
  *                              defaulted to "nothing happened".
@@ -73,7 +83,7 @@
  *
  * `reachedEntryStep` is answered separately from `state`, because they are different questions and
  * both can be true at once: somebody who clicked and then unsubscribed reached the entry step
- * (true) and is disqualified (state). It is `null` — never false — when the entry signal cannot be
+ * (true) and has opted out (state). It is `null` — never false — when the entry signal cannot be
  * resolved at all, which is every ads-led funnel (nothing here observes an ad click) and every read
  * where the funnel or the delivery evidence is missing.
  *
@@ -92,6 +102,7 @@ export const LEAD_STANDING_STATES = [
   "sales_interest",
   "customer",
   "disqualified",
+  "opted_out",
 ] as const;
 export type LeadStandingState = (typeof LEAD_STANDING_STATES)[number];
 
@@ -245,11 +256,13 @@ export function resolveLeadStanding(input: LeadStandingInput): LeadStanding {
     return { ...shared, state: "not_contacted", signal: "not_served", origin: null, reason: null };
   }
 
-  // 2. A hard opt-out outranks every positive signal there is, including a stated sale.
+  // 2. A hard opt-out outranks every positive signal there is, including a stated sale. It is
+  //    its own state, never folded into `disqualified`: the person decided this, we did not, and
+  //    a consumer must be able to size that column without reading a row's evidence.
   if (delivery.unsubscribed || delivery.globalUnsubscribed) {
     return {
       ...shared,
-      state: "disqualified",
+      state: "opted_out",
       signal: "unsubscribed",
       origin: "measured",
       reason: null,
