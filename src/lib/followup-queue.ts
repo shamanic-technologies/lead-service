@@ -536,3 +536,67 @@ export async function writeFollowupStatement(params: {
 
   return rows[0] ? toState(rows[0]) : null;
 }
+
+/**
+ * From an email address to the row that carries the debt.
+ *
+ * The service that qualifies a reply holds the campaign and the person's EMAIL ADDRESS; it does
+ * not hold this service's `leads_campaigns.id`. Something has to bridge the two, and the bridge
+ * must be EXACT: the only path from an address to a claimable row today is the leads list's
+ * free-text search, a substring match across several fields. That is right for a human scanning
+ * results and wrong here — writing the debt onto the wrong person's row makes us email somebody
+ * who never replied, which cannot be taken back. So this is an equality match on the registered
+ * contact method, case-folded and nothing else: no substring, no fuzzy, no "closest lead".
+ *
+ * `idx_lcm_channel_value` makes one email one lead, and `idx_lc_lead_campaign` makes one lead one
+ * row per campaign, so the honest answer is normally exactly one row. Case is the seam those
+ * indexes do not close — they are unique on the value as STORED, so `A@x.com` and `a@x.com` can be
+ * two different leads — and a case-folded match can therefore see more than one. That is stated as
+ * ambiguity and refused. It is never resolved by picking one.
+ *
+ * The scope is the campaign id NAMED, exactly as the claim's is: the claim hands out rows of that
+ * campaign, so enqueueing onto a sibling of its identity family would write a debt nothing ever
+ * claims. Resolving wide and enqueueing narrow are the same bug in two directions.
+ */
+export type FollowupLeadLookup =
+  | { ok: true; id: string; leadId: string; email: string }
+  | { ok: false; code: "lead_not_found" }
+  | { ok: false; code: "ambiguous_lead"; matches: Array<{ id: string; leadId: string; email: string }> };
+
+interface RawLookupRow {
+  id: string;
+  lead_id: string;
+  email: string;
+}
+
+export async function lookupFollowupRowByEmail(params: {
+  orgId: string;
+  campaignId: string;
+  email: string;
+}): Promise<FollowupLeadLookup> {
+  const email = params.email.trim().toLowerCase();
+
+  const rows = (await db.execute(sql<RawLookupRow[]>`
+    SELECT DISTINCT lc.id, lc.lead_id, cm.value AS email
+    FROM leads_campaigns lc
+    JOIN lead_contact_methods cm
+      ON cm.lead_id = lc.lead_id
+     AND cm.channel = 'email'
+     AND lower(cm.value) = ${email}
+    WHERE lc.org_id = ${params.orgId}
+      AND lc.campaign_id = ${params.campaignId}
+    ORDER BY lc.id ASC
+    LIMIT 5
+  `)) as unknown as RawLookupRow[];
+
+  if (rows.length === 0) return { ok: false, code: "lead_not_found" };
+  if (rows.length > 1) {
+    return {
+      ok: false,
+      code: "ambiguous_lead",
+      matches: rows.map((r) => ({ id: r.id, leadId: r.lead_id, email: r.email })),
+    };
+  }
+
+  return { ok: true, id: rows[0].id, leadId: rows[0].lead_id, email: rows[0].email };
+}

@@ -5,6 +5,7 @@ import request from "supertest";
 const pickFollowupCandidate = vi.fn();
 const readFollowupState = vi.fn();
 const writeFollowupStatement = vi.fn();
+const lookupFollowupRowByEmail = vi.fn();
 
 vi.mock("../../src/config.js", () => ({ LEAD_SERVICE_API_KEY: "test-api-key" }));
 
@@ -15,6 +16,7 @@ vi.mock("../../src/lib/followup-queue.js", async (orig) => {
     pickFollowupCandidate: (...a: unknown[]) => pickFollowupCandidate(...a),
     readFollowupState: (...a: unknown[]) => readFollowupState(...a),
     writeFollowupStatement: (...a: unknown[]) => writeFollowupStatement(...a),
+    lookupFollowupRowByEmail: (...a: unknown[]) => lookupFollowupRowByEmail(...a),
   };
 });
 
@@ -37,6 +39,7 @@ beforeEach(() => {
   pickFollowupCandidate.mockReset();
   readFollowupState.mockReset();
   writeFollowupStatement.mockReset();
+  lookupFollowupRowByEmail.mockReset();
 });
 
 describe("POST /orgs/campaigns/:campaignId/followups/claim-next", () => {
@@ -276,5 +279,122 @@ describe("GET /orgs/leads/:id/followups", () => {
   it("400 on a non-uuid id", async () => {
     const res = await request(app).get("/orgs/leads/nope/followups").set(auth);
     expect(res.status).toBe(400);
+  });
+});
+
+/**
+ * The enqueue door. The queue worked and nothing ever seeded it, because the service that
+ * qualifies a reply holds an email address rather than a row id.
+ */
+describe("POST /orgs/campaigns/:campaignId/followups/schedule-by-email", () => {
+  const url = "/orgs/campaigns/camp-1/followups/schedule-by-email";
+  const state = {
+    id: ROW,
+    leadId: "lead-1",
+    campaignId: "camp-1",
+    dueAt: "2026-09-05T09:00:00.000Z",
+    claimedAt: null,
+    followupCount: 0,
+    lastActionAt: null,
+    stoppedReason: null,
+  };
+
+  function dueNow() {
+    return new Date().toISOString();
+  }
+
+  it("401 without the api key", async () => {
+    const res = await request(app).post(url).send({ email: "a@b.com", dueAt: dueNow() });
+    expect(res.status).toBe(401);
+  });
+
+  it("400 without an org", async () => {
+    const res = await request(app)
+      .post(url)
+      .set("x-api-key", "test-api-key")
+      .send({ email: "a@b.com", dueAt: dueNow() });
+    expect(res.status).toBe(400);
+  });
+
+  it("enqueues the resolved row as a `scheduled` statement", async () => {
+    lookupFollowupRowByEmail.mockResolvedValue({
+      ok: true,
+      id: ROW,
+      leadId: "lead-1",
+      email: "A@B.com",
+    });
+    writeFollowupStatement.mockResolvedValue(state);
+    const dueAt = dueNow();
+
+    const res = await request(app).post(url).set(auth).send({ email: " A@B.com ", dueAt });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ followup: state, leadId: "lead-1", email: "A@B.com" });
+    expect(lookupFollowupRowByEmail).toHaveBeenCalledWith({
+      orgId: "org-1",
+      campaignId: "camp-1",
+      email: "A@B.com",
+    });
+    expect(writeFollowupStatement).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "org-1", id: ROW, kind: "scheduled", reason: null }),
+    );
+  });
+
+  it("404 with a NAMED code when no lead on this campaign holds that address", async () => {
+    lookupFollowupRowByEmail.mockResolvedValue({ ok: false, code: "lead_not_found" });
+
+    const res = await request(app).post(url).set(auth).send({ email: "ghost@b.com", dueAt: dueNow() });
+
+    expect(res.status).toBe(404);
+    expect(res.body.code).toBe("lead_not_found");
+    expect(writeFollowupStatement).not.toHaveBeenCalled();
+  });
+
+  it("409 with the matches when the address is ambiguous — never a best guess", async () => {
+    lookupFollowupRowByEmail.mockResolvedValue({
+      ok: false,
+      code: "ambiguous_lead",
+      matches: [
+        { id: ROW, leadId: "lead-1", email: "a@b.com" },
+        { id: "40000000-0000-0000-0000-000000000002", leadId: "lead-2", email: "A@b.com" },
+      ],
+    });
+
+    const res = await request(app).post(url).set(auth).send({ email: "a@b.com", dueAt: dueNow() });
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("ambiguous_lead");
+    expect(res.body.matches).toHaveLength(2);
+    expect(writeFollowupStatement).not.toHaveBeenCalled();
+  });
+
+  it("400 on a due date outside the accepted range, carrying the bounds — never clamped", async () => {
+    const res = await request(app)
+      .post(url)
+      .set(auth)
+      .send({ email: "a@b.com", dueAt: new Date(Date.now() + 5 * 365 * 24 * 3600_000).toISOString() });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("due_date_out_of_bounds");
+    expect(res.body.bounds.latest).toBeTruthy();
+    expect(lookupFollowupRowByEmail).not.toHaveBeenCalled();
+  });
+
+  it("400 on an unparseable due date", async () => {
+    const res = await request(app).post(url).set(auth).send({ email: "a@b.com", dueAt: "soon" });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("due_date_unparseable");
+  });
+
+  it("400 when the email is missing — no default, no silent no-op", async () => {
+    const res = await request(app).post(url).set(auth).send({ dueAt: dueNow() });
+    expect(res.status).toBe(400);
+    expect(lookupFollowupRowByEmail).not.toHaveBeenCalled();
+  });
+
+  it("500 on an unexpected failure — the socket is answered, never hung", async () => {
+    lookupFollowupRowByEmail.mockRejectedValue(new Error("boom"));
+    const res = await request(app).post(url).set(auth).send({ email: "a@b.com", dueAt: dueNow() });
+    expect(res.status).toBe(500);
   });
 });
