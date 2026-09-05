@@ -25,6 +25,7 @@ const {
   loadFollowupCandidates,
   pickFollowupCandidate,
   readFollowupState,
+  lookupFollowupRowByEmail,
   stopFollowups,
   writeFollowupStatement,
 } = await import("../../src/lib/followup-queue.js");
@@ -261,5 +262,104 @@ describe.skipIf(!hasRealDatabase)("follow-up queue against a real database", () 
       expect(state).toMatchObject({ dueAt: null, stoppedReason: "opted_out" });
     }
     expect(await readFollowupState(randomUUID(), a)).toBeNull();
+  });
+});
+
+/**
+ * The email → row lookup, against a REAL database.
+ *
+ * This is the identification that decides WHO gets emailed, so it must be exercised rather than
+ * shaped: a mocked `sql` compiles no predicate at all, and a lookup that cannot run — or that
+ * matches too widely — is the difference between answering the person who replied and answering
+ * somebody who never did.
+ */
+describe.skipIf(!hasRealDatabase)("resolving a follow-up row by email", () => {
+  const campaignId = `itest-followup-lookup-${randomUUID()}`;
+  const otherCampaignId = `${campaignId}-other`;
+  const orgId = randomUUID();
+  const brandId = randomUUID();
+
+  async function seedRow(email: string, campaign: string, org = orgId): Promise<string> {
+    const [lead] = await db
+      .insert(leads)
+      .values({ name: `itest ${randomUUID()}` })
+      .returning({ id: leads.id });
+    await db
+      .insert(leadContactMethods)
+      .values({ leadId: lead.id, channel: "email", value: email, source: "itest" });
+    const [row] = await db
+      .insert(leadsCampaigns)
+      .values({
+        leadId: lead.id,
+        campaignId: campaign,
+        orgId: org,
+        brandIds: [brandId],
+        status: "served",
+        servedAt: new Date(),
+      })
+      .returning({ id: leadsCampaigns.id });
+    return row.id;
+  }
+
+  afterAll(async () => {
+    for (const c of [campaignId, otherCampaignId]) {
+      await db.delete(leadsCampaigns).where(eq(leadsCampaigns.campaignId, c));
+    }
+  });
+
+  it("finds the row for an exactly-matching address, case-folded", async () => {
+    const email = `Exact.${randomUUID()}@example.test`;
+    const id = await seedRow(email, campaignId);
+
+    const found = await lookupFollowupRowByEmail({ orgId, campaignId, email: email.toUpperCase() });
+
+    expect(found).toMatchObject({ ok: true, id });
+  });
+
+  it("refuses a SUBSTRING of a real address — identification is exact or it is nothing", async () => {
+    const local = `sub${randomUUID().replace(/-/g, "")}`;
+    await seedRow(`${local}@example.test`, campaignId);
+
+    const found = await lookupFollowupRowByEmail({ orgId, campaignId, email: local });
+
+    expect(found).toEqual({ ok: false, code: "lead_not_found" });
+  });
+
+  it("refuses an address this org's campaign does not hold", async () => {
+    const found = await lookupFollowupRowByEmail({
+      orgId,
+      campaignId,
+      email: `ghost.${randomUUID()}@example.test`,
+    });
+    expect(found).toEqual({ ok: false, code: "lead_not_found" });
+  });
+
+  it("does not reach across campaigns, and does not reach across orgs", async () => {
+    const email = `scoped.${randomUUID()}@example.test`;
+    await seedRow(email, otherCampaignId);
+
+    expect(await lookupFollowupRowByEmail({ orgId, campaignId, email })).toEqual({
+      ok: false,
+      code: "lead_not_found",
+    });
+    expect(
+      await lookupFollowupRowByEmail({ orgId: randomUUID(), campaignId: otherCampaignId, email }),
+    ).toEqual({ ok: false, code: "lead_not_found" });
+  });
+
+  it("states ambiguity rather than picking one when two leads case-fold onto one address", async () => {
+    const suffix = randomUUID();
+    const a = await seedRow(`dup.${suffix}@example.test`, campaignId);
+    const b = await seedRow(`DUP.${suffix}@example.test`, campaignId);
+
+    const found = await lookupFollowupRowByEmail({
+      orgId,
+      campaignId,
+      email: `dup.${suffix}@example.test`,
+    });
+
+    expect(found.ok).toBe(false);
+    if (found.ok || found.code !== "ambiguous_lead") throw new Error("expected ambiguity");
+    expect(found.matches.map((m) => m.id).sort()).toEqual([a, b].sort());
   });
 });
