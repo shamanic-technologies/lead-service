@@ -127,7 +127,16 @@ export interface HistoryLifecycleEvent extends HistoryEventBase {
 export interface HistoryGeneratedEmailEvent extends HistoryEventBase {
   type: "generated_email";
   subject: string | null;
+  /** The words. Null whenever the producer handed none over — see `bodyStatus`, which says
+   * WHICH of the two absences this is. */
   bodyText: string | null;
+  /** Same three-way answer the `message` event carries, and for the same reason. ok: these are
+   * the words. empty: the producer handed over a body and it genuinely says nothing.
+   * unavailable: a generation exists — we wrote to this person — and its producer served no
+   * body we could read, so the words are missing rather than absent. Silence about that is what
+   * made a lead panel render a date and nothing else, with no sentence explaining why. The words
+   * are NEVER recovered from the planned sequence here: the producer owns what we wrote. */
+  bodyStatus: "ok" | "empty" | "unavailable";
   /** The cadence the sequence PLANNED, verbatim from its producer. It is a plan, not a promise —
    * what is still owed is the `followup` event, which reads this service's live state. */
   plannedSequence: unknown;
@@ -321,6 +330,18 @@ function pushDelivery(
   });
 }
 
+/**
+ * Why a generated email has no words, told apart the same way the `message` event tells them
+ * apart. A generation row EXISTS because we wrote to this person, so a body the producer never
+ * handed over is a body we could not read — `unavailable` — and not the email saying nothing.
+ * An empty string is the producer answering, and that answer is `empty`. Nothing here reads the
+ * planned sequence: recovering the copy is the producer's job, not this service's.
+ */
+function generatedBodyStatus(bodyText: string | null): "ok" | "empty" | "unavailable" {
+  if (bodyText === null || bodyText === undefined) return "unavailable";
+  return bodyText.trim().length > 0 ? "ok" : "empty";
+}
+
 export function assembleLeadHistory(input: AssembleHistoryInput): AssembledHistory {
   const events: HistoryEvent[] = [];
   const sources = new Map<HistorySource, HistorySourceState>();
@@ -460,6 +481,7 @@ export function assembleLeadHistory(input: AssembleHistoryInput): AssembledHisto
           direction: "outbound",
           subject: generation.subject,
           bodyText: generation.bodyText,
+          bodyStatus: generatedBodyStatus(generation.bodyText),
           plannedSequence: generation.sequence,
           model: generation.model,
         });
