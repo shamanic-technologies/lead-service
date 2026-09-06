@@ -4458,11 +4458,12 @@ const HistoryEventSchema = z
     to: z.array(z.string()).optional(),
     subject: z.string().nullable().optional(),
     bodyText: z.string().nullable().optional().openapi({
-      description: "The words, as readable text. Null when the holder says it could not read them.",
+      description:
+        "The words, as readable text. Null when no body was handed over — `bodyStatus` says whether that is an empty message or one we could not read.",
     }),
     bodyStatus: z.enum(["ok", "empty", "unavailable"]).optional().openapi({
       description:
-        "ok: these are the words. empty: it genuinely says nothing. unavailable: we hold the message and could not read it — deliberately NOT the same answer as empty.",
+        "On a `message` and on a `generated_email`. ok: these are the words. empty: the holder handed over a body and it genuinely says nothing. unavailable: the thing exists and no body we could read came with it — deliberately NOT the same answer as empty, so a consumer can say out loud why an email it was told about has no words instead of rendering a date and nothing else.",
     }),
     threadId: z.string().nullable().optional(),
     heldBy: z.array(z.string()).optional().openapi({
