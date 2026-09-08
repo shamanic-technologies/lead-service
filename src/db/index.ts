@@ -20,7 +20,69 @@ if (!connectionString) {
 // neither would help here — see brand-service#389.
 net.setDefaultAutoSelectFamilyAttemptTimeout(5_000);
 
-export const sql = postgres(connectionString, {
+function positiveInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`[lead-service] ${name} must be a positive number, got '${raw}'`);
+  }
+  return Math.floor(parsed);
+}
+
+/**
+ * How many database connections this service may hold, stated HERE rather than inherited.
+ *
+ * postgres.js defaults to `max: 10`. On 2026-09-07 ten concurrent whole-population lead reads
+ * each took one of those ten connections and never gave it back — the callers had already
+ * abandoned their sockets at their own 300s HTTP timeout, so the walks never progressed and
+ * Postgres held ten backends at `state=active, wait_event_type=Client` for 11h30m. The pool was
+ * permanently exhausted, every later read hung forever, and `/health` answered 503 until somebody
+ * restarted the container by hand. A ceiling that is a library default is a ceiling nobody chose;
+ * it is now a number in code, next to the two timeouts that bound how long one connection may be
+ * held, so the three can be read together.
+ */
+export const POOL_MAX = positiveInt("LEAD_DB_POOL_MAX", 20);
+
+/**
+ * Per-SESSION statement timeouts, sent in the startup packet, so they apply to lead-service's own
+ * connections and to NOTHING else on the shared Postgres — no server configuration is touched.
+ *
+ * These are the backstop, not the fix: the fix is that an abandoned read stops walking (see
+ * `src/lib/client-abort.ts`). They bound the other half — a single statement that runs, or a
+ * transaction that sits open, longer than any legitimate read of the largest brand ever does.
+ */
+export const STATEMENT_TIMEOUT_MS = positiveInt("LEAD_DB_STATEMENT_TIMEOUT_MS", 120_000);
+export const IDLE_IN_TRANSACTION_TIMEOUT_MS = positiveInt(
+  "LEAD_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS",
+  120_000,
+);
+
+export const POOL_OPTIONS = {
   prepare: false,
-});
+  max: POOL_MAX,
+  connection: {
+    statement_timeout: STATEMENT_TIMEOUT_MS,
+    idle_in_transaction_session_timeout: IDLE_IN_TRANSACTION_TIMEOUT_MS,
+  },
+} as const;
+
+export const sql = postgres(connectionString, POOL_OPTIONS);
 export const db = drizzle(sql, { schema });
+
+/**
+ * Liveness reads its own, tiny pool.
+ *
+ * `/health` answering is what tells the deploy — and whoever is looking — whether this service is
+ * alive. During the 2026-09-07 incident it was starved by the same exhausted pool the wedged
+ * reads had taken, so a service that could still have answered anything cheap reported itself
+ * unavailable for 11.5 hours. Two connections nothing else can take keeps that answer honest.
+ */
+export const healthSql = postgres(connectionString, {
+  ...POOL_OPTIONS,
+  max: 2,
+  connection: {
+    ...POOL_OPTIONS.connection,
+    statement_timeout: 5_000,
+  },
+});

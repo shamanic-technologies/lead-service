@@ -28,6 +28,7 @@ import {
   type LeadListScope,
 } from "../lib/lead-list-query.js";
 import { parseLeadSearch } from "../lib/lead-search.js";
+import { watchClient, isClientGone } from "../lib/client-abort.js";
 import { leadExportHeader, leadExportLine } from "../lib/lead-export.js";
 import { parseLeadBucket, zeroBucketCounts, type LeadBucket } from "../lib/lead-buckets.js";
 import { countLeadListRows, fetchLeadIndex } from "../lib/lead-index.js";
@@ -676,6 +677,10 @@ async function resolveLeadReadScope(
 
 router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedRequest, res) => {
   let streamingStarted = false;
+  // Whether anyone is still listening. A whole-population walk holds a database connection for its
+  // whole duration, so a caller that gave up at its own HTTP timeout must stop it — see
+  // src/lib/client-abort.ts for what that cost when nothing checked.
+  const client = watchClient(req, res);
   try {
     if (req.runId) {
       traceEvent(req.runId, { service: "lead-service", event: "leads-query-start", detail: `orgId=${req.orgId}` }, req.headers).catch(() => {});
@@ -890,6 +895,9 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
           )
         : streamBasicLeadChunks(scope, LEADS_STREAM_CHUNK_SIZE, page);
       for await (const basicRows of basicSource) {
+        // Between chunks, before this chunk's gateway/audience/standing fan-out: throwing here
+        // leaves the generator, which closes the cursor and hands the connection back.
+        client.stopIfGone(rowCount);
         rowCount += basicRows.length;
         const lastBasic = basicRows[basicRows.length - 1];
         if (lastBasic) lastPosition = { createdAt: lastBasic.cursorCreatedAt, id: lastBasic.id };
@@ -1044,6 +1052,7 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
         )
       : streamFullLeadChunks(scope, page, LEADS_STREAM_CHUNK_SIZE);
     for await (const chunkRows of fullSource) {
+      client.stopIfGone(rowCount);
       rowCount += chunkRows.length;
       const chunkLeadIds = Array.from(new Set(chunkRows.map((r) => r.leadId)));
       const fullLeadByLeadId = await buildFullLeadsBatch(chunkLeadIds);
@@ -1156,14 +1165,23 @@ router.get("/orgs/leads", apiKeyAuth, requireOrgId, async (req: AuthenticatedReq
       traceEvent(req.runId, { service: "lead-service", event: "leads-query-done", detail: `count=${rowCount}`, data: { count: rowCount } }, req.headers).catch(() => {});
     }
   } catch (error) {
-    console.error("[lead-service] Leads error:", error);
-    if (streamingStarted || res.headersSent) {
-      // Stream already open — can't send a 500 body. Destroy the socket so the caller
-      // sees a truncated/aborted response and treats it as a failure (fail loud).
-      res.destroy(error instanceof Error ? error : new Error(String(error)));
+    if (isClientGone(error)) {
+      // Not a failure of ours: the caller stopped reading and the walk was released rather than
+      // held. Said out loud (a truncated stream is never a complete one), and not as an error.
+      console.warn(`[lead-service] leads read abandoned by the caller: ${error.message}`);
+      res.destroy();
     } else {
-      res.status(500).json({ error: "Internal server error" });
+      console.error("[lead-service] Leads error:", error);
+      if (streamingStarted || res.headersSent) {
+        // Stream already open — can't send a 500 body. Destroy the socket so the caller
+        // sees a truncated/aborted response and treats it as a failure (fail loud).
+        res.destroy(error instanceof Error ? error : new Error(String(error)));
+      } else {
+        res.status(500).json({ error: "Internal server error" });
+      }
     }
+  } finally {
+    client.dispose();
   }
 });
 
