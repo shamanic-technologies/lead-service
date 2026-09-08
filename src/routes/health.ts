@@ -1,6 +1,5 @@
 import { Router } from "express";
-import { sql as drizzleSql } from "drizzle-orm";
-import { db } from "../db/index.js";
+import { healthSql } from "../db/index.js";
 import { getBootState, getBootFailure } from "../lib/boot-state.js";
 
 const router = Router();
@@ -34,7 +33,10 @@ router.get("/health", async (_req, res) => {
 
   try {
     await Promise.race([
-      db.execute(drizzleSql`SELECT 1`),
+      // Liveness reads its OWN two-connection pool: on 2026-09-07 the main pool was held by ten
+      // abandoned lead reads, and /health — which needs nothing more than a socket and a SELECT 1
+      // — reported this service unavailable for 11.5 hours because it queued behind them.
+      healthSql`SELECT 1`,
       new Promise((_, reject) =>
         setTimeout(() => reject(new Error("db ping timeout")), DB_PING_TIMEOUT_MS),
       ),

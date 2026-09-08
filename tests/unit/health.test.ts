@@ -2,13 +2,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import express from "express";
 import request from "supertest";
 
+// The ping runs on liveness's OWN pool (`healthSql`), never the pool a wedged lead read can hold.
 const dbExecute = vi.fn();
 
 vi.mock("../../src/db/index.js", () => ({
-  db: {
-    execute: (...args: unknown[]) => dbExecute(...args),
-  },
+  db: {},
   sql: {},
+  healthSql: (...args: unknown[]) => dbExecute(...args),
 }));
 
 /**
