@@ -557,4 +557,86 @@ describe("assembleLeadHistory — the copy we produced", () => {
     expect(generated.plannedSequence).toEqual([{ step: 2, waitDays: 3 }]);
     expect(events[0].evidence).toBe("observed");
   });
+
+  it("says the words could not be read rather than being silent about their absence", () => {
+    const { events } = assembleLeadHistory(
+      input({
+        campaigns: [
+          campaign({
+            servedAt: null,
+            generation: {
+              ok: true,
+              data: {
+                id: "gen-2",
+                campaignId: "camp-1",
+                subject: "quick question",
+                bodyText: null,
+                bodyHtml: null,
+                sequence: [{ step: 1 }],
+                model: "claude-sonnet-4-6",
+                promptType: "cold",
+                createdAt: "2026-01-01T06:00:00.000Z",
+              },
+            },
+          }),
+        ],
+      }),
+    );
+
+    const generated = events[0] as { bodyText: string | null; bodyStatus: string };
+    expect(generated.bodyText).toBeNull();
+    expect(generated.bodyStatus).toBe("unavailable");
+  });
+
+  it("reads a body the producer handed over as readable, and an empty one as empty", () => {
+    const withBody = assembleLeadHistory(
+      input({
+        campaigns: [
+          campaign({
+            servedAt: null,
+            generation: {
+              ok: true,
+              data: {
+                id: "gen-3",
+                campaignId: "camp-1",
+                subject: "s",
+                bodyText: "hello there",
+                bodyHtml: null,
+                sequence: null,
+                model: null,
+                promptType: null,
+                createdAt: "2026-01-01T06:00:00.000Z",
+              },
+            },
+          }),
+        ],
+      }),
+    ).events[0] as { bodyStatus: string };
+    expect(withBody.bodyStatus).toBe("ok");
+
+    const emptyBody = assembleLeadHistory(
+      input({
+        campaigns: [
+          campaign({
+            servedAt: null,
+            generation: {
+              ok: true,
+              data: {
+                id: "gen-4",
+                campaignId: "camp-1",
+                subject: "s",
+                bodyText: "   ",
+                bodyHtml: null,
+                sequence: null,
+                model: null,
+                promptType: null,
+                createdAt: "2026-01-01T06:00:00.000Z",
+              },
+            },
+          }),
+        ],
+      }),
+    ).events[0] as { bodyStatus: string };
+    expect(emptyBody.bodyStatus).toBe("empty");
+  });
 });

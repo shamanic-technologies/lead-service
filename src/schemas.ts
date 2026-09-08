@@ -4242,6 +4242,82 @@ registry.registerPath({
   },
 });
 
+const ScheduleFollowupByEmailRequestSchema = z
+  .object({
+    email: z.string().openapi({
+      description:
+        "The person's email address. Matched EXACTLY (case-folded equality against the registered contact method) and never fuzzily: writing the debt onto the wrong person's row makes us email somebody who never replied, which cannot be taken back.",
+      example: "prospect@example.com",
+    }),
+    dueAt: z.string().openapi({
+      description:
+        "ISO-8601 timestamp: when the answer is owed. \"Now\" is the ordinary case (a reply just landed). Bounded, never clamped — a date in the past beyond a few minutes of clock skew, or further out than a year, is a 400 carrying the accepted range.",
+      example: "2026-09-05T09:00:00.000Z",
+    }),
+  })
+  .openapi("ScheduleFollowupByEmailRequest", {
+    description: "An answer is owed to the person at this address, on this campaign, at this time.",
+  });
+
+registry.registerPath({
+  method: "post",
+  path: "/orgs/campaigns/{campaignId}/followups/schedule-by-email",
+  summary: "State that an answer is owed to a person identified by email",
+  description:
+    "The door into the follow-up queue for a caller that does NOT hold this service's " +
+    "leads_campaigns row id — the service that qualifies a reply holds the campaign and the " +
+    "person's address, and nothing else. Identical in effect to POST /orgs/leads/{id}/followups " +
+    "with kind=scheduled, differing only in how the row is identified. Identification is EXACT: a " +
+    "case-folded equality match on the registered email contact method, scoped to this org and the " +
+    "campaign named. There is no substring, fuzzy or best-guess path — an unknown address is a 404 " +
+    "(code lead_not_found) and an address that matches more than one row is a 409 (code " +
+    "ambiguous_lead, listing the matches), because a silent no-op would leave the caller believing " +
+    "the debt was recorded and a guess would email the wrong human. The campaign scope is the id " +
+    "NAMED, not its identity family, matching the claim's scope exactly: enqueueing onto a sibling " +
+    "campaign would write a debt nothing ever claims. The queue's stop conditions (opted out, a " +
+    "booked meeting on record) apply to a row enqueued this way exactly as to any other — they are " +
+    "enforced at claim time, which is the only moment they can be read honestly.",
+  request: {
+    params: z.object({
+      campaignId: z.string().openapi({
+        param: { name: "campaignId", in: "path" },
+        description: "The campaign the debt is owed on — the same campaign the claim will name.",
+        example: "camp-1",
+      }),
+    }),
+    body: { content: { "application/json": { schema: ScheduleFollowupByEmailRequestSchema } } },
+  },
+  parameters: FollowupOrgHeaders,
+  responses: {
+    200: {
+      description: "The resulting follow-up state, plus the person the address resolved to",
+      content: {
+        "application/json": {
+          schema: z.object({
+            followup: FollowupStateSchema,
+            leadId: z.string().openapi({ description: "The person the address resolved to." }),
+            email: z.string().openapi({ description: "The registered address, as stored." }),
+          }),
+        },
+      },
+    },
+    400: {
+      description:
+        "Missing campaignId or x-org-id, a missing/invalid email, an unparseable dueAt (code due_date_unparseable), or one outside the accepted range (code due_date_out_of_bounds, with the bounds)",
+    },
+    401: { description: "Unauthorized" },
+    404: {
+      description:
+        "No lead on this campaign holds that email address (code lead_not_found). A named refusal, never a silent no-op.",
+    },
+    409: {
+      description:
+        "That address matches more than one lead row on this campaign (code ambiguous_lead, with the matches). Refused rather than resolved by picking one.",
+    },
+    500: { description: "Internal server error" },
+  },
+});
+
 const FollowupStatementRequestSchema = z
   .object({
     kind: z.enum(["scheduled", "acted", "stopped"]).openapi({
@@ -4382,11 +4458,12 @@ const HistoryEventSchema = z
     to: z.array(z.string()).optional(),
     subject: z.string().nullable().optional(),
     bodyText: z.string().nullable().optional().openapi({
-      description: "The words, as readable text. Null when the holder says it could not read them.",
+      description:
+        "The words, as readable text. Null when no body was handed over — `bodyStatus` says whether that is an empty message or one we could not read.",
     }),
     bodyStatus: z.enum(["ok", "empty", "unavailable"]).optional().openapi({
       description:
-        "ok: these are the words. empty: it genuinely says nothing. unavailable: we hold the message and could not read it — deliberately NOT the same answer as empty.",
+        "On a `message` and on a `generated_email`. ok: these are the words. empty: the holder handed over a body and it genuinely says nothing. unavailable: the thing exists and no body we could read came with it — deliberately NOT the same answer as empty, so a consumer can say out loud why an email it was told about has no words instead of rendering a date and nothing else.",
     }),
     threadId: z.string().nullable().optional(),
     heldBy: z.array(z.string()).optional().openapi({

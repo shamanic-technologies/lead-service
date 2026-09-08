@@ -14,6 +14,7 @@ import {
   FOLLOWUP_DUE_PAST_TOLERANCE_MS,
   FollowupOptOutLookupError,
   dueDateBounds,
+  lookupFollowupRowByEmail,
   parseDueDate,
   pickFollowupCandidate,
   readFollowupState,
@@ -40,6 +41,11 @@ const FollowupStatementBodySchema = z.object({
   dueAt: z.string().optional(),
   nextDueAt: z.string().optional(),
   reason: z.string().optional(),
+});
+
+const ScheduleByEmailBodySchema = z.object({
+  email: z.string().trim().min(3).max(320),
+  dueAt: z.string(),
 });
 
 function boundsPayload(nowMs: number) {
@@ -128,6 +134,107 @@ router.post(
       }
       throw err;
     }
+  }),
+);
+
+/**
+ * State that an answer is owed to a person we know by EMAIL, on this campaign.
+ *
+ * The debt queue works and nothing ever enqueued into it: measured in production, zero rows across
+ * the fleet carried a due date, so the worker that claims the next person due always came back
+ * empty and no interested prospect was ever answered. Both sides assumed the other seeded it. The
+ * service that qualifies a reply is the one that knows we owe an answer, and it does NOT hold this
+ * service's `leads_campaigns.id` — it holds the campaign and the person's address. This is that
+ * door, and it is the whole difference between the queue existing and the queue running.
+ *
+ * Identification is EXACT (see `lookupFollowupRowByEmail`). An unknown address is a 404 and an
+ * address that case-folds onto more than one row is a 409, both NAMED: a silent no-op would leave
+ * the caller believing the debt was recorded, and a best guess would email somebody who never
+ * replied.
+ *
+ * Everything after the lookup is the existing `scheduled` write, unchanged — so the queue's stop
+ * conditions (opted out, a booked meeting on record) apply to a row enqueued this way exactly as
+ * they apply to any other: they are enforced at CLAIM time, which is the only moment they can be
+ * read honestly anyway.
+ */
+router.post(
+  "/orgs/campaigns/:campaignId/followups/schedule-by-email",
+  apiKeyAuth,
+  requireOrgId,
+  wrap<AuthenticatedRequest>(async (req, res) => {
+    const campaignId = req.params.campaignId;
+    if (!campaignId) {
+      res.status(400).json({ error: "campaignId required" });
+      return;
+    }
+
+    const parsed = ScheduleByEmailBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid request", details: parsed.error.flatten() });
+      return;
+    }
+    const nowMs = Date.now();
+
+    const due = parseDueDate(parsed.data.dueAt, nowMs);
+    if (!due.ok) {
+      res.status(400).json({
+        error:
+          due.code === "due_date_unparseable"
+            ? "dueAt must be an ISO-8601 timestamp"
+            : "dueAt is outside the accepted range: never in the past, never further out than the horizon",
+        code: due.code,
+        bounds: boundsPayload(nowMs),
+      });
+      return;
+    }
+
+    const lookup = await lookupFollowupRowByEmail({
+      orgId: req.orgId as string,
+      campaignId,
+      email: parsed.data.email,
+    });
+
+    if (!lookup.ok) {
+      if (lookup.code === "ambiguous_lead") {
+        res.status(409).json({
+          error:
+            "That address matches more than one lead row on this campaign, so which person is owed an answer cannot be decided here",
+          code: "ambiguous_lead",
+          matches: lookup.matches,
+        });
+        return;
+      }
+      res.status(404).json({
+        error: "No lead on this campaign holds that email address",
+        code: "lead_not_found",
+      });
+      return;
+    }
+
+    const state = await writeFollowupStatement({
+      orgId: req.orgId as string,
+      id: lookup.id,
+      kind: "scheduled",
+      dueAtIso: due.iso,
+      reason: null,
+      nowMs,
+    });
+
+    // The lookup already proved the row is this org's, so a miss here is a row deleted between the
+    // two statements — vanishingly rare, and still answered rather than swallowed.
+    if (!state) {
+      res.status(404).json({
+        error: "No lead on this campaign holds that email address",
+        code: "lead_not_found",
+      });
+      return;
+    }
+
+    console.log(
+      `[lead-service] followup scheduled by email campaign=${campaignId} leadCampaignId=${lookup.id} due=${due.iso}`,
+    );
+
+    res.json({ followup: state, leadId: lookup.leadId, email: lookup.email });
   }),
 );
 
