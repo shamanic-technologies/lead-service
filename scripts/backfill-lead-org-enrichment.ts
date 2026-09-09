@@ -64,12 +64,24 @@ import { appendFileSync, writeFileSync } from "node:fs";
 /** How many leads are read out of lead-service in one page. */
 export const DEFAULT_BATCH_SIZE = 2_000;
 
+/**
+ * How many leads are repaired at once.
+ *
+ * The work is a handful of small indexed round trips per lead, so running them
+ * one lead at a time is round-trip-bound, not database-bound: the first
+ * production run measured ~2,000 leads per 6 minutes, i.e. over five hours for
+ * the 97k-lead population. Well under the pool ceiling (20) so the service keeps
+ * serving while the repair runs.
+ */
+export const DEFAULT_CONCURRENCY = 6;
+
 export interface Args {
   dryRun: boolean;
   inputPath: string | null;
   reportPath: string | null;
   batchSize: number;
   limit: number | null;
+  concurrency: number;
 }
 
 export function parseArgs(argv: string[]): Args {
@@ -82,6 +94,13 @@ export function parseArgs(argv: string[]): Args {
   if (!Number.isInteger(batchSize) || batchSize <= 0) {
     throw new Error(`[lead-service] --batch-size must be a positive integer, got: ${rawBatch}`);
   }
+  const rawConcurrency = value("--concurrency");
+  const concurrency = rawConcurrency === null ? DEFAULT_CONCURRENCY : Number(rawConcurrency);
+  if (!Number.isInteger(concurrency) || concurrency <= 0) {
+    throw new Error(
+      `[lead-service] --concurrency must be a positive integer, got: ${rawConcurrency}`,
+    );
+  }
   const rawLimit = value("--limit");
   const limit = rawLimit === null ? null : Number(rawLimit);
   if (limit !== null && (!Number.isInteger(limit) || limit <= 0)) {
@@ -93,6 +112,7 @@ export function parseArgs(argv: string[]): Args {
     reportPath: value("--report"),
     batchSize,
     limit,
+    concurrency,
   };
 }
 
@@ -405,141 +425,150 @@ async function run(): Promise<void> {
     if (page.length === 0) break;
     offset += page.length;
 
-    for (const lead of page) {
-      stats.leadsScanned += 1;
-      if (args.limit !== null && stats.leadsMatched >= args.limit) break;
-      const record =
-        (lead.apollo_person_id ? byPersonId.get(lead.apollo_person_id) : undefined) ??
-        (lead.email ? byEmail.get(lead.email) : undefined);
-      if (!record) continue;
-      stats.leadsMatched += 1;
+    // The page is repaired by a small pool of workers: the work is a handful of
+    // small indexed round trips per lead, so one lead at a time is round-trip
+    // bound and the whole population would take over five hours.
+    let cursor = 0;
+    const worker = async (): Promise<void> => {
+      for (;;) {
+        if (args.limit !== null && stats.leadsMatched >= args.limit) return;
+        const lead = page[cursor++];
+        if (!lead) return;
+        stats.leadsScanned += 1;
+        const record =
+          (lead.apollo_person_id ? byPersonId.get(lead.apollo_person_id) : undefined) ??
+          (lead.email ? byEmail.get(lead.email) : undefined);
+        if (!record) continue;
+        stats.leadsMatched += 1;
 
-      // --- The current employer's organization row -------------------------
-      const currentRows = (await sql`
-        SELECT lo.id AS link_id, o.*
-        FROM leads_organizations lo
-        JOIN organizations o ON o.id = lo.organization_id
-        WHERE lo.lead_id = ${lead.id} AND lo.current = true
-        LIMIT 1
-      `) as Array<Record<string, unknown>>;
+        // --- The current employer's organization row -------------------------
+        const currentRows = (await sql`
+          SELECT lo.id AS link_id, o.*
+          FROM leads_organizations lo
+          JOIN organizations o ON o.id = lo.organization_id
+          WHERE lo.lead_id = ${lead.id} AND lo.current = true
+          LIMIT 1
+        `) as Array<Record<string, unknown>>;
 
-      let organizationId: string | null = (currentRows[0]?.id as string | undefined) ?? null;
-      let existing: Record<string, unknown> = currentRows[0] ?? {};
+        let organizationId: string | null = (currentRows[0]?.id as string | undefined) ?? null;
+        let existing: Record<string, unknown> = currentRows[0] ?? {};
 
-      if (!organizationId) {
-        stats.leadsWithoutOrg += 1;
-        const domain = coerceOrgValue("text", record.org.domain);
-        const name = coerceOrgValue("text", record.org.name);
-        if (!domain && !name) continue;
-        if (args.dryRun) continue;
-        const found = domain
-          ? ((await sql`SELECT * FROM organizations WHERE primary_domain = ${domain as string} LIMIT 1`) as Array<
-              Record<string, unknown>
-            >)
-          : ((await sql`SELECT * FROM organizations WHERE name = ${name as string} LIMIT 1`) as Array<
-              Record<string, unknown>
-            >);
-        if (found[0]) {
-          organizationId = found[0].id as string;
-          existing = found[0];
-        } else {
-          const created = (await sql`
-            INSERT INTO organizations (name, primary_domain) VALUES (${name}, ${domain}) RETURNING *
-          `) as Array<Record<string, unknown>>;
-          organizationId = created[0].id as string;
-          existing = created[0];
-          stats.orgsCreated += 1;
-          report.write(JSON.stringify({ createdOrganizationId: organizationId }));
-        }
-        await sql`
-          INSERT INTO leads_organizations (lead_id, organization_id, current)
-          VALUES (${lead.id}, ${organizationId}, true)
-          ON CONFLICT DO NOTHING
-        `;
-      }
-
-      const fills = columnsToFill(existing, record);
-      if (fills.length > 0) {
-        stats.orgsFilled += 1;
-        stats.columnsFilled += fills.length;
-        if (!args.dryRun) {
-          for (const fill of fills) {
-            const value = fill.kind === "json" ? sql`${fill.value}::jsonb` : sql`${fill.value}`;
-            await sql`
-              UPDATE organizations
-              SET ${sql(fill.column)} = ${value}, updated_at = now()
-              WHERE id = ${organizationId} AND ${sql(fill.column)} IS NULL
-            `;
+        if (!organizationId) {
+          stats.leadsWithoutOrg += 1;
+          const domain = coerceOrgValue("text", record.org.domain);
+          const name = coerceOrgValue("text", record.org.name);
+          if (!domain && !name) continue;
+          if (args.dryRun) continue;
+          const found = domain
+            ? ((await sql`SELECT * FROM organizations WHERE primary_domain = ${domain as string} LIMIT 1`) as Array<
+                Record<string, unknown>
+              >)
+            : ((await sql`SELECT * FROM organizations WHERE name = ${name as string} LIMIT 1`) as Array<
+                Record<string, unknown>
+              >);
+          if (found[0]) {
+            organizationId = found[0].id as string;
+            existing = found[0];
+          } else {
+            const created = (await sql`
+              INSERT INTO organizations (name, primary_domain) VALUES (${name}, ${domain}) RETURNING *
+            `) as Array<Record<string, unknown>>;
+            organizationId = created[0].id as string;
+            existing = created[0];
+            stats.orgsCreated += 1;
+            report.write(JSON.stringify({ createdOrganizationId: organizationId }));
           }
-          report.write(
-            JSON.stringify({
-              organizationId,
-              columns: fills.map((f) => f.column),
-            }),
-          );
+          await sql`
+            INSERT INTO leads_organizations (lead_id, organization_id, current)
+            VALUES (${lead.id}, ${organizationId}, true)
+            ON CONFLICT DO NOTHING
+          `;
         }
-      }
 
-      // --- The career history ----------------------------------------------
-      if (record.employmentHistory.length === 0) continue;
-      const links = (await sql`
-        SELECT lo.id, lo.organization_id, lo.start_date, o.name AS organization_name
-        FROM leads_organizations lo
-        JOIN organizations o ON o.id = lo.organization_id
-        WHERE lo.lead_id = ${lead.id}
-      `) as Array<{
-        id: string;
-        organization_id: string;
-        start_date: string | null;
-        organization_name: string | null;
-      }>;
-      const consumed = new Set<string>();
+        const fills = columnsToFill(existing, record);
+        if (fills.length > 0) {
+          stats.orgsFilled += 1;
+          stats.columnsFilled += fills.length;
+          if (!args.dryRun) {
+            for (const fill of fills) {
+              const value = fill.kind === "json" ? sql`${fill.value}::jsonb` : sql`${fill.value}`;
+              await sql`
+                UPDATE organizations
+                SET ${sql(fill.column)} = ${value}, updated_at = now()
+                WHERE id = ${organizationId} AND ${sql(fill.column)} IS NULL
+              `;
+            }
+            report.write(
+              JSON.stringify({
+                organizationId,
+                columns: fills.map((f) => f.column),
+              }),
+            );
+          }
+        }
 
-      for (const entry of record.employmentHistory) {
-        const name = entry.organizationName as string;
-        const byName = links.filter(
-          (l) =>
-            !consumed.has(l.id) &&
-            (l.organization_name ?? "").trim().toLowerCase() === name.trim().toLowerCase(),
-        );
-        const match =
-          byName.find((l) => (l.start_date ?? null) === entry.startDate) ??
-          byName.find((l) => l.start_date === null);
-        if (match) {
-          consumed.add(match.id);
-          stats.employmentAdopted += 1;
-          continue;
-        }
-        if (args.dryRun) {
-          stats.employmentInserted += 1;
-          continue;
-        }
-        const orgRows = (await sql`SELECT id FROM organizations WHERE name = ${name} LIMIT 1`) as Array<{
+        // --- The career history ----------------------------------------------
+        if (record.employmentHistory.length === 0) continue;
+        const links = (await sql`
+          SELECT lo.id, lo.organization_id, lo.start_date, o.name AS organization_name
+          FROM leads_organizations lo
+          JOIN organizations o ON o.id = lo.organization_id
+          WHERE lo.lead_id = ${lead.id}
+        `) as Array<{
           id: string;
+          organization_id: string;
+          start_date: string | null;
+          organization_name: string | null;
         }>;
-        let entryOrgId = orgRows[0]?.id ?? null;
-        if (!entryOrgId) {
-          const created = (await sql`
-            INSERT INTO organizations (name) VALUES (${name}) RETURNING id
+        const consumed = new Set<string>();
+
+        for (const entry of record.employmentHistory) {
+          const name = entry.organizationName as string;
+          const byName = links.filter(
+            (l) =>
+              !consumed.has(l.id) &&
+              (l.organization_name ?? "").trim().toLowerCase() === name.trim().toLowerCase(),
+          );
+          const match =
+            byName.find((l) => (l.start_date ?? null) === entry.startDate) ??
+            byName.find((l) => l.start_date === null);
+          if (match) {
+            consumed.add(match.id);
+            stats.employmentAdopted += 1;
+            continue;
+          }
+          if (args.dryRun) {
+            stats.employmentInserted += 1;
+            continue;
+          }
+          const orgRows = (await sql`SELECT id FROM organizations WHERE name = ${name} LIMIT 1`) as Array<{
+            id: string;
+          }>;
+          let entryOrgId = orgRows[0]?.id ?? null;
+          if (!entryOrgId) {
+            const created = (await sql`
+              INSERT INTO organizations (name) VALUES (${name}) RETURNING id
+            `) as Array<{ id: string }>;
+            entryOrgId = created[0].id;
+            stats.orgsCreated += 1;
+            report.write(JSON.stringify({ createdOrganizationId: entryOrgId }));
+          }
+          const inserted = (await sql`
+            INSERT INTO leads_organizations
+              (lead_id, organization_id, title, start_date, end_date, current, description)
+            VALUES (${lead.id}, ${entryOrgId}, ${entry.title}, ${entry.startDate},
+                    ${entry.endDate}, false, ${entry.description})
+            ON CONFLICT DO NOTHING
+            RETURNING id
           `) as Array<{ id: string }>;
-          entryOrgId = created[0].id;
-          stats.orgsCreated += 1;
-          report.write(JSON.stringify({ createdOrganizationId: entryOrgId }));
-        }
-        const inserted = (await sql`
-          INSERT INTO leads_organizations
-            (lead_id, organization_id, title, start_date, end_date, current, description)
-          VALUES (${lead.id}, ${entryOrgId}, ${entry.title}, ${entry.startDate},
-                  ${entry.endDate}, false, ${entry.description})
-          ON CONFLICT DO NOTHING
-          RETURNING id
-        `) as Array<{ id: string }>;
-        if (inserted[0]) {
-          stats.employmentInserted += 1;
-          report.write(JSON.stringify({ employmentRowId: inserted[0].id }));
+          if (inserted[0]) {
+            stats.employmentInserted += 1;
+            report.write(JSON.stringify({ employmentRowId: inserted[0].id }));
+          }
         }
       }
-    }
+    };
+    await Promise.all(Array.from({ length: args.concurrency }, () => worker()));
 
     console.log(
       `[lead-service] scanned=${stats.leadsScanned} matched=${stats.leadsMatched} orgsFilled=${stats.orgsFilled} columns=${stats.columnsFilled} employmentInserted=${stats.employmentInserted}`,
