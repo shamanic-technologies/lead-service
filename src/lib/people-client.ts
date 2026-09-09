@@ -56,7 +56,33 @@ export function isAudienceNotServeableError(error: unknown): boolean {
   return message.toLowerCase().includes("committed provider");
 }
 
-// Neutral organization (gateway-locked, mirrors lead-service columns).
+/**
+ * One funding event as the provider reports it. Carried verbatim onto
+ * `organizations.funding_events`; nothing here is parsed or recomputed.
+ */
+export interface PersonFundingEvent {
+  id?: string | null;
+  date?: string | null;
+  type?: string | null;
+  investors?: string | null;
+  amount?: number | null;
+  currency?: string | null;
+  news_url?: string | null;
+  newsUrl?: string | null;
+}
+
+/**
+ * Neutral organization (gateway-owned, mirrors lead-service's own
+ * `OrganizationView` field names).
+ *
+ * The eleven fields at the top have always been served. Everything below them is
+ * OPTIONAL on the wire: human-service widened the neutral shape to stop dropping
+ * what apollo-service already holds (short/seo description, keywords, technology
+ * names, industry lists, funding, founded year, addresses, social urls), and a
+ * producer that serves none of it still produces a valid person. Absent stays
+ * absent — `pickOrgFields` writes only what actually arrived, and lead-service
+ * NEVER derives, infers or defaults any of these. The producer owns the values.
+ */
 export interface PersonOrganization {
   name: string | null;
   domain: string | null;
@@ -69,12 +95,58 @@ export interface PersonOrganization {
   city: string | null;
   state: string | null;
   country: string | null;
+
+  // --- Widened surface (all optional; absent under an older producer) ---
+  providerOrganizationId?: string | null;
+  shortDescription?: string | null;
+  seoDescription?: string | null;
+  keywords?: string[] | null;
+  technologyNames?: string[] | null;
+  industries?: string[] | null;
+  secondaryIndustries?: string[] | null;
+  latestFundingStage?: string | null;
+  latestFundingRoundDate?: string | null;
+  totalFunding?: number | string | null;
+  totalFundingPrinted?: string | null;
+  fundingEvents?: PersonFundingEvent[] | null;
+  foundedYear?: number | null;
+  twitterUrl?: string | null;
+  facebookUrl?: string | null;
+  blogUrl?: string | null;
+  crunchbaseUrl?: string | null;
+  angellistUrl?: string | null;
+  streetAddress?: string | null;
+  postalCode?: string | null;
+  primaryPhone?: string | null;
+  publiclyTradedSymbol?: string | null;
+  publiclyTradedExchange?: string | null;
+  numSuborganizations?: number | null;
+  retailLocationCount?: number | null;
+  alexaRanking?: number | null;
 }
 
-// Neutral Person (gateway-locked, mirrors FullLead). Slimmer than Apollo's raw
-// firehose: single email (no personalEmails[]), no employment-history array,
-// no funding/tech org detail. `provider` reports which provider human-service
-// used to source the person (informational — NOT an input to lead-service).
+/**
+ * One role from the person's career history, as the producer reports it.
+ *
+ * A past employer is known by NAME only — the provider carries no domain for it —
+ * so lead-service keys those organization rows on the name. `current` marks the
+ * role the person holds now; the top-level `organization` is that same employer,
+ * and is the richer of the two (it carries the domain and every widened field).
+ */
+export interface PersonEmployment {
+  organizationName?: string | null;
+  title?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  current?: boolean | null;
+  description?: string | null;
+}
+
+// Neutral Person (gateway-owned, mirrors FullLead). Still slimmer than Apollo's
+// raw firehose (single email, no personalEmails[]), but no longer slim on the
+// ORGANIZATION or the CAREER HISTORY: both are carried through and persisted.
+// `provider` reports which provider human-service used to source the person
+// (informational — NOT an input to lead-service).
 export interface Person {
   firstName: string | null;
   lastName: string | null;
@@ -110,6 +182,13 @@ export interface Person {
   /** apollo person id (usable for a later enrich). null for apify. */
   providerPersonId: string | null;
   organization: PersonOrganization | null;
+  /**
+   * Every role the provider returned for this person, current and past, in the
+   * order the producer served them. OPTIONAL: absent (or empty) under a producer
+   * that serves no career history, in which case the top-level `organization`
+   * remains the only employment we can record. Never synthesized here.
+   */
+  employmentHistory?: PersonEmployment[] | null;
 }
 
 export interface ServiceContext {

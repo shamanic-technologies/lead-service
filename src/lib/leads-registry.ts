@@ -46,7 +46,24 @@ function pickPersonFields(person: Person): Partial<NewLead> {
   return out;
 }
 
-function pickOrgFields(org: NonNullable<Person["organization"]>): Partial<NewOrganization> {
+/** A non-empty array, or nothing. An empty array is not a value the producer stated. */
+function arrayOrNull(v: string[] | null | undefined): string[] | undefined {
+  return Array.isArray(v) && v.length > 0 ? v : undefined;
+}
+
+/**
+ * Copy the neutral organization onto the organization row.
+ *
+ * Every field is written ONLY when the producer actually sent it: an absent key
+ * and a null both leave the column alone, so a producer that serves the narrow
+ * shape writes exactly what it wrote before, and a re-serve never blanks a column
+ * a richer earlier serve (or the backfill) already filled. Nothing here is
+ * derived — the values that reach this function are the values the provider
+ * returned, carried through human-service verbatim.
+ */
+export function pickOrgFields(
+  org: NonNullable<Person["organization"]>,
+): Partial<NewOrganization> {
   const out: Partial<NewOrganization> = {};
   if (org.name) out.name = org.name;
   if (org.domain) out.primaryDomain = org.domain;
@@ -59,6 +76,39 @@ function pickOrgFields(org: NonNullable<Person["organization"]>): Partial<NewOrg
   if (org.country) out.country = org.country;
   if (org.estimatedNumEmployees != null) out.estimatedNumEmployees = org.estimatedNumEmployees;
   if (org.annualRevenue != null) out.annualRevenue = String(org.annualRevenue);
+
+  // --- Widened surface: what apollo-service already holds, carried through. ---
+  if (org.providerOrganizationId) out.apolloOrganizationId = org.providerOrganizationId;
+  if (org.shortDescription) out.shortDescription = org.shortDescription;
+  if (org.seoDescription) out.seoDescription = org.seoDescription;
+  const keywords = arrayOrNull(org.keywords);
+  if (keywords) out.keywords = keywords;
+  const technologyNames = arrayOrNull(org.technologyNames);
+  if (technologyNames) out.technologyNames = technologyNames;
+  const industries = arrayOrNull(org.industries);
+  if (industries) out.industries = industries;
+  const secondaryIndustries = arrayOrNull(org.secondaryIndustries);
+  if (secondaryIndustries) out.secondaryIndustries = secondaryIndustries;
+  if (org.latestFundingStage) out.latestFundingStage = org.latestFundingStage;
+  if (org.latestFundingRoundDate) out.latestFundingRoundDate = org.latestFundingRoundDate;
+  if (org.totalFunding != null) out.totalFunding = String(org.totalFunding);
+  if (org.totalFundingPrinted) out.totalFundingPrinted = org.totalFundingPrinted;
+  if (Array.isArray(org.fundingEvents) && org.fundingEvents.length > 0)
+    out.fundingEvents = org.fundingEvents;
+  if (org.foundedYear != null) out.foundedYear = org.foundedYear;
+  if (org.twitterUrl) out.twitterUrl = org.twitterUrl;
+  if (org.facebookUrl) out.facebookUrl = org.facebookUrl;
+  if (org.blogUrl) out.blogUrl = org.blogUrl;
+  if (org.crunchbaseUrl) out.crunchbaseUrl = org.crunchbaseUrl;
+  if (org.angellistUrl) out.angellistUrl = org.angellistUrl;
+  if (org.streetAddress) out.streetAddress = org.streetAddress;
+  if (org.postalCode) out.postalCode = org.postalCode;
+  if (org.primaryPhone) out.primaryPhone = org.primaryPhone;
+  if (org.publiclyTradedSymbol) out.publiclyTradedSymbol = org.publiclyTradedSymbol;
+  if (org.publiclyTradedExchange) out.publiclyTradedExchange = org.publiclyTradedExchange;
+  if (org.numSuborganizations != null) out.numSuborganizations = org.numSuborganizations;
+  if (org.retailLocationCount != null) out.retailLocationCount = org.retailLocationCount;
+  if (org.alexaRanking != null) out.alexaRanking = org.alexaRanking;
   return out;
 }
 
@@ -292,17 +342,74 @@ async function markCurrentEmployment(
   await db.insert(leadsOrganizations).values({ leadId, organizationId, title, current: true });
 }
 
+/** ISO calendar date as the `date` columns store it, or nothing. */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}/;
+
 /**
- * Persist the current employer from a neutral Person.
+ * Normalize a provider-supplied employment date to `YYYY-MM-DD`.
  *
- * The gateway provides no employment-history array (Apollo's firehose did), only
- * the top-level org. We still enforce exactly ONE current employer per lead at
- * write time, history-preserving (no rows deleted):
- *   1. Expire the current flag on all existing rows for this lead.
- *   2. Upsert the top-level org and mark it current=true.
+ * A value we cannot read as a calendar date yields null and says so in the log —
+ * the ROLE is still recorded (it happened), it simply carries no date. Dropping
+ * the whole row, or aborting the serve, would lose a career fact over a provider
+ * formatting quirk; guessing a date would state something nobody told us.
+ */
+export function normalizeEmploymentDate(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  if (!ISO_DATE.test(trimmed)) {
+    console.log(`[lead-service] employment history: unreadable date, recorded as null — ${trimmed}`);
+    return null;
+  }
+  return trimmed.slice(0, 10);
+}
+
+/**
+ * The organization row for a PAST employer, which the provider knows by NAME
+ * only (it carries no domain for one), keyed on that name. A past employer that
+ * is also a known org — the same company someone else currently works at — lands
+ * on that existing row and inherits its rich fields for free.
+ */
+async function findOrCreateOrganizationByName(name: string): Promise<string | null> {
+  const existing = await db.query.organizations.findFirst({
+    where: eq(organizations.name, name),
+  });
+  if (existing) return existing.id;
+  const inserted = await db
+    .insert(organizations)
+    .values({ name })
+    .returning({ id: organizations.id });
+  return inserted[0]?.id ?? null;
+}
+
+function sameOrganizationName(a: string | null, b: string | null): boolean {
+  if (!a || !b) return false;
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+/**
+ * Persist the person's career history — EVERY role the producer served, not only
+ * the current employer.
  *
- * Idempotent on re-enrichment: org id is stable (by domain/name), the current
- * link is upserted — so re-running does not grow row count.
+ * Apollo has always returned the full list and human-service now carries it, so a
+ * lead is no longer a single employment row: the LLM that writes the email can
+ * see where this person worked before, which is exactly the kind of fact a cold
+ * email is written from. The top-level `organization` stays the authoritative
+ * record of the CURRENT employer — it is the only one carrying a domain and the
+ * widened company fields — while a past employer is known by name alone.
+ *
+ * History-preserving and idempotent:
+ *   1. Expire the current flag on every existing row for this lead.
+ *   2. Upsert the top-level org (rich) — this is the current employer.
+ *   3. Upsert one row per history entry, matched on (organization, start date).
+ *      A pre-existing row for that organization carrying NO start date is ADOPTED
+ *      rather than duplicated, so the single-row shape written before this landed
+ *      converges instead of doubling.
+ *   4. Mark exactly one row current — the entry the producer flagged, else the
+ *      top-level organization.
+ *
+ * No row is ever deleted, and a producer that serves no history reproduces the
+ * previous behaviour byte for byte.
  */
 export async function recordEmploymentHistory(params: {
   leadId: string;
@@ -315,9 +422,94 @@ export async function recordEmploymentHistory(params: {
     .set({ current: false })
     .where(and(eq(leadsOrganizations.leadId, leadId), eq(leadsOrganizations.current, true)));
 
-  const orgId = await upsertOrganizationFromPerson(person);
-  if (orgId) {
-    await markCurrentEmployment(leadId, orgId, person.title ?? null);
+  const currentOrgId = await upsertOrganizationFromPerson(person);
+  const currentOrgName = person.organization?.name ?? null;
+
+  const history = Array.isArray(person.employmentHistory)
+    ? person.employmentHistory.filter((e): e is NonNullable<typeof e> => Boolean(e))
+    : [];
+
+  if (history.length === 0) {
+    if (currentOrgId) await markCurrentEmployment(leadId, currentOrgId, person.title ?? null);
+    return;
+  }
+
+  const existingRows = await db
+    .select({
+      id: leadsOrganizations.id,
+      organizationId: leadsOrganizations.organizationId,
+      startDate: leadsOrganizations.startDate,
+    })
+    .from(leadsOrganizations)
+    .where(eq(leadsOrganizations.leadId, leadId));
+
+  const consumed = new Set<string>();
+  let markedCurrent = false;
+
+  for (const entry of history) {
+    const entryName = typeof entry.organizationName === "string" ? entry.organizationName : null;
+    const isCurrent = entry.current === true;
+
+    // The current role IS the top-level organization — same employer, richer row.
+    let organizationId: string | null = null;
+    if (
+      isCurrent &&
+      currentOrgId &&
+      (!entryName || !currentOrgName || sameOrganizationName(entryName, currentOrgName))
+    ) {
+      organizationId = currentOrgId;
+    } else if (entryName && entryName.trim().length > 0) {
+      organizationId = await findOrCreateOrganizationByName(entryName.trim());
+    }
+    // A role naming no employer is not a row we can key on. It is not dropped
+    // silently: the raw list stays on `leads.metadata` verbatim.
+    if (!organizationId) continue;
+
+    const startDate = normalizeEmploymentDate(entry.startDate);
+    const endDate = normalizeEmploymentDate(entry.endDate);
+    const title =
+      (typeof entry.title === "string" && entry.title.trim().length > 0 ? entry.title : null) ??
+      (isCurrent ? (person.title ?? null) : null);
+    const description =
+      typeof entry.description === "string" && entry.description.trim().length > 0
+        ? entry.description
+        : null;
+
+    const candidates = existingRows.filter(
+      (row) => row.organizationId === organizationId && !consumed.has(row.id),
+    );
+    const match =
+      candidates.find((row) => row.startDate === startDate) ??
+      candidates.find((row) => row.startDate === null);
+
+    if (match) {
+      consumed.add(match.id);
+      await db
+        .update(leadsOrganizations)
+        .set({ title, startDate, endDate, current: isCurrent, description })
+        .where(eq(leadsOrganizations.id, match.id));
+    } else {
+      await db
+        .insert(leadsOrganizations)
+        .values({
+          leadId,
+          organizationId,
+          title,
+          startDate,
+          endDate,
+          current: isCurrent,
+          description,
+        })
+        .onConflictDoNothing();
+    }
+
+    if (isCurrent) markedCurrent = true;
+  }
+
+  // The producer flagged no current role — the top-level organization is still
+  // where this person works, so exactly one row stays current.
+  if (!markedCurrent && currentOrgId) {
+    await markCurrentEmployment(leadId, currentOrgId, person.title ?? null);
   }
 }
 
