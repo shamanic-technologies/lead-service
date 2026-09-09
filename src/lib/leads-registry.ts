@@ -480,8 +480,26 @@ export async function recordEmploymentHistory(params: {
     .from(leadsOrganizations)
     .where(eq(leadsOrganizations.leadId, leadId));
 
-  const consumed = new Set<string>();
-  let markedCurrent = false;
+  // Resolve every role to an (organization, start date) BEFORE writing anything.
+  //
+  // Two things have to happen here rather than row by row. A person routinely
+  // holds several CONCURRENT titles at ONE employer — "Founder & Chiropractor",
+  // "Educator & National Speaker", "Founder & Director" all flagged current, all
+  // with no start date — and those are one employment, not three: keying them
+  // separately produced three `current = true` rows for one lead, which breaks
+  // the one-current-employer invariant the read path depends on and makes
+  // `currentTitle` a coin flip. And exactly one row may end up current, so the
+  // decision needs the whole list in hand.
+  interface ResolvedRole {
+    organizationId: string;
+    startDate: string | null;
+    endDate: string | null;
+    title: string | null;
+    description: string | null;
+    current: boolean;
+  }
+  const resolved: ResolvedRole[] = [];
+  const byKey = new Map<string, ResolvedRole>();
 
   for (const entry of history) {
     const entryName = typeof entry.organizationName === "string" ? entry.organizationName : null;
@@ -512,6 +530,38 @@ export async function recordEmploymentHistory(params: {
         ? entry.description
         : null;
 
+    const key = `${organizationId}|${startDate ?? ""}`;
+    const seen = byKey.get(key);
+    if (seen) {
+      // Same employer, same start: one employment wearing several titles. The
+      // person's own title wins for the role they hold now; otherwise the first
+      // title served stands.
+      seen.current = seen.current || isCurrent;
+      if (isCurrent && person.title) seen.title = person.title;
+      seen.endDate = seen.endDate ?? endDate;
+      seen.description = seen.description ?? description;
+      continue;
+    }
+    const role: ResolvedRole = { organizationId, startDate, endDate, title, description, current: isCurrent };
+    byKey.set(key, role);
+    resolved.push(role);
+  }
+
+  // Exactly one row may be current. Somebody flagged as currently holding roles
+  // at two employers is real, but the read path answers ONE current employer and
+  // one `currentTitle`, and the top-level organization is the producer's own
+  // answer to which that is — so it wins, and the rest are recorded as roles.
+  const currentRoles = resolved.filter((r) => r.current);
+  if (currentRoles.length > 1) {
+    const winner = currentRoles.find((r) => r.organizationId === currentOrgId) ?? currentRoles[0];
+    for (const role of currentRoles) if (role !== winner) role.current = false;
+  }
+
+  const consumed = new Set<string>();
+  let markedCurrent = false;
+
+  for (const role of resolved) {
+    const { organizationId, startDate, endDate, title, description, current } = role;
     const candidates = existingRows.filter(
       (row) => row.organizationId === organizationId && !consumed.has(row.id),
     );
@@ -523,24 +573,16 @@ export async function recordEmploymentHistory(params: {
       consumed.add(match.id);
       await db
         .update(leadsOrganizations)
-        .set({ title, startDate, endDate, current: isCurrent, description })
+        .set({ title, startDate, endDate, current, description })
         .where(eq(leadsOrganizations.id, match.id));
     } else {
       await db
         .insert(leadsOrganizations)
-        .values({
-          leadId,
-          organizationId,
-          title,
-          startDate,
-          endDate,
-          current: isCurrent,
-          description,
-        })
+        .values({ leadId, organizationId, title, startDate, endDate, current, description })
         .onConflictDoNothing();
     }
 
-    if (isCurrent) markedCurrent = true;
+    if (current) markedCurrent = true;
   }
 
   // The producer flagged no current role — the top-level organization is still

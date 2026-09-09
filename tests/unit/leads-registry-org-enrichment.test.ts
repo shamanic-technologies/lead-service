@@ -338,6 +338,59 @@ describe("recordEmploymentHistory — the person's whole career, not just today'
   });
 });
 
+describe("exactly one current employer, whatever the provider serves", () => {
+  it("collapses several concurrent titles at one employer into one role", async () => {
+    // A real production person: three roles all flagged current, all at the same
+    // employer, none with a start date. That is one employment wearing three
+    // titles — keyed separately it produced three `current = true` rows.
+    findFirstOrg.mockResolvedValue({ id: "org-top" });
+    selectResults.set(leadsOrganizations, []);
+    const { recordEmploymentHistory } = await import("../../src/lib/leads-registry.js");
+    await recordEmploymentHistory({
+      leadId: "lead-1",
+      person: {
+        ...richPerson,
+        title: "Founder & Chiropractor",
+        employmentHistory: [
+          { organizationName: "Casco Bay", title: "Founder & Chiropractor", current: true },
+          { organizationName: "Casco Bay", title: "Educator & National Speaker", current: true },
+          { organizationName: "Casco Bay", title: "Founder & Director", current: true },
+        ],
+      } as never,
+    });
+
+    const rows = linkInserts();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ current: true, title: "Founder & Chiropractor" });
+  });
+
+  it("keeps only the top-level employer current when two employers are flagged current", async () => {
+    findFirstOrg.mockImplementation(async (arg: unknown) => {
+      // The domain lookup resolves the top-level org; the name lookup mints one.
+      void arg;
+      return { id: "org-top" };
+    });
+    selectResults.set(leadsOrganizations, []);
+    const { recordEmploymentHistory } = await import("../../src/lib/leads-registry.js");
+    await recordEmploymentHistory({
+      leadId: "lead-1",
+      person: {
+        ...richPerson,
+        employmentHistory: [
+          { organizationName: "Casco Bay", title: "Founder", startDate: "2018-04-01", current: true },
+          { organizationName: "Casco Bay", title: "Advisor", startDate: "2021-01-01", current: true },
+        ],
+      } as never,
+    });
+
+    const rows = linkInserts();
+    expect(rows).toHaveLength(2);
+    expect(rows.filter((r) => r.current === true)).toHaveLength(1);
+    // Both roles are still recorded — nothing is dropped.
+    expect(rows.map((r) => r.title).sort()).toEqual(["Advisor", "Founder"]);
+  });
+});
+
 describe("the provider's organization id is claimed, never written blind", () => {
   it("is written by a guarded statement rather than by the field copy", async () => {
     findFirstOrg.mockResolvedValue({ id: "org-top" });
