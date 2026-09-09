@@ -78,7 +78,11 @@ export function pickOrgFields(
   if (org.annualRevenue != null) out.annualRevenue = String(org.annualRevenue);
 
   // --- Widened surface: what apollo-service already holds, carried through. ---
-  if (org.providerOrganizationId) out.apolloOrganizationId = org.providerOrganizationId;
+  // NOTE: `providerOrganizationId` is deliberately NOT here. It is a UNIQUE join
+  // key (`idx_organizations_apollo_organization_id`) while this service keys an
+  // organization on its DOMAIN, then its name — so two rows here can legitimately
+  // describe one Apollo organization, and an unguarded write raises 23505 and
+  // fails the serve. `claimProviderOrganizationId` writes it only when it is free.
   if (org.shortDescription) out.shortDescription = org.shortDescription;
   if (org.seoDescription) out.seoDescription = org.seoDescription;
   const keywords = arrayOrNull(org.keywords);
@@ -192,6 +196,34 @@ export async function upsertLeadFromPerson(
  * no provider org id, so we key on primaryDomain (stable) and fall back to name.
  * Returns organizationId or null when the person has no org.
  */
+/**
+ * Record apollo's organization id on the row, but ONLY when no other row already
+ * holds it.
+ *
+ * `idx_organizations_apollo_organization_id` is UNIQUE, and this service keys an
+ * organization on its domain (then its name), so two rows here can describe one
+ * Apollo organization — a past employer known only by name and the current
+ * employer known by domain, most often. Writing the id unguarded therefore raises
+ * `23505 duplicate key` on a path that must never fail a serve. The id is a join
+ * key, not a fact the email is written from, so the correct behaviour when it is
+ * already claimed is to leave it alone rather than to move it or to fail.
+ */
+async function claimProviderOrganizationId(
+  organizationId: string,
+  providerOrganizationId: string,
+): Promise<void> {
+  await db.execute(sql`
+    UPDATE organizations
+    SET apollo_organization_id = ${providerOrganizationId}
+    WHERE id = ${organizationId}
+      AND apollo_organization_id IS NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM organizations other
+        WHERE other.apollo_organization_id = ${providerOrganizationId}
+      )
+  `);
+}
+
 export async function upsertOrganizationFromPerson(person: Person): Promise<string | null> {
   const org = person.organization;
   if (!org || (!org.domain && !org.name)) return null;
@@ -206,6 +238,8 @@ export async function upsertOrganizationFromPerson(person: Person): Promise<stri
       .update(organizations)
       .set({ ...fields, updatedAt: new Date() })
       .where(eq(organizations.id, existing.id));
+    if (org.providerOrganizationId)
+      await claimProviderOrganizationId(existing.id, org.providerOrganizationId);
     return existing.id;
   }
 
@@ -213,7 +247,10 @@ export async function upsertOrganizationFromPerson(person: Person): Promise<stri
     .insert(organizations)
     .values({ ...fields })
     .returning({ id: organizations.id });
-  return inserted[0]?.id ?? null;
+  const insertedId = inserted[0]?.id ?? null;
+  if (insertedId && org.providerOrganizationId)
+    await claimProviderOrganizationId(insertedId, org.providerOrganizationId);
+  return insertedId;
 }
 
 export type UpsertContactResult =

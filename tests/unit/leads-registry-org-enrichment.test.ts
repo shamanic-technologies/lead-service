@@ -15,6 +15,7 @@ const insertCalls: { table: unknown; values: unknown }[] = [];
 const updateCalls: { table: unknown; set: unknown }[] = [];
 const selectResults = new Map<unknown, unknown[]>();
 const findFirstOrg = vi.fn();
+const executeCalls: unknown[] = [];
 
 function makeInsert(table: unknown) {
   return {
@@ -61,6 +62,10 @@ function makeSelect() {
 
 vi.mock("../../src/db/index.js", () => ({
   db: {
+    execute: (q: unknown) => {
+      executeCalls.push(q);
+      return Promise.resolve([]);
+    },
     insert: (table: unknown) => makeInsert(table),
     update: (table: unknown) => makeUpdate(table),
     select: () => makeSelect(),
@@ -87,6 +92,7 @@ beforeEach(() => {
   insertCalls.length = 0;
   updateCalls.length = 0;
   selectResults.clear();
+  executeCalls.length = 0;
   findFirstOrg.mockReset();
 });
 
@@ -154,7 +160,6 @@ describe("pickOrgFields — the organization facts apollo-service already paid f
     expect(fields).toMatchObject({
       name: "Casco Bay",
       primaryDomain: "cascobay.com",
-      apolloOrganizationId: "apollo-org-1",
       shortDescription: "Boutique digital marketing agency in Portland, ME.",
       seoDescription: "Casco Bay helps brands grow.",
       keywords: ["marketing", "branding"],
@@ -174,6 +179,9 @@ describe("pickOrgFields — the organization facts apollo-service already paid f
       primaryPhone: "+12075550100",
       alexaRanking: 812345,
     });
+    // The provider's organization id is a UNIQUE join key, not a fact the email
+    // is written from — it is claimed separately, only when free.
+    expect("apolloOrganizationId" in fields).toBe(false);
     expect(fields.fundingEvents).toEqual([{ id: "fe-1", type: "Series A", amount: 5_000_000 }]);
     // A stated zero is a value, not an absence.
     expect(fields.numSuborganizations).toBe(0);
@@ -327,6 +335,36 @@ describe("recordEmploymentHistory — the person's whole career, not just today'
     const past = linkInserts().find((r) => r.title === "Analyst");
     expect(past).toBeDefined();
     expect(past?.startDate).toBeNull();
+  });
+});
+
+describe("the provider's organization id is claimed, never written blind", () => {
+  it("is written by a guarded statement rather than by the field copy", async () => {
+    findFirstOrg.mockResolvedValue({ id: "org-top" });
+    selectResults.set(leadsOrganizations, []);
+    const { recordEmploymentHistory } = await import("../../src/lib/leads-registry.js");
+    await recordEmploymentHistory({ leadId: "lead-1", person: richPerson as never });
+
+    // `idx_organizations_apollo_organization_id` is UNIQUE while this service keys
+    // an organization on its domain, so two rows can describe one Apollo org: the
+    // claim must be one guarded UPDATE, never part of the field copy.
+    expect(executeCalls).toHaveLength(1);
+    expect(orgUpdates().some((u) => "apolloOrganizationId" in u)).toBe(false);
+  });
+
+  it("makes no claim when the producer sent no organization id", async () => {
+    findFirstOrg.mockResolvedValue({ id: "org-top" });
+    selectResults.set(leadsOrganizations, []);
+    const { recordEmploymentHistory } = await import("../../src/lib/leads-registry.js");
+    await recordEmploymentHistory({
+      leadId: "lead-1",
+      person: {
+        ...richPerson,
+        organization: { ...richPerson.organization, providerOrganizationId: null },
+      } as never,
+    });
+
+    expect(executeCalls).toHaveLength(0);
   });
 });
 
