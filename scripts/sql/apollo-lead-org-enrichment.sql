@@ -53,51 +53,9 @@
 --     --input /tmp/apollo-lead-org-enrichment.jsonl --dry-run
 \set ON_ERROR_STOP on
 
+-- NOTE: the \copy below is ONE line on purpose. A psql meta-command does not
+-- span lines — breaking it for readability fails with `\copy: parse error at
+-- end of line` and writes nothing.
 -- One JSON object per line, CSV-quoted (a single column), so a value carrying a
 -- comma or a quote survives the round trip; the script un-doubles the quotes.
-\copy (SELECT row_to_json(t)::text FROM (
-    SELECT DISTINCT ON (coalesce(e.apollo_person_id, e.email))
-           e.apollo_person_id AS "apolloPersonId",
-           e.email AS "email",
-           coalesce(e.organization_id, e.response_raw->'organization'->>'id') AS "providerOrganizationId",
-           coalesce(e.organization_name, e.response_raw->'organization'->>'name') AS "name",
-           coalesce(e.organization_domain, e.response_raw->'organization'->>'primary_domain') AS "domain",
-           coalesce(e.organization_website_url, e.response_raw->'organization'->>'website_url') AS "websiteUrl",
-           coalesce(e.organization_industry, e.response_raw->'organization'->>'industry') AS "industry",
-           coalesce(e.organization_logo_url, e.response_raw->'organization'->>'logo_url') AS "logoUrl",
-           coalesce(e.organization_linkedin_url, e.response_raw->'organization'->>'linkedin_url') AS "linkedinUrl",
-           coalesce(e.organization_twitter_url, e.response_raw->'organization'->>'twitter_url') AS "twitterUrl",
-           coalesce(e.organization_facebook_url, e.response_raw->'organization'->>'facebook_url') AS "facebookUrl",
-           coalesce(e.organization_blog_url, e.response_raw->'organization'->>'blog_url') AS "blogUrl",
-           coalesce(e.organization_crunchbase_url, e.response_raw->'organization'->>'crunchbase_url') AS "crunchbaseUrl",
-           coalesce(e.organization_angellist_url, e.response_raw->'organization'->>'angellist_url') AS "angellistUrl",
-           coalesce(e.organization_short_description, e.response_raw->'organization'->>'short_description') AS "shortDescription",
-           coalesce(e.organization_seo_description, e.response_raw->'organization'->>'seo_description') AS "seoDescription",
-           coalesce(e.organization_keywords, e.response_raw->'organization'->'keywords') AS "keywords",
-           coalesce(e.organization_technology_names, e.response_raw->'organization'->'technology_names') AS "technologyNames",
-           coalesce(e.organization_industries, e.response_raw->'organization'->'industries') AS "industries",
-           coalesce(e.organization_secondary_industries, e.response_raw->'organization'->'secondary_industries') AS "secondaryIndustries",
-           coalesce(e.organization_latest_funding_stage, e.response_raw->'organization'->>'latest_funding_stage') AS "latestFundingStage",
-           coalesce(e.organization_latest_funding_round_date, e.response_raw->'organization'->>'latest_funding_round_date') AS "latestFundingRoundDate",
-           coalesce(e.organization_total_funding::text, e.response_raw->'organization'->>'total_funding') AS "totalFunding",
-           coalesce(e.organization_total_funding_printed, e.response_raw->'organization'->>'total_funding_printed') AS "totalFundingPrinted",
-           coalesce(e.organization_funding_events, e.response_raw->'organization'->'funding_events') AS "fundingEvents",
-           coalesce(e.organization_founded_year, (e.response_raw->'organization'->>'founded_year')::int) AS "foundedYear",
-           coalesce(e.organization_revenue_usd::text, e.response_raw->'organization'->>'annual_revenue') AS "annualRevenue",
-           coalesce(e.organization_size, e.response_raw->'organization'->>'estimated_num_employees') AS "estimatedNumEmployees",
-           coalesce(e.organization_city, e.response_raw->'organization'->>'city') AS "city",
-           coalesce(e.organization_state, e.response_raw->'organization'->>'state') AS "state",
-           coalesce(e.organization_country, e.response_raw->'organization'->>'country') AS "country",
-           coalesce(e.organization_street_address, e.response_raw->'organization'->>'street_address') AS "streetAddress",
-           coalesce(e.organization_postal_code, e.response_raw->'organization'->>'postal_code') AS "postalCode",
-           coalesce(e.organization_primary_phone, e.response_raw->'organization'->'primary_phone'->>'number') AS "primaryPhone",
-           coalesce(e.organization_publicly_traded_symbol, e.response_raw->'organization'->>'publicly_traded_symbol') AS "publiclyTradedSymbol",
-           coalesce(e.organization_publicly_traded_exchange, e.response_raw->'organization'->>'publicly_traded_exchange') AS "publiclyTradedExchange",
-           coalesce(e.organization_num_suborganizations, (e.response_raw->'organization'->>'num_suborganizations')::int) AS "numSuborganizations",
-           coalesce(e.organization_retail_location_count, (e.response_raw->'organization'->>'retail_location_count')::int) AS "retailLocationCount",
-           coalesce(e.organization_alexa_ranking, (e.response_raw->'organization'->>'alexa_ranking')::int) AS "alexaRanking",
-           coalesce(e.employment_history, e.response_raw->'employment_history') AS "employmentHistory"
-    FROM apollo_people_enrichments e
-    WHERE e.apollo_person_id IS NOT NULL OR e.email IS NOT NULL
-    ORDER BY coalesce(e.apollo_person_id, e.email), e.created_at DESC
-  ) t) TO '/tmp/apollo-lead-org-enrichment.jsonl' CSV
+\copy (SELECT row_to_json(t)::text FROM ( SELECT DISTINCT ON (coalesce(e.apollo_person_id, e.email)) e.apollo_person_id AS "apolloPersonId", e.email AS "email", coalesce(e.organization_id, e.response_raw->'organization'->>'id') AS "providerOrganizationId", coalesce(e.organization_name, e.response_raw->'organization'->>'name') AS "name", coalesce(e.organization_domain, e.response_raw->'organization'->>'primary_domain') AS "domain", coalesce(e.organization_website_url, e.response_raw->'organization'->>'website_url') AS "websiteUrl", coalesce(e.organization_industry, e.response_raw->'organization'->>'industry') AS "industry", coalesce(e.organization_logo_url, e.response_raw->'organization'->>'logo_url') AS "logoUrl", coalesce(e.organization_linkedin_url, e.response_raw->'organization'->>'linkedin_url') AS "linkedinUrl", coalesce(e.organization_twitter_url, e.response_raw->'organization'->>'twitter_url') AS "twitterUrl", coalesce(e.organization_facebook_url, e.response_raw->'organization'->>'facebook_url') AS "facebookUrl", coalesce(e.organization_blog_url, e.response_raw->'organization'->>'blog_url') AS "blogUrl", coalesce(e.organization_crunchbase_url, e.response_raw->'organization'->>'crunchbase_url') AS "crunchbaseUrl", coalesce(e.organization_angellist_url, e.response_raw->'organization'->>'angellist_url') AS "angellistUrl", coalesce(e.organization_short_description, e.response_raw->'organization'->>'short_description') AS "shortDescription", coalesce(e.organization_seo_description, e.response_raw->'organization'->>'seo_description') AS "seoDescription", coalesce(e.organization_keywords, e.response_raw->'organization'->'keywords') AS "keywords", coalesce(e.organization_technology_names, e.response_raw->'organization'->'technology_names') AS "technologyNames", coalesce(e.organization_industries, e.response_raw->'organization'->'industries') AS "industries", coalesce(e.organization_secondary_industries, e.response_raw->'organization'->'secondary_industries') AS "secondaryIndustries", coalesce(e.organization_latest_funding_stage, e.response_raw->'organization'->>'latest_funding_stage') AS "latestFundingStage", coalesce(e.organization_latest_funding_round_date, e.response_raw->'organization'->>'latest_funding_round_date') AS "latestFundingRoundDate", coalesce(e.organization_total_funding::text, e.response_raw->'organization'->>'total_funding') AS "totalFunding", coalesce(e.organization_total_funding_printed, e.response_raw->'organization'->>'total_funding_printed') AS "totalFundingPrinted", coalesce(e.organization_funding_events, e.response_raw->'organization'->'funding_events') AS "fundingEvents", coalesce(e.organization_founded_year, (e.response_raw->'organization'->>'founded_year')::int) AS "foundedYear", coalesce(e.organization_revenue_usd::text, e.response_raw->'organization'->>'annual_revenue') AS "annualRevenue", coalesce(e.organization_size, e.response_raw->'organization'->>'estimated_num_employees') AS "estimatedNumEmployees", coalesce(e.organization_city, e.response_raw->'organization'->>'city') AS "city", coalesce(e.organization_state, e.response_raw->'organization'->>'state') AS "state", coalesce(e.organization_country, e.response_raw->'organization'->>'country') AS "country", coalesce(e.organization_street_address, e.response_raw->'organization'->>'street_address') AS "streetAddress", coalesce(e.organization_postal_code, e.response_raw->'organization'->>'postal_code') AS "postalCode", coalesce(e.organization_primary_phone, e.response_raw->'organization'->'primary_phone'->>'number') AS "primaryPhone", coalesce(e.organization_publicly_traded_symbol, e.response_raw->'organization'->>'publicly_traded_symbol') AS "publiclyTradedSymbol", coalesce(e.organization_publicly_traded_exchange, e.response_raw->'organization'->>'publicly_traded_exchange') AS "publiclyTradedExchange", coalesce(e.organization_num_suborganizations, (e.response_raw->'organization'->>'num_suborganizations')::int) AS "numSuborganizations", coalesce(e.organization_retail_location_count, (e.response_raw->'organization'->>'retail_location_count')::int) AS "retailLocationCount", coalesce(e.organization_alexa_ranking, (e.response_raw->'organization'->>'alexa_ranking')::int) AS "alexaRanking", coalesce(e.employment_history, e.response_raw->'employment_history') AS "employmentHistory" FROM apollo_people_enrichments e WHERE e.apollo_person_id IS NOT NULL OR e.email IS NOT NULL ORDER BY coalesce(e.apollo_person_id, e.email), e.created_at DESC ) t) TO '/tmp/apollo-lead-org-enrichment.jsonl' CSV

@@ -59,7 +59,7 @@
  *     --input /tmp/apollo-lead-org-enrichment.jsonl --report /tmp/org-backfill.jsonl
  */
 
-import { readFileSync, appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 
 /** How many leads are read out of lead-service in one page. */
 export const DEFAULT_BATCH_SIZE = 2_000;
@@ -230,48 +230,65 @@ export function normalizeEmployment(raw: unknown): EmploymentEntry | null {
 }
 
 /**
- * One JSON object per line, as `\copy ... CSV` writes a single JSON column: the
- * field is quoted and any embedded quote is doubled. A line that is not a JSON
- * object is an ERROR — a mangled input must abort, never silently shrink the
- * repaired set.
+ * One record from one line, as `\copy ... CSV` writes a single JSON column: the
+ * field is quoted and any embedded quote is doubled. A blank line yields null; a
+ * line that is not a JSON object, or that carries neither key a lead can be
+ * matched on, is an ERROR — a mangled input must abort, never silently shrink
+ * the repaired set.
+ *
+ * The record keeps ONLY the columns this repair can write plus the normalized
+ * career history. The input is ~380 MB across ~57k people, so carrying the whole
+ * parsed object per person is the difference between a run and an out-of-memory
+ * abort.
  */
+export function parseLine(line: string, lineNo: number): EnrichmentRecord | null {
+  const trimmed = line.trim();
+  if (trimmed.length === 0) return null;
+  const json = trimmed.startsWith('"')
+    ? trimmed.slice(1, trimmed.endsWith('"') ? -1 : undefined).replace(/""/g, '"')
+    : trimmed;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch (err) {
+    throw new Error(`[lead-service] input line ${lineNo} is not JSON: ${String(err)}`);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`[lead-service] input line ${lineNo} is not a JSON object`);
+  }
+  const rec = parsed as Record<string, unknown>;
+  const apolloPersonId =
+    typeof rec.apolloPersonId === "string" && rec.apolloPersonId.trim().length > 0
+      ? rec.apolloPersonId.trim()
+      : null;
+  const email =
+    typeof rec.email === "string" && rec.email.trim().length > 0
+      ? rec.email.trim().toLowerCase()
+      : null;
+  if (!apolloPersonId && !email) {
+    throw new Error(`[lead-service] input line ${lineNo} has neither apolloPersonId nor email`);
+  }
+  const org: Record<string, unknown> = {};
+  for (const spec of ORG_COLUMNS) {
+    const v = rec[spec.key];
+    if (v !== null && v !== undefined) org[spec.key] = v;
+  }
+  const employmentHistory = Array.isArray(rec.employmentHistory)
+    ? rec.employmentHistory
+        .map(normalizeEmployment)
+        .filter((e): e is EmploymentEntry => e !== null && e.organizationName !== null)
+    : [];
+  return { apolloPersonId, email, org, employmentHistory };
+}
+
+/** Whole-text convenience over `parseLine` — used by the tests and small inputs. */
 export function parseInput(text: string): EnrichmentRecord[] {
   const out: EnrichmentRecord[] = [];
   let lineNo = 0;
   for (const raw of text.split("\n")) {
     lineNo += 1;
-    const line = raw.trim();
-    if (line.length === 0) continue;
-    const json = line.startsWith('"')
-      ? line.slice(1, line.endsWith('"') ? -1 : undefined).replace(/""/g, '"')
-      : line;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(json);
-    } catch (err) {
-      throw new Error(`[lead-service] input line ${lineNo} is not JSON: ${String(err)}`);
-    }
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new Error(`[lead-service] input line ${lineNo} is not a JSON object`);
-    }
-    const rec = parsed as Record<string, unknown>;
-    const apolloPersonId =
-      typeof rec.apolloPersonId === "string" && rec.apolloPersonId.trim().length > 0
-        ? rec.apolloPersonId.trim()
-        : null;
-    const email =
-      typeof rec.email === "string" && rec.email.trim().length > 0
-        ? rec.email.trim().toLowerCase()
-        : null;
-    if (!apolloPersonId && !email) {
-      throw new Error(`[lead-service] input line ${lineNo} has neither apolloPersonId nor email`);
-    }
-    const history = Array.isArray(rec.employmentHistory)
-      ? rec.employmentHistory
-          .map(normalizeEmployment)
-          .filter((e): e is EmploymentEntry => e !== null && e.organizationName !== null)
-      : [];
-    out.push({ apolloPersonId, email, org: rec, employmentHistory: history });
+    const rec = parseLine(raw, lineNo);
+    if (rec) out.push(rec);
   }
   return out;
 }
@@ -326,10 +343,31 @@ async function run(): Promise<void> {
   if (!args.inputPath) {
     throw new Error("[lead-service] --input <path> is required");
   }
-  const records = parseInput(readFileSync(args.inputPath, "utf8"));
-  const { byPersonId, byEmail } = indexRecords(records);
+  // Streamed, not slurped: the production input is ~380 MB and reading it as one
+  // string then splitting it needs several times that in heap.
+  const byPersonId = new Map<string, EnrichmentRecord>();
+  const byEmail = new Map<string, EnrichmentRecord>();
+  let loaded = 0;
+  {
+    const { createReadStream } = await import("node:fs");
+    const { createInterface } = await import("node:readline");
+    const rl = createInterface({
+      input: createReadStream(args.inputPath, "utf8"),
+      crlfDelay: Infinity,
+    });
+    let lineNo = 0;
+    for await (const line of rl) {
+      lineNo += 1;
+      const rec = parseLine(line, lineNo);
+      if (!rec) continue;
+      loaded += 1;
+      if (rec.apolloPersonId && !byPersonId.has(rec.apolloPersonId))
+        byPersonId.set(rec.apolloPersonId, rec);
+      if (rec.email && !byEmail.has(rec.email)) byEmail.set(rec.email, rec);
+    }
+  }
   console.log(
-    `[lead-service] loaded ${records.length} enrichment records (${byPersonId.size} by person id, ${byEmail.size} by email)`,
+    `[lead-service] loaded ${loaded} enrichment records (${byPersonId.size} by person id, ${byEmail.size} by email)`,
   );
 
   const { sql } = await import("../src/db/index.js");
