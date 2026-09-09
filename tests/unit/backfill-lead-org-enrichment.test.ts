@@ -9,6 +9,7 @@ import {
   toIsoDate,
   ORG_COLUMNS,
   DEFAULT_BATCH_SIZE,
+  DEFAULT_CONCURRENCY,
 } from "../../scripts/backfill-lead-org-enrichment.js";
 
 /** One line as `\copy … CSV` writes a single JSON column: quoted, quotes doubled. */
@@ -25,12 +26,22 @@ describe("parseArgs", () => {
       reportPath: null,
       batchSize: DEFAULT_BATCH_SIZE,
       limit: null,
+      concurrency: DEFAULT_CONCURRENCY,
     });
   });
 
   it("refuses a batch size that is not a positive integer", () => {
     expect(() => parseArgs(["--batch-size", "0"])).toThrow(/positive integer/);
     expect(() => parseArgs(["--batch-size", "abc"])).toThrow(/positive integer/);
+  });
+
+  it("refuses a concurrency that is not a positive integer", () => {
+    expect(() => parseArgs(["--concurrency", "0"])).toThrow(/positive integer/);
+    expect(() => parseArgs(["--concurrency", "-2"])).toThrow(/positive integer/);
+  });
+
+  it("stays well under the pool ceiling so the service keeps serving", () => {
+    expect(DEFAULT_CONCURRENCY).toBeLessThan(20);
   });
 });
 
